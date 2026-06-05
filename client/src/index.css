@@ -831,6 +831,12 @@ button.trivia-opt:active {
   font-weight: 700;
   color: var(--gold);
 }
+.scoreboard-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
 
 /* ---------- Player screen ---------- */
 .player-header {

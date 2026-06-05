@@ -107,6 +107,7 @@ export interface ClientToServerEvents {
     cb: (res: ApiResult<null>) => void
   ) => void;
   "game:next": (cb: (res: ApiResult<null>) => void) => void;
+  "game:restart": (cb: (res: ApiResult<null>) => void) => void;
   "answer:submit": (
     payload: { matchupId: string; text: string },
     cb: (res: ApiResult<null>) => void

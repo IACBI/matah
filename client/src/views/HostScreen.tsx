@@ -373,9 +373,20 @@ function ScoreboardView({
           </div>
         ))}
       </div>
-      <button className="btn ghost" onClick={onLeave}>
-        {t("backToMenu")}
-      </button>
+      <div className="scoreboard-actions">
+        <button
+          className="btn primary"
+          onClick={() => {
+            playSfx("submit");
+            emitAck("game:restart");
+          }}
+        >
+          {t("playAgain")}
+        </button>
+        <button className="btn ghost" onClick={onLeave}>
+          {t("backToMenu")}
+        </button>
+      </div>
     </div>
   );
 }

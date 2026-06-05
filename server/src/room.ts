@@ -163,6 +163,26 @@ export class Room {
     }
   }
 
+  isHost(pid: string): boolean {
+    return this.players.get(pid)?.isHost === true;
+  }
+
+  /** Returns a finished game to the lobby, keeping the same players. */
+  returnToLobby(): void {
+    this.clearTimer();
+    this.engine?.dispose();
+    this.engine = null;
+    this.gameType = null;
+    this.phase = "lobby";
+    for (const p of this.players.values()) {
+      p.score = 0;
+      p.streak = 0;
+      p.hasSubmitted = false;
+      p.hasVoted = false;
+    }
+    this.emit();
+  }
+
   submitAnswer(pid: string, matchupId: string, text: string): boolean {
     if (this.phase !== "answering") return false;
     return this.engine?.handleAnswer?.(pid, matchupId, text) ?? false;

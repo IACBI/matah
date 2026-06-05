@@ -193,6 +193,16 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("game:restart", (cb) => {
+    guard(cb, () => {
+      const room = currentRoom();
+      if (!room || !myPid) return { ok: false, error: "Oda yok" };
+      if (!room.isHost(myPid)) return { ok: false, error: "Sadece host" };
+      room.returnToLobby();
+      return { ok: true, data: null };
+    });
+  });
+
   socket.on("answer:submit", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
