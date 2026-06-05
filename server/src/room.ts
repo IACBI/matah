@@ -40,6 +40,7 @@ export class Room {
   private timer: number | null = null;
   private timerHandle: NodeJS.Timeout | null = null;
   private onTimeout: (() => void) | null = null;
+  private lastActivity = Date.now();
 
   constructor(
     code: string,
@@ -286,7 +287,13 @@ export class Room {
   }
 
   emit(): void {
+    this.lastActivity = Date.now();
     this.broadcast(this.buildState());
+  }
+
+  /** True if the room has had no activity for longer than maxIdleMs. */
+  isStale(maxIdleMs: number): boolean {
+    return Date.now() - this.lastActivity > maxIdleMs;
   }
 
   dispose(): void {

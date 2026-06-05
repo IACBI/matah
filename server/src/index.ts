@@ -72,6 +72,21 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 
 const rooms = new Map<string, Room>();
 
+const MAX_ROOMS = 500; // cap concurrent rooms to bound memory
+const IDLE_MS = 30 * 60_000; // drop rooms idle for 30 min
+const SWEEP_MS = 5 * 60_000;
+
+// Periodically reclaim abandoned rooms (e.g. host left mid-game and never
+// returned). Empty rooms are also handled faster by the disconnect handler.
+setInterval(() => {
+  for (const [code, room] of rooms) {
+    if (room.isStale(IDLE_MS)) {
+      room.dispose();
+      rooms.delete(code);
+    }
+  }
+}, SWEEP_MS).unref();
+
 function makeRoomCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O to avoid confusion
   let code = "";
@@ -117,6 +132,7 @@ io.on("connection", (socket) => {
 
   socket.on("room:create", (payload, cb) => {
     guard(cb, () => {
+      if (rooms.size >= MAX_ROOMS) return { ok: false, error: "server_busy" };
       const language = (
         LANGUAGES.includes((payload?.language as Language))
           ? payload.language
