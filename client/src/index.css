@@ -952,6 +952,17 @@ button.trivia-opt:active {
   color: var(--gold);
   line-height: 1;
 }
+.verdict-emoji {
+  font-size: 84px;
+  line-height: 1;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5));
+}
+.result-right h2 {
+  color: var(--ok);
+}
+.result-wrong h2 {
+  color: var(--coral);
+}
 
 /* ---------- Waiting indicator ---------- */
 .pulse-dot {

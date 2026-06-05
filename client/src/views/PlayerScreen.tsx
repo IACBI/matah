@@ -72,7 +72,7 @@ export function PlayerScreen({
       )}
 
       {state.phase === "results" && state.gameType === "trivia" && (
-        <TriviaPlayerResult />
+        <TriviaPlayerResult state={state} myPlayerId={myPlayerId} />
       )}
 
       {state.phase === "results" && state.gameType === "quiplash" && (
@@ -307,13 +307,46 @@ function TriviaAnswerView({
   );
 }
 
-function TriviaPlayerResult() {
+function TriviaPlayerResult({
+  state,
+  myPlayerId,
+}: {
+  state: RoomState;
+  myPlayerId: string;
+}) {
   const { t } = useI18n();
-  // The server doesn't echo a player's own pick, so we just point at the TV.
+  const reveal = state.trivia?.reveal;
+  const question = state.trivia?.question;
+  // A correct trivia answer always scores > 0, a wrong/missed one scores 0.
+  const mine = reveal?.pointsThisRound.find((p) => p.playerId === myPlayerId);
+  const correct = (mine?.points ?? 0) > 0;
+
+  useEffect(() => {
+    if (reveal) playSfx(correct ? "correct" : "wrong");
+  }, [reveal, correct]);
+
+  if (!reveal) {
+    return (
+      <div className="player-body center fade-in">
+        <h2>{t("resultsOnScreen")}</h2>
+        <p className="hint">{t("lookAtTv")}</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="player-body center fade-in">
-      <h2>{t("resultsOnScreen")}</h2>
-      <p className="hint">{t("lookAtTv")}</p>
+    <div className={`player-body center fade-in result-${correct ? "right" : "wrong"}`}>
+      <div className="verdict-emoji bounce-in">{correct ? "🎉" : "😅"}</div>
+      <h2>{correct ? t("triviaRight") : t("triviaWrong")}</h2>
+      {correct ? (
+        <p className="big-score bounce-in">+{mine?.points}</p>
+      ) : (
+        question && (
+          <p className="hint">
+            {t("triviaCorrect")}: <b>{question.options[reveal.correctIndex]}</b>
+          </p>
+        )
+      )}
     </div>
   );
 }
