@@ -5,7 +5,9 @@ services:
     name: quibble
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    # NODE_ENV=production makes npm skip devDependencies, but the build needs
+    # them (vite, typescript). --include=dev forces them in for the build step.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /health
     envVars:
