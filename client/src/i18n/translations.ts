@@ -79,6 +79,14 @@ const dict = {
     triviaRight: "Correct! 🎉",
     streak: "🔥 {n} streak",
     language: "Language",
+    errRoomNotFound: "Room not found",
+    errGameStarted: "The game already started",
+    errRoomFull: "Room is full",
+    errNameRequired: "A name is required",
+    errRateLimited: "Too many requests, slow down",
+    errServer: "Server error, try again",
+    errNotEnoughPlayers: "Not enough players",
+    errHostOnly: "Only the host can do that",
   },
   tr: {
     tagline: "Arkadaşlarınla oynanan komik parti oyunu",
@@ -141,6 +149,14 @@ const dict = {
     triviaRight: "Doğru! 🎉",
     streak: "🔥 {n} seri",
     language: "Dil",
+    errRoomNotFound: "Oda bulunamadı",
+    errGameStarted: "Oyun çoktan başladı",
+    errRoomFull: "Oda dolu",
+    errNameRequired: "İsim gerekli",
+    errRateLimited: "Çok fazla istek, yavaşla",
+    errServer: "Sunucu hatası, tekrar dene",
+    errNotEnoughPlayers: "Yeterli oyuncu yok",
+    errHostOnly: "Bunu sadece host yapabilir",
   },
   de: {
     tagline: "Das lustige Partyspiel für Freunde",
@@ -203,6 +219,14 @@ const dict = {
     triviaRight: "Richtig! 🎉",
     streak: "🔥 {n}er-Serie",
     language: "Sprache",
+    errRoomNotFound: "Raum nicht gefunden",
+    errGameStarted: "Das Spiel hat schon begonnen",
+    errRoomFull: "Raum ist voll",
+    errNameRequired: "Name erforderlich",
+    errRateLimited: "Zu viele Anfragen, langsamer",
+    errServer: "Serverfehler, versuche es erneut",
+    errNotEnoughPlayers: "Nicht genug Spieler",
+    errHostOnly: "Das kann nur der Host",
   },
   es: {
     tagline: "El divertido juego de fiesta con amigos",
@@ -265,6 +289,14 @@ const dict = {
     triviaRight: "¡Correcto! 🎉",
     streak: "🔥 racha de {n}",
     language: "Idioma",
+    errRoomNotFound: "Sala no encontrada",
+    errGameStarted: "El juego ya empezó",
+    errRoomFull: "La sala está llena",
+    errNameRequired: "Se requiere un nombre",
+    errRateLimited: "Demasiadas solicitudes, más despacio",
+    errServer: "Error del servidor, inténtalo de nuevo",
+    errNotEnoughPlayers: "No hay suficientes jugadores",
+    errHostOnly: "Solo el anfitrión puede hacer eso",
   },
 } satisfies Record<Language, Record<string, string>>;
 
@@ -281,4 +313,20 @@ export function translate(
     }
   }
   return str;
+}
+
+// Maps server-side error codes to a translation key (falls back to generic).
+const ERROR_CODE_TO_KEY: Record<string, TKey> = {
+  room_not_found: "errRoomNotFound",
+  game_started: "errGameStarted",
+  room_full: "errRoomFull",
+  name_required: "errNameRequired",
+  rate_limited: "errRateLimited",
+  server_error: "errServer",
+  not_enough_players: "errNotEnoughPlayers",
+  host_only: "errHostOnly",
+};
+
+export function errorKey(code?: string): TKey {
+  return (code && ERROR_CODE_TO_KEY[code]) || "errorGeneric";
 }

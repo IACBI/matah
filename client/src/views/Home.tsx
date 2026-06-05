@@ -2,6 +2,7 @@ import { useState } from "react";
 import { emitAck } from "../socket";
 import type { Role } from "../App";
 import { useI18n } from "../i18n";
+import { errorKey } from "../i18n/translations";
 import { TopBar } from "../components/Controls";
 import { playSfx } from "../sound";
 
@@ -28,7 +29,7 @@ export function Home({ connected, onEnter }: Props) {
     );
     setBusy(false);
     if (res.ok && res.data) onEnter("host", res.data.code, res.data.playerId);
-    else setError(res.error ?? t("errorGeneric"));
+    else setError(t(errorKey(res.error)));
   };
 
   const joinGame = async () => {
@@ -47,7 +48,7 @@ export function Home({ connected, onEnter }: Props) {
     if (res.ok && res.data) {
       playSfx("join");
       onEnter("player", res.data.code, res.data.playerId);
-    } else setError(res.error ?? t("errorGeneric"));
+    } else setError(t(errorKey(res.error)));
   };
 
   return (

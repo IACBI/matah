@@ -104,11 +104,11 @@ io.on("connection", (socket) => {
     fn: () => ApiResult<T>
   ): void => {
     if (typeof cb !== "function") return;
-    if (!bucket.take()) return cb({ ok: false, error: "Çok fazla istek" });
+    if (!bucket.take()) return cb({ ok: false, error: "rate_limited" });
     try {
       cb(fn());
     } catch {
-      cb({ ok: false, error: "Sunucu hatası" });
+      cb({ ok: false, error: "server_error" });
     }
   };
 
@@ -142,11 +142,11 @@ io.on("connection", (socket) => {
   socket.on("room:join", (payload, cb) => {
     guard(cb, () => {
       const room = rooms.get(normalizeCode(payload?.code));
-      if (!room) return { ok: false, error: "Oda bulunamadı" };
-      if (!room.inLobby()) return { ok: false, error: "Oyun çoktan başladı" };
-      if (room.isFull()) return { ok: false, error: "Oda dolu" };
+      if (!room) return { ok: false, error: "room_not_found" };
+      if (!room.inLobby()) return { ok: false, error: "game_started" };
+      if (room.isFull()) return { ok: false, error: "room_full" };
       const name = safeString(payload?.name, MAX_NAME_LEN).trim();
-      if (!name) return { ok: false, error: "İsim gerekli" };
+      if (!name) return { ok: false, error: "name_required" };
       myPid = room.addPlayer(socket.id, name);
       socket.join(room.code);
       joinedCode = room.code;
@@ -160,7 +160,7 @@ io.on("connection", (socket) => {
       const room = rooms.get(normalizeCode(payload?.code));
       const playerId = safeString(payload?.playerId, 64);
       if (!room || !room.rejoin(playerId, socket.id))
-        return { ok: false, error: "Oturum bulunamadı" };
+        return { ok: false, error: "session_not_found" };
       myPid = playerId;
       socket.join(room.code);
       joinedCode = room.code;
@@ -173,10 +173,10 @@ io.on("connection", (socket) => {
   socket.on("game:start", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room) return { ok: false, error: "Oda yok" };
+      if (!room) return { ok: false, error: "no_room" };
       const gameType = payload?.gameType as GameType;
       if (!GAME_TYPES.includes(gameType))
-        return { ok: false, error: "Geçersiz oyun" };
+        return { ok: false, error: "invalid_game" };
       const res = room.start(gameType);
       return res.ok
         ? { ok: true, data: null }
@@ -187,7 +187,7 @@ io.on("connection", (socket) => {
   socket.on("game:next", (cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room) return { ok: false, error: "Oda yok" };
+      if (!room) return { ok: false, error: "no_room" };
       room.next();
       return { ok: true, data: null };
     });
@@ -196,8 +196,8 @@ io.on("connection", (socket) => {
   socket.on("game:restart", (cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room || !myPid) return { ok: false, error: "Oda yok" };
-      if (!room.isHost(myPid)) return { ok: false, error: "Sadece host" };
+      if (!room || !myPid) return { ok: false, error: "no_room" };
+      if (!room.isHost(myPid)) return { ok: false, error: "host_only" };
       room.returnToLobby();
       return { ok: true, data: null };
     });
@@ -206,40 +206,40 @@ io.on("connection", (socket) => {
   socket.on("answer:submit", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room || !myPid) return { ok: false, error: "Oda yok" };
+      if (!room || !myPid) return { ok: false, error: "no_room" };
       const ok = room.submitAnswer(
         myPid,
         safeString(payload?.matchupId, 64),
         safeString(payload?.text, MAX_ANSWER_LEN)
       );
-      return ok ? { ok: true, data: null } : { ok: false, error: "Gönderilemedi" };
+      return ok ? { ok: true, data: null } : { ok: false, error: "submit_failed" };
     });
   });
 
   socket.on("vote:submit", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room || !myPid) return { ok: false, error: "Oda yok" };
+      if (!room || !myPid) return { ok: false, error: "no_room" };
       const ok = room.submitVote(
         myPid,
         safeString(payload?.matchupId, 64),
         safeString(payload?.answerPlayerId, 64)
       );
-      return ok ? { ok: true, data: null } : { ok: false, error: "Oy verilemedi" };
+      return ok ? { ok: true, data: null } : { ok: false, error: "vote_failed" };
     });
   });
 
   socket.on("trivia:answer", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room || !myPid) return { ok: false, error: "Oda yok" };
+      if (!room || !myPid) return { ok: false, error: "no_room" };
       const idx = Number(payload?.optionIndex);
       const ok = room.submitTriviaAnswer(
         myPid,
         safeString(payload?.questionId, 64),
         idx
       );
-      return ok ? { ok: true, data: null } : { ok: false, error: "Gönderilemedi" };
+      return ok ? { ok: true, data: null } : { ok: false, error: "submit_failed" };
     });
   });
 

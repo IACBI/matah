@@ -86,7 +86,7 @@ export class QuiplashEngine implements GameEngine {
     matchup.answers.push({
       playerId,
       playerName: player.name,
-      text: text.trim().slice(0, MAX_ANSWER_LEN) || "(boş)",
+      text: text.trim().slice(0, MAX_ANSWER_LEN) || "…",
     });
 
     const assignedCount = this.matchupAuthors.filter((a) =>

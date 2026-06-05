@@ -137,9 +137,9 @@ export class Room {
   // ---- game control ----
 
   start(gameType: GameType): { ok: boolean; error?: string } {
-    if (this.phase !== "lobby") return { ok: false, error: "Oyun zaten başladı" };
+    if (this.phase !== "lobby") return { ok: false, error: "already_started" };
     if (this.realPlayers.length < MIN_PLAYERS)
-      return { ok: false, error: `En az ${MIN_PLAYERS} oyuncu gerekli` };
+      return { ok: false, error: "not_enough_players" };
 
     this.gameType = gameType;
     for (const p of this.players.values()) {
