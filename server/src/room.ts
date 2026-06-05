@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   GamePhase,
   GameType,
@@ -16,15 +17,21 @@ import { QuiplashEngine } from "./engines/quiplash.js";
 import { TriviaEngine } from "./engines/trivia.js";
 
 type Broadcast = (state: RoomState) => void;
-type AssignmentSender = (playerId: string, assignment: PlayerAssignment) => void;
+/** Sends an assignment to a specific live socket. */
+type AssignmentSender = (socketId: string, assignment: PlayerAssignment) => void;
 
 /**
  * A single game room. Owns authoritative membership, the phase timeline and
  * scores; delegates the actual game flow to a swappable engine.
+ *
+ * Player identity (`pid`) is stable for the whole game and decoupled from the
+ * socket id, so a player can drop and reconnect (new socket) without losing
+ * their seat, score, or in-flight prompts.
  */
 export class Room {
   readonly code: string;
-  private players = new Map<string, Player>();
+  private players = new Map<string, Player>(); // pid -> player
+  private sockets = new Map<string, string>(); // pid -> current socket id
   private phase: GamePhase = "lobby";
   private language: Language;
   private gameType: GameType | null = null;
@@ -46,15 +53,41 @@ export class Room {
 
   // ---- membership ----
 
-  addHost(playerId: string): void {
-    this.players.set(playerId, this.newPlayer(playerId, "TV", true));
+  /** Adds the host (TV) screen. Returns its stable pid. */
+  addHost(socketId: string): string {
+    const pid = randomUUID();
+    this.players.set(pid, this.newPlayer(pid, "TV", true));
+    this.sockets.set(pid, socketId);
+    return pid;
   }
 
-  addPlayer(playerId: string, name: string): Player {
-    const clean = name.trim().slice(0, MAX_NAME_LEN) || "Oyuncu";
-    const player = this.newPlayer(playerId, clean, false);
-    this.players.set(playerId, player);
-    return player;
+  /** Adds a player. Returns their stable pid. */
+  addPlayer(socketId: string, name: string): string {
+    const pid = randomUUID();
+    const clean = name.trim().slice(0, MAX_NAME_LEN) || "Player";
+    this.players.set(pid, this.newPlayer(pid, clean, false));
+    this.sockets.set(pid, socketId);
+    return pid;
+  }
+
+  /** Reattaches an existing pid to a new socket after a reconnect. */
+  rejoin(pid: string, socketId: string): boolean {
+    const player = this.players.get(pid);
+    if (!player) return false;
+    this.sockets.set(pid, socketId);
+    player.connected = true;
+    return true;
+  }
+
+  /** Re-sends the current per-player assignment (e.g. after reconnect). */
+  resendAssignment(pid: string): void {
+    const a = this.engine?.currentAssignment?.(pid);
+    if (a) this.sendAssignmentToPid(pid, a);
+  }
+
+  private sendAssignmentToPid(pid: string, a: PlayerAssignment): void {
+    const socketId = this.sockets.get(pid);
+    if (socketId) this.sendAssignmentFn(socketId, a);
   }
 
   private newPlayer(id: string, name: string, isHost: boolean): Player {
@@ -74,8 +107,8 @@ export class Room {
     return [...this.players.values()].filter((p) => !p.isHost);
   }
 
-  hasPlayer(id: string): boolean {
-    return this.players.has(id);
+  hasPlayer(pid: string): boolean {
+    return this.players.has(pid);
   }
 
   isFull(): boolean {
@@ -90,9 +123,15 @@ export class Room {
     return this.phase === "lobby";
   }
 
-  setConnected(playerId: string, connected: boolean): void {
-    const p = this.players.get(playerId);
-    if (p) p.connected = connected;
+  /** Marks the player currently mapped to this socket offline (reconnect-safe). */
+  handleDisconnect(socketId: string): void {
+    for (const [pid, sid] of this.sockets) {
+      if (sid === socketId) {
+        const p = this.players.get(pid);
+        if (p) p.connected = false;
+        return;
+      }
+    }
   }
 
   // ---- game control ----
@@ -124,21 +163,19 @@ export class Room {
     }
   }
 
-  submitAnswer(playerId: string, matchupId: string, text: string): boolean {
+  submitAnswer(pid: string, matchupId: string, text: string): boolean {
     if (this.phase !== "answering") return false;
-    return this.engine?.handleAnswer?.(playerId, matchupId, text) ?? false;
+    return this.engine?.handleAnswer?.(pid, matchupId, text) ?? false;
   }
 
-  submitVote(playerId: string, matchupId: string, answerPlayerId: string): boolean {
+  submitVote(pid: string, matchupId: string, answerPlayerId: string): boolean {
     if (this.phase !== "voting") return false;
-    return this.engine?.handleVote?.(playerId, matchupId, answerPlayerId) ?? false;
+    return this.engine?.handleVote?.(pid, matchupId, answerPlayerId) ?? false;
   }
 
-  submitTriviaAnswer(playerId: string, questionId: string, optionIndex: number): boolean {
+  submitTriviaAnswer(pid: string, questionId: string, optionIndex: number): boolean {
     if (this.phase !== "answering") return false;
-    return (
-      this.engine?.handleTriviaAnswer?.(playerId, questionId, optionIndex) ?? false
-    );
+    return this.engine?.handleTriviaAnswer?.(pid, questionId, optionIndex) ?? false;
   }
 
   // ---- engine context ----
@@ -154,7 +191,7 @@ export class Room {
       setPhase: (phase, seconds, onTimeout) =>
         this.setPhase(phase, seconds, onTimeout),
       emit: () => this.emit(),
-      sendAssignment: (id, a) => this.sendAssignmentFn(id, a),
+      sendAssignment: (pid, a) => this.sendAssignmentToPid(pid, a),
       award: (id, points) => {
         const p = this.players.get(id);
         if (p) p.score += points;

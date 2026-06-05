@@ -96,6 +96,7 @@ function safeString(raw: unknown, max: number): string {
 
 io.on("connection", (socket) => {
   let joinedCode: string | null = null;
+  let myPid: string | null = null; // stable player id, survives reconnects
   const bucket = new TokenBucket(20, 10); // 20 burst, 10/sec sustained
 
   const guard = <T>(
@@ -126,15 +127,15 @@ io.on("connection", (socket) => {
         code,
         language,
         (state) => io.to(code).emit("room:state", state),
-        (playerId, assignment) =>
-          io.to(playerId).emit("player:assignment", assignment)
+        (socketId, assignment) =>
+          io.to(socketId).emit("player:assignment", assignment)
       );
       rooms.set(code, room);
-      room.addHost(socket.id);
+      myPid = room.addHost(socket.id);
       socket.join(code);
       joinedCode = code;
       room.emit();
-      return { ok: true, data: { code, playerId: socket.id } };
+      return { ok: true, data: { code, playerId: myPid } };
     });
   });
 
@@ -146,11 +147,11 @@ io.on("connection", (socket) => {
       if (room.isFull()) return { ok: false, error: "Oda dolu" };
       const name = safeString(payload?.name, MAX_NAME_LEN).trim();
       if (!name) return { ok: false, error: "İsim gerekli" };
-      room.addPlayer(socket.id, name);
+      myPid = room.addPlayer(socket.id, name);
       socket.join(room.code);
       joinedCode = room.code;
       room.emit();
-      return { ok: true, data: { code: room.code, playerId: socket.id } };
+      return { ok: true, data: { code: room.code, playerId: myPid } };
     });
   });
 
@@ -158,12 +159,13 @@ io.on("connection", (socket) => {
     guard(cb, () => {
       const room = rooms.get(normalizeCode(payload?.code));
       const playerId = safeString(payload?.playerId, 64);
-      if (!room || !room.hasPlayer(playerId))
+      if (!room || !room.rejoin(playerId, socket.id))
         return { ok: false, error: "Oturum bulunamadı" };
-      room.setConnected(playerId, true);
+      myPid = playerId;
       socket.join(room.code);
       joinedCode = room.code;
       room.emit();
+      room.resendAssignment(playerId); // restore in-flight prompts
       return { ok: true, data: { code: room.code, playerId } };
     });
   });
@@ -194,9 +196,9 @@ io.on("connection", (socket) => {
   socket.on("answer:submit", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room) return { ok: false, error: "Oda yok" };
+      if (!room || !myPid) return { ok: false, error: "Oda yok" };
       const ok = room.submitAnswer(
-        socket.id,
+        myPid,
         safeString(payload?.matchupId, 64),
         safeString(payload?.text, MAX_ANSWER_LEN)
       );
@@ -207,9 +209,9 @@ io.on("connection", (socket) => {
   socket.on("vote:submit", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room) return { ok: false, error: "Oda yok" };
+      if (!room || !myPid) return { ok: false, error: "Oda yok" };
       const ok = room.submitVote(
-        socket.id,
+        myPid,
         safeString(payload?.matchupId, 64),
         safeString(payload?.answerPlayerId, 64)
       );
@@ -220,10 +222,10 @@ io.on("connection", (socket) => {
   socket.on("trivia:answer", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room) return { ok: false, error: "Oda yok" };
+      if (!room || !myPid) return { ok: false, error: "Oda yok" };
       const idx = Number(payload?.optionIndex);
       const ok = room.submitTriviaAnswer(
-        socket.id,
+        myPid,
         safeString(payload?.questionId, 64),
         idx
       );
@@ -234,7 +236,7 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     const room = currentRoom();
     if (!room) return;
-    room.setConnected(socket.id, false);
+    room.handleDisconnect(socket.id);
     room.emit();
     setTimeout(() => {
       if (room.isEmpty()) {

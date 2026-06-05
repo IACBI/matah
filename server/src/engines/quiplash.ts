@@ -48,17 +48,30 @@ export class QuiplashEngine implements GameEngine {
     this.ctx.resetFlags();
 
     for (const player of players) {
-      const assigned = this.matchupAuthors
-        .map((authors, mi) =>
-          authors.includes(player.id)
-            ? { matchupId: this.matchups[mi].id, prompt: this.matchups[mi].prompt }
-            : null
-        )
-        .filter((x): x is { matchupId: string; prompt: string } => x !== null);
-      this.ctx.sendAssignment(player.id, { prompts: assigned });
+      this.ctx.sendAssignment(player.id, this.assignmentFor(player.id));
     }
 
     this.ctx.setPhase("answering", ANSWER_SECONDS, () => this.beginVoting());
+  }
+
+  /** The prompts a player is responsible for this round. */
+  private assignmentFor(playerId: string) {
+    const prompts = this.matchupAuthors
+      .map((authors, mi) =>
+        authors.includes(playerId)
+          ? { matchupId: this.matchups[mi].id, prompt: this.matchups[mi].prompt }
+          : null
+      )
+      .filter((x): x is { matchupId: string; prompt: string } => x !== null);
+    return { prompts };
+  }
+
+  /** Re-sendable assignment for reconnects (only meaningful while answering). */
+  currentAssignment(playerId: string) {
+    if (!this.votingActive && this.matchups.length > 0) {
+      return this.assignmentFor(playerId);
+    }
+    return null;
   }
 
   handleAnswer(playerId: string, matchupId: string, text: string): boolean {

@@ -4,3 +4,4 @@ node_modules
 .git
 *.log
 e2e-test.mjs
+reconnect-test.mjs

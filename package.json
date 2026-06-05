@@ -25,7 +25,8 @@
     "build": "npm --workspace client run build",
     "start": "npm --workspace server run start",
     "typecheck": "npm --workspace server run typecheck && npm --workspace client run typecheck",
-    "test:e2e": "node e2e-test.mjs"
+    "test:e2e": "node e2e-test.mjs",
+    "test:reconnect": "node reconnect-test.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

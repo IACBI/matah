@@ -49,6 +49,8 @@ export interface GameEngine {
     questionId: string,
     optionIndex: number
   ): boolean;
+  /** The per-player data to (re)send, e.g. after a reconnect. Null if none. */
+  currentAssignment?(playerId: string): PlayerAssignment | null;
   serialize(): EngineView;
   dispose(): void;
 }
