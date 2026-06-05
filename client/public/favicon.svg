@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="0%" r="100%">
+      <stop offset="0%" stop-color="#2a2113"/>
+      <stop offset="100%" stop-color="#14110c"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#g)"/>
+  <g font-family="'Segoe UI', Arial, sans-serif" font-weight="800" font-size="46" text-anchor="middle">
+    <text x="34" y="48" fill="#d8482d" transform="rotate(-7 34 48)">Q</text>
+    <text x="31" y="45" fill="#f6bd45" transform="rotate(-7 31 45)">Q</text>
+  </g>
+</svg>
