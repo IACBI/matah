@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # include=dev so devDeps (tsc/vite/tsx) install even if a runner
+      # defaults NODE_ENV to production.
+      - name: Install
+        run: npm install --include=dev
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build client
+        run: npm run build
+
+      - name: Start server
+        run: |
+          npm start &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/health >/dev/null; then
+              echo "server up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server failed to start"; exit 1
+
+      - name: E2E (both game modes)
+        run: npm run test:e2e
+
+      - name: Reconnect test
+        run: npm run test:reconnect
+
+      - name: Play-again test
+        run: npm run test:playagain
+
+      - name: Stop server
+        if: always()
+        run: kill "$SERVER_PID" || true
