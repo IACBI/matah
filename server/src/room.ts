@@ -135,6 +135,12 @@ export class Room {
     }
   }
 
+  /** The pid currently bound to this socket id, if any. */
+  pidForSocket(socketId: string): string | null {
+    for (const [pid, sid] of this.sockets) if (sid === socketId) return pid;
+    return null;
+  }
+
   // ---- game control ----
 
   start(gameType: GameType): { ok: boolean; error?: string } {

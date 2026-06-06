@@ -12,6 +12,7 @@
 
 [![▶ Live-Demo spielen](https://img.shields.io/badge/▶_Live--Demo_spielen-f6bd45?style=for-the-badge&logoColor=black)](https://quibble-0rjn.onrender.com)
 
+[![CI](https://github.com/IACBI/quibble/actions/workflows/ci.yml/badge.svg)](https://github.com/IACBI/quibble/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white&style=flat-square)
 ![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB&style=flat-square)
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?logo=socketdotio&logoColor=white&style=flat-square)

@@ -68,6 +68,13 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   // Drop oversized payloads early; our messages are tiny.
   maxHttpBufferSize: 4096,
   pingTimeout: 20_000,
+  // Seamlessly ride out brief network blips: the socket keeps its id and room
+  // membership and any room:state broadcasts missed during the gap are
+  // replayed on reconnect. Longer drops fall back to the explicit pid rejoin.
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60_000,
+    skipMiddlewares: true,
+  },
 });
 
 const rooms = new Map<string, Room>();
@@ -113,6 +120,23 @@ io.on("connection", (socket) => {
   let joinedCode: string | null = null;
   let myPid: string | null = null; // stable player id, survives reconnects
   const bucket = new TokenBucket(20, 10); // 20 burst, 10/sec sustained
+
+  // Connection state recovery restored this socket's id and room membership
+  // after a brief drop. Re-bind our per-connection state and mark the player
+  // back online immediately, without waiting for the client's explicit rejoin.
+  if (socket.recovered) {
+    for (const code of socket.rooms) {
+      const room = rooms.get(code);
+      const pid = room?.pidForSocket(socket.id);
+      if (room && pid && room.rejoin(pid, socket.id)) {
+        joinedCode = code;
+        myPid = pid;
+        room.emit();
+        room.resendAssignment(pid);
+        break;
+      }
+    }
+  }
 
   const guard = <T>(
     cb: (res: ApiResult<T>) => void,
