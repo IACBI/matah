@@ -1,4 +1,5 @@
 import type { Language } from "../../../shared/src/index.js";
+import { sample } from "../util.js";
 
 export interface TriviaQuestion {
   text: string;
@@ -99,6 +100,5 @@ const TRIVIA: Record<Language, TriviaQuestion[]> = {
 };
 
 export function pickTrivia(language: Language, count: number): TriviaQuestion[] {
-  const pool = TRIVIA[language] ?? TRIVIA.en;
-  return [...pool].sort(() => Math.random() - 0.5).slice(0, count);
+  return sample(TRIVIA[language] ?? TRIVIA.en, count);
 }

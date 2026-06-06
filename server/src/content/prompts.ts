@@ -1,4 +1,5 @@
 import type { Language } from "../../../shared/src/index.js";
+import { sample } from "../util.js";
 
 // Fill-in-the-blank prompts per language. Players write the funniest answer.
 const PROMPTS: Record<Language, string[]> = {
@@ -125,6 +126,5 @@ const PROMPTS: Record<Language, string[]> = {
 };
 
 export function pickPrompts(language: Language, count: number): string[] {
-  const pool = PROMPTS[language] ?? PROMPTS.en;
-  return [...pool].sort(() => Math.random() - 0.5).slice(0, count);
+  return sample(PROMPTS[language] ?? PROMPTS.en, count);
 }
