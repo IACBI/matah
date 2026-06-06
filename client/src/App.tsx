@@ -23,37 +23,20 @@ export function App() {
   const [assignment, setAssignment] = useState<PlayerAssignment | null>(null);
   const [connected, setConnected] = useState(socket.connected);
 
-  // Wire up socket listeners once.
+  // Wire up socket listeners once. Every (re)connect re-claims the saved
+  // session, so a mid-game network drop — which reconnects with a *new*
+  // socket id on the server — restores the player's seat and in-flight prompts.
   useEffect(() => {
-    const onState = (state: RoomState) => setRoomState(state);
-    const onAssignment = (a: PlayerAssignment) => setAssignment(a);
-    const onConnect = () => setConnected(true);
-    const onDisconnect = () => setConnected(false);
-
-    socket.on("room:state", onState);
-    socket.on("player:assignment", onAssignment);
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-
-    return () => {
-      socket.off("room:state", onState);
-      socket.off("player:assignment", onAssignment);
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-    };
-  }, []);
-
-  // Try to restore a session after a reload / reconnect.
-  useEffect(() => {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return;
-    let session: Session;
-    try {
-      session = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    const rejoin = () => {
+    const tryRejoin = () => {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (!raw) return;
+      let session: Session;
+      try {
+        session = JSON.parse(raw);
+      } catch {
+        sessionStorage.removeItem(SESSION_KEY);
+        return;
+      }
       socket.emit(
         "room:rejoin",
         { code: session.code, playerId: session.playerId },
@@ -68,8 +51,29 @@ export function App() {
         }
       );
     };
-    if (socket.connected) rejoin();
-    else socket.once("connect", rejoin);
+
+    const onState = (state: RoomState) => setRoomState(state);
+    const onAssignment = (a: PlayerAssignment) => setAssignment(a);
+    const onConnect = () => {
+      setConnected(true);
+      tryRejoin();
+    };
+    const onDisconnect = () => setConnected(false);
+
+    socket.on("room:state", onState);
+    socket.on("player:assignment", onAssignment);
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+
+    // Cover the case where the socket connected before this effect ran.
+    if (socket.connected) tryRejoin();
+
+    return () => {
+      socket.off("room:state", onState);
+      socket.off("player:assignment", onAssignment);
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+    };
   }, []);
 
   const enterRoom = (nextRole: Role, nextCode: string, playerId: string) => {

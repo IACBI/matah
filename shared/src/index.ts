@@ -125,7 +125,6 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   "room:state": (state: RoomState) => void;
   "player:assignment": (assignment: PlayerAssignment) => void;
-  "room:error": (message: string) => void;
 }
 
 export type ApiResult<T> =
