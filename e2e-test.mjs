@@ -1,134 +1,133 @@
-// End-to-end smoke test of both game modes against the running server.
+// End-to-end smoke test of both game modes.
+// Event-driven: instead of fixed sleeps, it waits for specific room-state
+// conditions, which makes it deterministic and resilient to latency.
 import { io } from "socket.io-client";
 
 const URL = process.env.TEST_URL ?? "http://localhost:3001";
 const log = (...a) => console.log(...a);
-const conn = () => io(URL, { transports: ["websocket"] });
-const ack = (sock, ev, ...args) =>
-  new Promise((res) => sock.emit(ev, ...args, (r) => res(r)));
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const conn = () => io(URL, { transports: ["websocket"], forceNew: true });
+const ack = (s, e, ...a) => new Promise((r) => s.emit(e, ...a, (x) => r(x)));
 
-async function playQuiplash() {
-  log("\n=== QUIPLASH ===");
+/** Resolves once `pred(state)` is true, or rejects after `ms`. */
+function until(getState, pred, ms = 15000, label = "condition") {
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      const s = getState();
+      if (s && pred(s)) {
+        clearInterval(iv);
+        resolve(s);
+      } else if (Date.now() - t0 > ms) {
+        clearInterval(iv);
+        reject(new Error(`timeout waiting for ${label} (phase=${s?.phase})`));
+      }
+    }, 40);
+  });
+}
+
+const DONE = ["scoreboard", "gameover"];
+
+async function setup(language) {
   const host = conn();
-  const players = [conn(), conn(), conn()];
+  const ps = [conn(), conn(), conn()];
   const names = ["Ali", "Veli", "Ayşe"];
   const ids = [];
   let st = null;
   const assignments = {};
-
   host.on("room:state", (s) => (st = s));
-  players.forEach((p, i) =>
-    p.on("player:assignment", (a) => (assignments[ids[i]] = a))
-  );
+  ps.forEach((p, i) => p.on("player:assignment", (a) => (assignments[ids[i]] = a)));
 
   await new Promise((r) => host.on("connect", r));
-  await Promise.all(players.map((p) => new Promise((r) => p.on("connect", r))));
+  await Promise.all(ps.map((p) => new Promise((r) => p.on("connect", r))));
+  const code = (await ack(host, "room:create", { language })).data.code;
+  for (const [i, p] of ps.entries())
+    ids[i] = (await ack(p, "room:join", { code, name: names[i] })).data.playerId;
+  await until(() => st, (s) => s.players.length === 3, 8000, "3 players");
+  return { host, ps, ids, code, get: () => st, assignments };
+}
 
-  const code = (await ack(host, "room:create", { language: "tr" })).data.code;
+async function playQuiplash() {
+  log("\n=== QUIPLASH ===");
+  const { host, ps, ids, code, get, assignments } = await setup("tr");
   log("✓ Oda:", code);
-  for (let i = 0; i < players.length; i++) {
-    const r = await ack(players[i], "room:join", { code, name: names[i] });
-    ids[i] = r.data.playerId;
-  }
-  await wait(200);
+  await ack(host, "game:start", { gameType: "quiplash" });
+  await until(get, (s) => s.phase !== "lobby", 8000, "game start");
 
-  const started = await ack(host, "game:start", { gameType: "quiplash" });
-  if (!started.ok) throw new Error("start: " + started.error);
-  await wait(300);
-
-  let safety = 80;
-  while (st.phase !== "scoreboard" && st.phase !== "gameover" && safety-- > 0) {
-    if (st.phase === "answering") {
-      for (let i = 0; i < players.length; i++) {
-        for (const pr of assignments[ids[i]]?.prompts ?? []) {
-          await ack(players[i], "answer:submit", {
-            matchupId: pr.matchupId,
-            text: `${names[i]}: ${Math.random().toString(36).slice(2, 6)}`,
-          });
-        }
-      }
-    } else if (st.phase === "voting") {
-      const m = st.quiplash?.activeMatchup;
-      if (m) {
-        const authors = m.answers.map((a) => a.playerId);
-        for (let i = 0; i < players.length; i++) {
-          if (!authors.includes(ids[i])) {
-            await ack(players[i], "vote:submit", {
-              matchupId: m.id,
-              answerPlayerId: m.answers[0].playerId,
-            });
+  // Dedup per (player, matchup): every matchup has two authors, and both must
+  // answer or the matchup gets skipped at voting time (needs 2 answers).
+  const submitted = new Set();
+  while (!DONE.includes(get().phase)) {
+    const phase = get().phase;
+    if (phase === "answering") {
+      await until(get, () => ids.every((id) => assignments[id]), 8000, "assignments");
+      for (const [i, p] of ps.entries())
+        for (const pr of assignments[ids[i]].prompts) {
+          const key = `${ids[i]}:${pr.matchupId}`;
+          if (!submitted.has(key)) {
+            submitted.add(key);
+            await ack(p, "answer:submit", { matchupId: pr.matchupId, text: `${i}-${Math.random().toString(36).slice(2, 6)}` });
           }
         }
-      }
-    } else if (st.phase === "results") {
+      await until(get, (s) => s.phase !== "answering", 70000, "leave answering");
+    } else if (phase === "voting") {
+      const m = get().quiplash.activeMatchup;
+      const authors = m.answers.map((a) => a.playerId);
+      for (const [i, p] of ps.entries())
+        if (!authors.includes(ids[i]))
+          await ack(p, "vote:submit", { matchupId: m.id, answerPlayerId: m.answers[0].playerId });
+      await until(get, (s) => s.phase !== "voting" || s.quiplash?.activeMatchup?.id !== m.id, 30000, "next matchup");
+    } else if (phase === "results") {
       await ack(host, "game:next");
+      await until(get, (s) => s.phase !== "results", 15000, "leave results");
+    } else {
+      await new Promise((r) => setTimeout(r, 40)); // yield on transient phases
     }
-    await wait(200);
   }
-  const ok = st.phase === "scoreboard" || st.phase === "gameover";
-  log(ok ? "✅ Quiplash bitti" : "❌ Quiplash takıldı @ " + st.phase);
-  [...st.players]
-    .sort((a, b) => b.score - a.score)
-    .forEach((p, i) => log(`   ${i + 1}. ${p.name}: ${p.score}`));
-  host.close();
-  players.forEach((p) => p.close());
-  return ok;
+  const st = get();
+  log("✅ Quiplash bitti, faz:", st.phase);
+  [...st.players].sort((a, b) => b.score - a.score).forEach((p, i) => log(`   ${i + 1}. ${p.name}: ${p.score}`));
+  [host, ...ps].forEach((s) => s.close());
+  return DONE.includes(st.phase);
 }
 
 async function playTrivia() {
   log("\n=== TRIVIA ===");
-  const host = conn();
-  const players = [conn(), conn(), conn()];
-  const names = ["Mehmet", "Zeynep", "Can"];
-  const ids = [];
-  let st = null;
-
-  host.on("room:state", (s) => (st = s));
-  await new Promise((r) => host.on("connect", r));
-  await Promise.all(players.map((p) => new Promise((r) => p.on("connect", r))));
-
-  const code = (await ack(host, "room:create", { language: "en" })).data.code;
+  const { host, ps, ids, code, get } = await setup("en");
   log("✓ Oda:", code);
-  for (let i = 0; i < players.length; i++) {
-    const r = await ack(players[i], "room:join", { code, name: names[i] });
-    ids[i] = r.data.playerId;
-  }
-  await wait(200);
-  const started = await ack(host, "game:start", { gameType: "trivia" });
-  if (!started.ok) throw new Error("start: " + started.error);
-  await wait(300);
+  await ack(host, "game:start", { gameType: "trivia" });
+  await until(get, (s) => s.phase !== "lobby", 8000, "game start");
 
-  let safety = 120;
-  const answeredFor = new Set();
-  while (st.phase !== "scoreboard" && st.phase !== "gameover" && safety-- > 0) {
-    if (st.phase === "answering" && st.trivia?.question) {
-      const q = st.trivia.question;
-      if (!answeredFor.has(q.id)) {
-        answeredFor.add(q.id);
-        for (let i = 0; i < players.length; i++) {
-          await ack(players[i], "trivia:answer", {
-            questionId: q.id,
-            optionIndex: i % q.options.length, // mix of right/wrong
-          });
-        }
+  const answered = new Set();
+  while (!DONE.includes(get().phase)) {
+    const phase = get().phase;
+    if (phase === "answering") {
+      const q = get().trivia.question;
+      if (q && !answered.has(q.id)) {
+        answered.add(q.id);
+        for (const [i, p] of ps.entries())
+          await ack(p, "trivia:answer", { questionId: q.id, optionIndex: i % q.options.length });
       }
-    } else if (st.phase === "results") {
-      await ack(host, "game:next"); // skip the 7s reveal timer
+      await until(get, (s) => s.phase !== "answering", 25000, "leave question");
+    } else if (phase === "results") {
+      await ack(host, "game:next");
+      await until(get, (s) => s.phase !== "results", 15000, "leave results");
+    } else {
+      await new Promise((r) => setTimeout(r, 40)); // yield on transient phases
     }
-    await wait(200);
   }
-  const ok = st.phase === "scoreboard" || st.phase === "gameover";
-  log(ok ? "✅ Trivia bitti" : "❌ Trivia takıldı @ " + st.phase);
-  [...st.players]
-    .sort((a, b) => b.score - a.score)
-    .forEach((p, i) => log(`   ${i + 1}. ${p.name}: ${p.score}`));
-  host.close();
-  players.forEach((p) => p.close());
-  return ok;
+  const st = get();
+  log("✅ Trivia bitti, faz:", st.phase);
+  [...st.players].sort((a, b) => b.score - a.score).forEach((p, i) => log(`   ${i + 1}. ${p.name}: ${p.score}`));
+  [host, ...ps].forEach((s) => s.close());
+  return DONE.includes(st.phase);
 }
 
-const q = await playQuiplash();
-const tr = await playTrivia();
-log(`\n${q && tr ? "✅ TÜM TESTLER GEÇTİ" : "❌ BAZI TESTLER BAŞARISIZ"}`);
-process.exit(q && tr ? 0 : 1);
+try {
+  const q = await playQuiplash();
+  const t = await playTrivia();
+  log(`\n${q && t ? "✅ TÜM TESTLER GEÇTİ" : "❌ BAZI TESTLER BAŞARISIZ"}`);
+  process.exit(q && t ? 0 : 1);
+} catch (e) {
+  log("\n❌ HATA:", e.message);
+  process.exit(1);
+}
