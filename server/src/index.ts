@@ -41,7 +41,8 @@ app.use(
             scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", "data:"],
-            connectSrc: ["'self'", "ws:", "wss:"],
+            // Same-origin Socket.IO only; wss for the secure WebSocket upgrade.
+            connectSrc: ["'self'", "wss:"],
             fontSrc: ["'self'", "data:"],
           },
         }
@@ -213,7 +214,8 @@ io.on("connection", (socket) => {
   socket.on("game:start", (payload, cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room) return { ok: false, error: "no_room" };
+      if (!room || !myPid) return { ok: false, error: "no_room" };
+      if (!room.isHost(myPid)) return { ok: false, error: "host_only" };
       const gameType = payload?.gameType as GameType;
       if (!GAME_TYPES.includes(gameType))
         return { ok: false, error: "invalid_game" };
@@ -227,7 +229,8 @@ io.on("connection", (socket) => {
   socket.on("game:next", (cb) => {
     guard(cb, () => {
       const room = currentRoom();
-      if (!room) return { ok: false, error: "no_room" };
+      if (!room || !myPid) return { ok: false, error: "no_room" };
+      if (!room.isHost(myPid)) return { ok: false, error: "host_only" };
       room.next();
       return { ok: true, data: null };
     });
