@@ -40,7 +40,7 @@ export function PlayerScreen({
   return (
     <div className="screen player">
       <header className="player-header">
-        <span className="player-name">{me?.name ?? "Sen"}</span>
+        <span className="player-name">{me?.name ?? t("you")}</span>
         <span className="player-stats">
           {me && me.streak > 1 && (
             <span className="streak">{t("streak", { n: me.streak })}</span>

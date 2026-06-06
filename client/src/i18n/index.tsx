@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -30,9 +31,13 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Language>(detectLanguage);
 
+  // Keep <html lang> in sync (initial detect + switches) for a11y and SEO.
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   const setLang = useCallback((next: Language) => {
     localStorage.setItem(STORAGE_KEY, next);
-    document.documentElement.lang = next;
     setLangState(next);
   }, []);
 
