@@ -7,3 +7,4 @@ e2e-test.mjs
 reconnect-test.mjs
 playagain-test.mjs
 csr-test.mjs
+disconnect-skip-test.mjs

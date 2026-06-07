@@ -54,6 +54,9 @@ jobs:
       - name: Connection state recovery test
         run: npm run test:csr
 
+      - name: Disconnected-player skip test
+        run: npm run test:disconnect
+
       - name: Stop server
         if: always()
         run: kill "$SERVER_PID" || true

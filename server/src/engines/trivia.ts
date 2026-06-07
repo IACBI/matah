@@ -70,7 +70,10 @@ export class TriviaEngine implements GameEngine {
     player.hasSubmitted = true;
     this.ctx.emit();
 
-    if (this.ctx.players().every((p) => p.hasSubmitted)) this.reveal();
+    // Reveal as soon as every connected player has answered; disconnected
+    // players are skipped rather than stalling the question until the timer.
+    if (this.ctx.players().every((p) => !p.connected || p.hasSubmitted))
+      this.reveal();
     return true;
   }
 

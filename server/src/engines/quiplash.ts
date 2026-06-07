@@ -98,7 +98,10 @@ export class QuiplashEngine implements GameEngine {
     player.hasSubmitted = answeredCount >= assignedCount;
 
     this.ctx.emit();
-    if (this.ctx.players().every((p) => p.hasSubmitted)) this.beginVoting();
+    // A disconnected player can't act, so don't let them stall the round:
+    // advance as soon as every still-connected player has answered.
+    if (this.ctx.players().every((p) => !p.connected || p.hasSubmitted))
+      this.beginVoting();
     return true;
   }
 
@@ -138,7 +141,11 @@ export class QuiplashEngine implements GameEngine {
     player.hasVoted = true;
     this.ctx.emit();
 
-    const eligible = this.ctx.players().filter((p) => !authors.includes(p.id));
+    // Only wait on connected, non-author voters — disconnected players are
+    // skipped so they can't hold up the matchup.
+    const eligible = this.ctx
+      .players()
+      .filter((p) => p.connected && !authors.includes(p.id));
     if (eligible.every((p) => p.hasVoted)) this.advanceMatchup();
     return true;
   }
