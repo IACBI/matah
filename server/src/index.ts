@@ -292,11 +292,13 @@ io.on("connection", (socket) => {
     room.handleDisconnect(socket.id);
     room.emit();
     setTimeout(() => {
-      if (room.isEmpty()) {
+      // Identity check: only reclaim if this exact room still occupies the
+      // code (it may have been swept and the code reused by a new room).
+      if (rooms.get(room.code) === room && room.isEmpty()) {
         room.dispose();
         rooms.delete(room.code);
       }
-    }, 60_000);
+    }, 60_000).unref();
   });
 });
 

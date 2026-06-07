@@ -108,10 +108,6 @@ export class Room {
     return [...this.players.values()].filter((p) => !p.isHost);
   }
 
-  hasPlayer(pid: string): boolean {
-    return this.players.has(pid);
-  }
-
   isFull(): boolean {
     return this.realPlayers.length >= MAX_PLAYERS;
   }
