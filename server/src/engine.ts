@@ -14,9 +14,13 @@ import type {
  */
 export interface EngineContext {
   readonly language: Language;
-  /** Real (non-host) players. */
+  /** Active (non-host, non-audience) players. */
   players(): Player[];
+  /** Audience members (may vote in quiplash, never answer). */
+  audience(): Player[];
   getPlayer(id: string): Player | undefined;
+  /** Like getPlayer but also returns audience members (they may vote). */
+  getParticipant(id: string): Player | undefined;
   setPhase(
     phase: GamePhase,
     seconds: number | null,
@@ -51,6 +55,11 @@ export interface GameEngine {
   ): boolean;
   /** The per-player data to (re)send, e.g. after a reconnect. Null if none. */
   currentAssignment?(playerId: string): PlayerAssignment | null;
+  /**
+   * A player went offline mid-game. Lets the engine re-check its
+   * "everyone done?" conditions so a dropped player doesn't stall the round.
+   */
+  handlePlayerDisconnect?(playerId: string): void;
   serialize(): EngineView;
   dispose(): void;
 }

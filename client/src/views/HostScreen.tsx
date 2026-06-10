@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 import type { GamePhase, GameType, RoomState } from "../../../shared/src/index";
 import { MIN_PLAYERS } from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import { useI18n } from "../i18n";
 import { TopBar } from "../components/Controls";
 import { Confetti } from "../components/Confetti";
+import { ReactionOverlay } from "../components/Reactions";
 import { playSfx } from "../sound";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -54,19 +56,32 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
     );
   }
 
+  const isFinalRound =
+    state.round > 0 &&
+    state.totalRounds > 0 &&
+    state.round >= state.totalRounds &&
+    (state.phase === "answering" || state.phase === "voting");
+
   return (
     <div className="screen host">
       <TopBar />
+      <ReactionOverlay />
       <header className="host-header">
         <div className="logo small">
           <span className="logo-q">Q</span>uibble
         </div>
         <div className="room-code-pill">
           {t("roomCode")}: <b>{state.code || code}</b>
+          <CopyCodeButton code={state.code || code} />
         </div>
         {state.round > 0 && state.phase !== "gameover" && (
           <div className="round-pill">
             {t("round", { n: state.round, total: state.totalRounds })}
+          </div>
+        )}
+        {state.audience.length > 0 && (
+          <div className="audience-pill">
+            {t("audienceCount", { n: state.audience.length })}
           </div>
         )}
         {state.timer !== null && (
@@ -75,6 +90,12 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
           </div>
         )}
       </header>
+
+      {isFinalRound && (
+        <div className="final-banner pop-in">
+          {state.gameType === "trivia" ? t("finalQuestion") : t("finalRound")}
+        </div>
+      )}
 
       {state.phase === "lobby" && <LobbyView state={state} onStart={start} />}
 
@@ -109,6 +130,51 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
   );
 }
 
+function CopyCodeButton({ code }: { code: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      playSfx("click");
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard unavailable (http / old browser) — button is best-effort */
+    }
+  };
+  return (
+    <button className="copy-btn" onClick={copy} aria-label={t("copyCode")}>
+      {copied ? t("copied") : "📋"}
+    </button>
+  );
+}
+
+/** QR code that deep-links phones straight into the join form. */
+function JoinQr({ code }: { code: string }) {
+  const { t } = useI18n();
+  const [src, setSrc] = useState<string>("");
+
+  useEffect(() => {
+    const url = `${window.location.origin}/?code=${code}`;
+    QRCode.toDataURL(url, {
+      margin: 1,
+      width: 220,
+      color: { dark: "#14110c", light: "#f8f1e2" },
+    })
+      .then(setSrc)
+      .catch(() => setSrc(""));
+  }, [code]);
+
+  if (!src) return null;
+  return (
+    <div className="qr-box pop-in">
+      <img src={src} alt={t("scanToJoin")} />
+      <span className="qr-hint">{t("scanToJoin")}</span>
+    </div>
+  );
+}
+
 function PlayerChips({
   state,
   flag,
@@ -121,7 +187,7 @@ function PlayerChips({
       {state.players.map((p) => (
         <span key={p.id} className={`chip ${p[flag] ? "done" : "pending"}`}>
           {p[flag] ? "✓ " : "… "}
-          {p.name}
+          {p.avatar} {p.name}
         </span>
       ))}
     </div>
@@ -146,6 +212,8 @@ function LobbyView({
         <b className="code-hl">{state.code}</b>
       </h1>
 
+      <JoinQr code={state.code} />
+
       <div className="lobby-players">
         {state.players.length === 0 && (
           <p className="hint">{t("waitingPlayers")}</p>
@@ -155,7 +223,7 @@ function LobbyView({
             key={p.id}
             className={`lobby-player ${!p.connected ? "off" : ""}`}
           >
-            {p.name}
+            <span className="lobby-avatar">{p.avatar}</span> {p.name}
           </div>
         ))}
       </div>
@@ -251,7 +319,8 @@ function QuiplashResultsView({
       </h2>
       <div className="results-list">
         {state.quiplash!.lastResults!.map((r, i) => {
-          const winner = [...r.answers].sort((a, b) => b.votes - a.votes)[0];
+          // On a tie every top answer gets the winner highlight.
+          const maxVotes = Math.max(...r.answers.map((a) => a.votes));
           return (
             <div key={i} className="result-row pop-in">
               <div className="result-prompt">{r.prompt}</div>
@@ -260,7 +329,7 @@ function QuiplashResultsView({
                   <div
                     key={a.playerId}
                     className={`result-answer ${
-                      a.playerId === winner.playerId && a.votes > 0 ? "win" : ""
+                      a.votes === maxVotes && a.votes > 0 ? "win" : ""
                     }`}
                   >
                     <span className="ra-text">{a.text}</span>
@@ -368,7 +437,9 @@ function ScoreboardView({
             style={{ animationDelay: `${i * 0.12}s` }}
           >
             <span className="score-rank">{medals[i] ?? `${i + 1}.`}</span>
-            <span className="score-name">{p.name}</span>
+            <span className="score-name">
+              {p.avatar} {p.name}
+            </span>
             <span className="score-pts">{p.score}</span>
           </div>
         ))}

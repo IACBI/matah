@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { TRIVIA_QUESTIONS } from "../../../shared/src/index.js";
+import {
+  TRIVIA_FINAL_MULTIPLIER,
+  TRIVIA_QUESTIONS,
+} from "../../../shared/src/index.js";
 import type { TriviaView } from "../../../shared/src/index.js";
 import type { EngineContext, EngineView, GameEngine } from "../engine.js";
 import { pickTrivia, type TriviaQuestion } from "../content/trivia.js";
@@ -77,10 +80,20 @@ export class TriviaEngine implements GameEngine {
     return true;
   }
 
+  /** Re-check completion when a player drops (see GameEngine). */
+  handlePlayerDisconnect(): void {
+    if (this.revealed) return;
+    // Never fast-forward an abandoned room; the idle sweep will reclaim it.
+    if (!this.ctx.players().some((p) => p.connected)) return;
+    if (this.ctx.players().every((p) => !p.connected || p.hasSubmitted))
+      this.reveal();
+  }
+
   private reveal(): void {
     if (this.revealed) return;
     this.revealed = true;
     const q = this.questions[this.index];
+    const isLast = this.index >= this.questions.length - 1;
     const counts = new Array(q.options.length).fill(0);
     const pointsThisRound: {
       playerId: string;
@@ -103,6 +116,8 @@ export class TriviaEngine implements GameEngine {
           BASE_POINTS +
           Math.round(SPEED_BONUS * timeRatio) +
           (player.streak - 1) * STREAK_BONUS;
+        // The final question is worth double — comebacks stay possible.
+        if (isLast) points *= TRIVIA_FINAL_MULTIPLIER;
       } else {
         player.streak = 0;
       }
@@ -120,7 +135,6 @@ export class TriviaEngine implements GameEngine {
       pointsThisRound: pointsThisRound.sort((a, b) => b.points - a.points),
     };
 
-    const isLast = this.index >= this.questions.length - 1;
     this.ctx.setPhase("results", RESULTS_SECONDS, () => {
       if (isLast) {
         this.ctx.toScoreboard(15);

@@ -128,3 +128,52 @@ const PROMPTS: Record<Language, string[]> = {
 export function pickPrompts(language: Language, count: number): string[] {
   return sample(PROMPTS[language] ?? PROMPTS.en, count);
 }
+
+// Canned "safety quips" used when a player runs out of time, so their
+// matchup can still be voted on.
+const SAFETY_ANSWERS: Record<Language, string[]> = {
+  tr: [
+    "Pardon, uyuyakalmışım 😴",
+    "Cevabım sansürlendi 🤐",
+    "Bunu sesli söyleyemem",
+    "404: espri bulunamadı",
+    "Annem telefonu elimden aldı",
+    "Bilemedim ama gülümseyebilirim 🙂",
+    "Süre doldu, hayal gücünüze bırakıyorum",
+    "Şu an çok komik bir şey düşünüyordum, gerçekten",
+  ],
+  en: [
+    "Sorry, I fell asleep 😴",
+    "My answer got censored 🤐",
+    "I can't say this out loud",
+    "404: joke not found",
+    "My mom took my phone away",
+    "No idea, but I can smile 🙂",
+    "Time's up — use your imagination",
+    "I was thinking of something hilarious, I swear",
+  ],
+  de: [
+    "Sorry, eingeschlafen 😴",
+    "Meine Antwort wurde zensiert 🤐",
+    "Das kann ich nicht laut sagen",
+    "404: Witz nicht gefunden",
+    "Mama hat mein Handy weggenommen",
+    "Keine Ahnung, aber ich lächle 🙂",
+    "Zeit um — nutzt eure Fantasie",
+    "Mir fiel gerade etwas Lustiges ein, ehrlich",
+  ],
+  es: [
+    "Perdón, me quedé dormido 😴",
+    "Mi respuesta fue censurada 🤐",
+    "No puedo decir esto en voz alta",
+    "404: chiste no encontrado",
+    "Mi madre me quitó el móvil",
+    "Ni idea, pero puedo sonreír 🙂",
+    "Se acabó el tiempo: usad la imaginación",
+    "Estaba pensando algo graciosísimo, de verdad",
+  ],
+};
+
+export function pickSafetyAnswer(language: Language): string {
+  return sample(SAFETY_ANSWERS[language] ?? SAFETY_ANSWERS.en, 1)[0];
+}

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Matchup, MatchupResult } from "../../../shared/src/index.js";
 import { DEFAULT_TOTAL_ROUNDS, MAX_ANSWER_LEN } from "../../../shared/src/index.js";
 import type { EngineContext, EngineView, GameEngine } from "../engine.js";
-import { pickPrompts } from "../content/prompts.js";
+import { pickPrompts, pickSafetyAnswer } from "../content/prompts.js";
 
 const ANSWER_SECONDS = 60;
 const VOTE_SECONDS = 20;
@@ -18,6 +18,7 @@ export class QuiplashEngine implements GameEngine {
   private currentMatchupIndex = 0;
   private lastResults: MatchupResult[] | null = null;
   private votingActive = false;
+  private answeringActive = false;
 
   constructor(private ctx: EngineContext) {}
 
@@ -46,6 +47,7 @@ export class QuiplashEngine implements GameEngine {
     ]);
 
     this.ctx.resetFlags();
+    this.answeringActive = true;
 
     for (const player of players) {
       this.ctx.sendAssignment(player.id, this.assignmentFor(player.id));
@@ -68,7 +70,7 @@ export class QuiplashEngine implements GameEngine {
 
   /** Re-sendable assignment for reconnects (only meaningful while answering). */
   currentAssignment(playerId: string) {
-    if (!this.votingActive && this.matchups.length > 0) {
+    if (this.answeringActive && this.matchups.length > 0) {
       return this.assignmentFor(playerId);
     }
     return null;
@@ -106,15 +108,42 @@ export class QuiplashEngine implements GameEngine {
   }
 
   private beginVoting(): void {
+    this.answeringActive = false;
+    this.fillSafetyAnswers();
     this.currentMatchupIndex = -1;
     this.advanceMatchup();
   }
 
+  /**
+   * "Safety quips": authors who ran out of time get a canned funny answer so
+   * their matchup stays votable instead of being skipped.
+   */
+  private fillSafetyAnswers(): void {
+    for (const [mi, matchup] of this.matchups.entries()) {
+      for (const authorId of this.matchupAuthors[mi]) {
+        if (matchup.answers.some((a) => a.playerId === authorId)) continue;
+        const author = this.ctx.getPlayer(authorId);
+        if (!author) continue;
+        matchup.answers.push({
+          playerId: authorId,
+          playerName: author.name,
+          text: pickSafetyAnswer(this.ctx.language),
+        });
+      }
+    }
+  }
+
   private advanceMatchup(): void {
     this.currentMatchupIndex += 1;
+    // Skip matchups that can't be voted on: not enough answers, or nobody
+    // connected who is allowed to vote.
+    const hasVoterFor = (mi: number) =>
+      this.eligibleVoters(this.matchupAuthors[mi]).length > 0 ||
+      this.ctx.audience().some((p) => p.connected);
     while (
       this.currentMatchupIndex < this.matchups.length &&
-      this.matchups[this.currentMatchupIndex].answers.length < 2
+      (this.matchups[this.currentMatchupIndex].answers.length < 2 ||
+        !hasVoterFor(this.currentMatchupIndex))
     ) {
       this.currentMatchupIndex += 1;
     }
@@ -128,9 +157,11 @@ export class QuiplashEngine implements GameEngine {
   }
 
   handleVote(playerId: string, matchupId: string, answerPlayerId: string): boolean {
+    if (!this.votingActive) return false;
     const matchup = this.matchups[this.currentMatchupIndex];
     if (!matchup || matchup.id !== matchupId) return false;
-    const player = this.ctx.getPlayer(playerId);
+    // Audience members may vote too, hence getParticipant.
+    const player = this.ctx.getParticipant(playerId);
     if (!player) return false;
     const authors = this.matchupAuthors[this.currentMatchupIndex];
     if (authors.includes(playerId)) return false; // can't vote your own
@@ -141,13 +172,35 @@ export class QuiplashEngine implements GameEngine {
     player.hasVoted = true;
     this.ctx.emit();
 
-    // Only wait on connected, non-author voters — disconnected players are
-    // skipped so they can't hold up the matchup.
-    const eligible = this.ctx
+    // Only wait on connected, non-author active players — the audience and
+    // disconnected players never hold up the matchup. (If only the audience
+    // can vote, let the timer run so everyone gets a chance.)
+    const eligible = this.eligibleVoters(authors);
+    if (eligible.length > 0 && eligible.every((p) => p.hasVoted))
+      this.advanceMatchup();
+    return true;
+  }
+
+  private eligibleVoters(authors: string[]) {
+    return this.ctx
       .players()
       .filter((p) => p.connected && !authors.includes(p.id));
-    if (eligible.every((p) => p.hasVoted)) this.advanceMatchup();
-    return true;
+  }
+
+  /** Re-check phase completion when a player drops (see GameEngine). */
+  handlePlayerDisconnect(): void {
+    // Never fast-forward an abandoned room; the idle sweep will reclaim it.
+    if (!this.ctx.players().some((p) => p.connected)) return;
+
+    if (this.answeringActive) {
+      if (this.ctx.players().every((p) => !p.connected || p.hasSubmitted))
+        this.beginVoting();
+    } else if (this.votingActive) {
+      const authors = this.matchupAuthors[this.currentMatchupIndex] ?? [];
+      const eligible = this.eligibleVoters(authors);
+      if (eligible.length > 0 && eligible.every((p) => p.hasVoted))
+        this.advanceMatchup();
+    }
   }
 
   private beginResults(): void {

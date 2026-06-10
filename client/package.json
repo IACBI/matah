@@ -14,11 +14,13 @@
     "@fontsource-variable/hanken-grotesk": "^5.2.8",
     "@fontsource/space-mono": "^5.2.9",
     "@quibble/shared": "*",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",

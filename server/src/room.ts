@@ -8,6 +8,8 @@ import type {
   RoomState,
 } from "../../shared/src/index.js";
 import {
+  DEFAULT_AVATAR,
+  MAX_AUDIENCE,
   MAX_NAME_LEN,
   MAX_PLAYERS,
   MIN_PLAYERS,
@@ -17,6 +19,14 @@ import { QuiplashEngine } from "./engines/quiplash.js";
 import { TriviaEngine } from "./engines/trivia.js";
 
 type Broadcast = (state: RoomState) => void;
+
+/** Localized default for players who somehow join with an empty name. */
+const FALLBACK_NAMES: Record<Language, string> = {
+  tr: "Oyuncu",
+  en: "Player",
+  de: "Spieler",
+  es: "Jugador",
+};
 /** Sends an assignment to a specific live socket. */
 type AssignmentSender = (socketId: string, assignment: PlayerAssignment) => void;
 
@@ -57,16 +67,22 @@ export class Room {
   /** Adds the host (TV) screen. Returns its stable pid. */
   addHost(socketId: string): string {
     const pid = randomUUID();
-    this.players.set(pid, this.newPlayer(pid, "TV", true));
+    this.players.set(pid, this.newPlayer(pid, "TV", "📺", { isHost: true }));
     this.sockets.set(pid, socketId);
     return pid;
   }
 
-  /** Adds a player. Returns their stable pid. */
-  addPlayer(socketId: string, name: string): string {
+  /** Adds a player (or an audience member). Returns their stable pid. */
+  addPlayer(
+    socketId: string,
+    name: string,
+    avatar: string = DEFAULT_AVATAR,
+    isAudience = false
+  ): string {
     const pid = randomUUID();
-    const clean = name.trim().slice(0, MAX_NAME_LEN) || "Player";
-    this.players.set(pid, this.newPlayer(pid, clean, false));
+    const clean =
+      name.trim().slice(0, MAX_NAME_LEN) || FALLBACK_NAMES[this.language];
+    this.players.set(pid, this.newPlayer(pid, clean, avatar, { isAudience }));
     this.sockets.set(pid, socketId);
     return pid;
   }
@@ -91,25 +107,61 @@ export class Room {
     if (socketId) this.sendAssignmentFn(socketId, a);
   }
 
-  private newPlayer(id: string, name: string, isHost: boolean): Player {
+  private newPlayer(
+    id: string,
+    name: string,
+    avatar: string,
+    flags: { isHost?: boolean; isAudience?: boolean } = {}
+  ): Player {
     return {
       id,
       name,
+      avatar,
       score: 0,
       connected: true,
-      isHost,
+      isHost: flags.isHost ?? false,
+      isAudience: flags.isAudience ?? false,
       hasSubmitted: false,
       hasVoted: false,
       streak: 0,
     };
   }
 
+  /** Active players: in the game, excluding the host screen and audience. */
   get realPlayers(): Player[] {
-    return [...this.players.values()].filter((p) => !p.isHost);
+    return [...this.players.values()].filter((p) => !p.isHost && !p.isAudience);
+  }
+
+  get audiencePlayers(): Player[] {
+    return [...this.players.values()].filter((p) => p.isAudience);
   }
 
   isFull(): boolean {
     return this.realPlayers.length >= MAX_PLAYERS;
+  }
+
+  isAudienceFull(): boolean {
+    return this.audiencePlayers.length >= MAX_AUDIENCE;
+  }
+
+  isAudience(pid: string): boolean {
+    return this.players.get(pid)?.isAudience === true;
+  }
+
+  /** True while the host (TV) screen has a live socket. */
+  hostConnected(): boolean {
+    return [...this.players.values()].some((p) => p.isHost && p.connected);
+  }
+
+  /**
+   * Host controls (start/next/restart) normally require the host, but if the
+   * host screen dropped, any active player may take over so the room never
+   * gets stuck.
+   */
+  canControl(pid: string): boolean {
+    if (this.isHost(pid)) return true;
+    const p = this.players.get(pid);
+    return !!p && !p.isAudience && !this.hostConnected();
   }
 
   isEmpty(): boolean {
@@ -126,6 +178,9 @@ export class Room {
       if (sid === socketId) {
         const p = this.players.get(pid);
         if (p) p.connected = false;
+        // Let the engine re-check its "everyone done?" conditions so the
+        // dropped player doesn't stall the current phase until the timer.
+        if (p && !p.isHost) this.engine?.handlePlayerDisconnect?.(pid);
         return;
       }
     }
@@ -170,6 +225,15 @@ export class Room {
     return this.players.get(pid)?.isHost === true;
   }
 
+  /** Identity payload for a reaction broadcast; null for the host screen. */
+  getReactionSender(
+    pid: string
+  ): { playerId: string; name: string; avatar: string } | null {
+    const p = this.players.get(pid);
+    if (!p || p.isHost) return null;
+    return { playerId: p.id, name: p.name, avatar: p.avatar };
+  }
+
   /** Returns a finished game to the lobby, keeping the same players. */
   returnToLobby(): void {
     this.clearTimer();
@@ -177,6 +241,13 @@ export class Room {
     this.engine = null;
     this.gameType = null;
     this.phase = "lobby";
+    // Audience members waited a whole game — promote them to real players
+    // (join order) while there is room.
+    for (const p of this.players.values()) {
+      if (p.isAudience && this.realPlayers.length < MAX_PLAYERS) {
+        p.isAudience = false;
+      }
+    }
     for (const p of this.players.values()) {
       p.score = 0;
       p.streak = 0;
@@ -207,7 +278,12 @@ export class Room {
     return {
       language: this.language,
       players: () => this.realPlayers,
+      audience: () => this.audiencePlayers,
       getPlayer: (id) => {
+        const p = this.players.get(id);
+        return p && !p.isHost && !p.isAudience ? p : undefined;
+      },
+      getParticipant: (id) => {
         const p = this.players.get(id);
         return p && !p.isHost ? p : undefined;
       },
@@ -282,6 +358,13 @@ export class Room {
       round: view?.round ?? 0,
       totalRounds: view?.totalRounds ?? 0,
       players: this.realPlayers.map((p) => ({ ...p })),
+      audience: this.audiencePlayers.map((p) => ({
+        id: p.id,
+        name: p.name,
+        avatar: p.avatar,
+        connected: p.connected,
+      })),
+      hostConnected: this.hostConnected(),
       timer: this.timer,
       quiplash: view?.quiplash,
       trivia: view?.trivia,

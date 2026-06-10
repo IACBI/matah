@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AVATARS, ROOM_CODE_LENGTH } from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import type { Role } from "../App";
 import { useI18n } from "../i18n";
@@ -11,11 +12,26 @@ interface Props {
   onEnter: (role: Role, code: string, playerId: string) => void;
 }
 
+/** A ?code=XXXX in the URL (e.g. from the host-screen QR) prefills the join form. */
+function codeFromUrl(): string {
+  const raw = new URLSearchParams(window.location.search).get("code") ?? "";
+  return raw
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "")
+    .slice(0, ROOM_CODE_LENGTH);
+}
+
 export function Home({ connected, onEnter }: Props) {
   const { t, lang } = useI18n();
-  const [mode, setMode] = useState<"choose" | "join">("choose");
+  const initialCode = codeFromUrl();
+  const [mode, setMode] = useState<"choose" | "join">(
+    initialCode ? "join" : "choose"
+  );
   const [name, setName] = useState("");
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(initialCode);
+  const [avatar, setAvatar] = useState<string>(
+    () => AVATARS[Math.floor(Math.random() * AVATARS.length)]
+  );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -40,9 +56,14 @@ export function Home({ connected, onEnter }: Props) {
     setBusy(true);
     setError("");
     playSfx("click");
-    const res = await emitAck<{ code: string; playerId: string }>("room:join", {
+    const res = await emitAck<{
+      code: string;
+      playerId: string;
+      isAudience: boolean;
+    }>("room:join", {
       code: code.trim().toUpperCase(),
       name: name.trim(),
+      avatar,
     });
     setBusy(false);
     if (res.ok && res.data) {
@@ -101,6 +122,25 @@ export function Home({ connected, onEnter }: Props) {
             autoCapitalize="characters"
             onChange={(e) => setCode(e.target.value.toUpperCase())}
           />
+          <div className="avatar-picker">
+            <span className="avatar-label">{t("chooseAvatar")}</span>
+            <div className="avatar-grid" role="radiogroup" aria-label={t("chooseAvatar")}>
+              {AVATARS.map((a) => (
+                <button
+                  key={a}
+                  role="radio"
+                  aria-checked={a === avatar}
+                  className={`avatar-opt ${a === avatar ? "active" : ""}`}
+                  onClick={() => {
+                    setAvatar(a);
+                    playSfx("click");
+                  }}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
           <button
             className="btn primary big"
             onClick={joinGame}

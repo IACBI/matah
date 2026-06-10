@@ -14,10 +14,13 @@ import type {
   ServerToClientEvents,
 } from "../../shared/src/index.js";
 import {
+  AVATARS,
+  DEFAULT_AVATAR,
   GAME_TYPES,
   LANGUAGES,
   MAX_ANSWER_LEN,
   MAX_NAME_LEN,
+  REACTIONS,
   ROOM_CODE_LENGTH,
 } from "../../shared/src/index.js";
 import { Room } from "./room.js";
@@ -184,15 +187,23 @@ io.on("connection", (socket) => {
     guard(cb, () => {
       const room = rooms.get(normalizeCode(payload?.code));
       if (!room) return { ok: false, error: "room_not_found" };
-      if (!room.inLobby()) return { ok: false, error: "game_started" };
-      if (room.isFull()) return { ok: false, error: "room_full" };
       const name = safeString(payload?.name, MAX_NAME_LEN).trim();
       if (!name) return { ok: false, error: "name_required" };
-      myPid = room.addPlayer(socket.id, name);
+      const avatar = (AVATARS as readonly string[]).includes(payload?.avatar ?? "")
+        ? (payload!.avatar as string)
+        : DEFAULT_AVATAR;
+      // Late joiners and overflow become audience: they watch and vote.
+      const asAudience = !room.inLobby() || room.isFull();
+      if (asAudience && room.isAudienceFull())
+        return { ok: false, error: "room_full" };
+      myPid = room.addPlayer(socket.id, name, avatar, asAudience);
       socket.join(room.code);
       joinedCode = room.code;
       room.emit();
-      return { ok: true, data: { code: room.code, playerId: myPid } };
+      return {
+        ok: true,
+        data: { code: room.code, playerId: myPid, isAudience: asAudience },
+      };
     });
   });
 
@@ -207,7 +218,14 @@ io.on("connection", (socket) => {
       joinedCode = room.code;
       room.emit();
       room.resendAssignment(playerId); // restore in-flight prompts
-      return { ok: true, data: { code: room.code, playerId } };
+      return {
+        ok: true,
+        data: {
+          code: room.code,
+          playerId,
+          isAudience: room.isAudience(playerId),
+        },
+      };
     });
   });
 
@@ -215,7 +233,7 @@ io.on("connection", (socket) => {
     guard(cb, () => {
       const room = currentRoom();
       if (!room || !myPid) return { ok: false, error: "no_room" };
-      if (!room.isHost(myPid)) return { ok: false, error: "host_only" };
+      if (!room.canControl(myPid)) return { ok: false, error: "host_only" };
       const gameType = payload?.gameType as GameType;
       if (!GAME_TYPES.includes(gameType))
         return { ok: false, error: "invalid_game" };
@@ -230,7 +248,7 @@ io.on("connection", (socket) => {
     guard(cb, () => {
       const room = currentRoom();
       if (!room || !myPid) return { ok: false, error: "no_room" };
-      if (!room.isHost(myPid)) return { ok: false, error: "host_only" };
+      if (!room.canControl(myPid)) return { ok: false, error: "host_only" };
       room.next();
       return { ok: true, data: null };
     });
@@ -240,7 +258,7 @@ io.on("connection", (socket) => {
     guard(cb, () => {
       const room = currentRoom();
       if (!room || !myPid) return { ok: false, error: "no_room" };
-      if (!room.isHost(myPid)) return { ok: false, error: "host_only" };
+      if (!room.canControl(myPid)) return { ok: false, error: "host_only" };
       room.returnToLobby();
       return { ok: true, data: null };
     });
@@ -283,6 +301,20 @@ io.on("connection", (socket) => {
         idx
       );
       return ok ? { ok: true, data: null } : { ok: false, error: "submit_failed" };
+    });
+  });
+
+  socket.on("reaction:send", (payload, cb) => {
+    guard(cb, () => {
+      const room = currentRoom();
+      if (!room || !myPid) return { ok: false, error: "no_room" };
+      const emoji = safeString(payload?.emoji, 8);
+      if (!(REACTIONS as readonly string[]).includes(emoji))
+        return { ok: false, error: "invalid_reaction" };
+      const sender = room.getReactionSender(myPid);
+      if (!sender) return { ok: false, error: "no_room" };
+      io.to(room.code).emit("room:reaction", { ...sender, emoji });
+      return { ok: true, data: null };
     });
   });
 

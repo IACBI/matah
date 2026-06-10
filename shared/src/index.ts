@@ -17,9 +17,11 @@ export type GamePhase =
 export interface Player {
   id: string;
   name: string;
+  avatar: string; // emoji avatar picked at join time
   score: number;
   connected: boolean;
   isHost: boolean; // the TV/host screen — displays only, never plays
+  isAudience: boolean; // joined late / room full — votes but never answers
   hasSubmitted: boolean; // answered this round/question
   hasVoted: boolean; // quiplash: voted on the active matchup
   streak: number; // trivia: consecutive correct answers
@@ -81,7 +83,9 @@ export interface RoomState {
   language: Language; // content language for prompts/questions
   round: number;
   totalRounds: number;
-  players: Player[];
+  players: Player[]; // active (non-host, non-audience) players
+  audience: Pick<Player, "id" | "name" | "avatar" | "connected">[];
+  hostConnected: boolean; // false → players may take over host controls
   timer: number | null;
   quiplash?: QuiplashView;
   trivia?: TriviaView;
@@ -95,12 +99,16 @@ export interface ClientToServerEvents {
     cb: (res: ApiResult<{ code: string; playerId: string }>) => void
   ) => void;
   "room:join": (
-    payload: { code: string; name: string },
-    cb: (res: ApiResult<{ code: string; playerId: string }>) => void
+    payload: { code: string; name: string; avatar?: string },
+    cb: (
+      res: ApiResult<{ code: string; playerId: string; isAudience: boolean }>
+    ) => void
   ) => void;
   "room:rejoin": (
     payload: { code: string; playerId: string },
-    cb: (res: ApiResult<{ code: string; playerId: string }>) => void
+    cb: (
+      res: ApiResult<{ code: string; playerId: string; isAudience: boolean }>
+    ) => void
   ) => void;
   "game:start": (
     payload: { gameType: GameType },
@@ -120,11 +128,23 @@ export interface ClientToServerEvents {
     payload: { questionId: string; optionIndex: number },
     cb: (res: ApiResult<null>) => void
   ) => void;
+  "reaction:send": (
+    payload: { emoji: string },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+}
+
+export interface Reaction {
+  playerId: string;
+  name: string;
+  avatar: string;
+  emoji: string;
 }
 
 export interface ServerToClientEvents {
   "room:state": (state: RoomState) => void;
   "player:assignment": (assignment: PlayerAssignment) => void;
+  "room:reaction": (reaction: Reaction) => void;
 }
 
 export type ApiResult<T> =
@@ -136,9 +156,22 @@ export type ApiResult<T> =
 export const ROOM_CODE_LENGTH = 4;
 export const MIN_PLAYERS = 3;
 export const MAX_PLAYERS = 8;
+export const MAX_AUDIENCE = 20;
 export const DEFAULT_TOTAL_ROUNDS = 3;
 export const TRIVIA_QUESTIONS = 6;
+/** The last trivia question is worth double points. */
+export const TRIVIA_FINAL_MULTIPLIER = 2;
 
 // Validation limits (shared so client and server agree).
 export const MAX_NAME_LEN = 16;
 export const MAX_ANSWER_LEN = 120;
+
+// Emoji avatars players can pick from (server validates against this list).
+export const AVATARS = [
+  "😎", "🦊", "🐱", "🐸", "🦄", "👻", "🤖", "🐼",
+  "🐙", "🦁", "🍕", "🚀", "🌵", "🧁", "🐲", "🥷",
+] as const;
+export const DEFAULT_AVATAR = "🙂";
+
+// Emoji reactions anyone can fire at the host screen during a game.
+export const REACTIONS = ["😂", "❤️", "🔥", "👏", "😮", "💀"] as const;
