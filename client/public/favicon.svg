@@ -7,7 +7,7 @@
   </defs>
   <rect width="64" height="64" rx="15" fill="url(#g)"/>
   <g font-family="'Segoe UI', Arial, sans-serif" font-weight="800" font-size="46" text-anchor="middle">
-    <text x="34" y="48" fill="#d8482d" transform="rotate(-7 34 48)">Q</text>
-    <text x="31" y="45" fill="#f6bd45" transform="rotate(-7 31 45)">Q</text>
+    <text x="34" y="48" fill="#d8482d" transform="rotate(-7 34 48)">M</text>
+    <text x="31" y="45" fill="#f6bd45" transform="rotate(-7 31 45)">M</text>
   </g>
 </svg>

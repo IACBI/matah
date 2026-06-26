@@ -7,7 +7,7 @@ import { PlayerScreen } from "./views/PlayerScreen";
 
 export type Role = "home" | "host" | "player";
 
-const SESSION_KEY = "quibble.session";
+const SESSION_KEY = "matah.session";
 
 interface Session {
   role: Role;

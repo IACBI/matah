@@ -48,6 +48,16 @@ export function PlayerScreen({
     state.phase === "gameover" ||
     (state.phase === "voting" && isAudience);
 
+  const leaveGame = () => {
+    const inProgress =
+      state.phase !== "lobby" &&
+      state.phase !== "gameover" &&
+      state.phase !== "scoreboard";
+    if (inProgress && !window.confirm(t("leaveConfirm"))) return;
+    playSfx("click");
+    onLeave();
+  };
+
   return (
     <div className="screen player">
       {!connected && (
@@ -56,6 +66,14 @@ export function PlayerScreen({
         </div>
       )}
       <header className="player-header">
+        <button
+          className="player-leave"
+          onClick={leaveGame}
+          aria-label={t("leaveRoom")}
+          title={t("leaveRoom")}
+        >
+          ←
+        </button>
         <span className="player-name">
           <span className="player-avatar">{me?.avatar ?? audienceMe?.avatar}</span>{" "}
           {me?.name ?? audienceMe?.name ?? t("you")}

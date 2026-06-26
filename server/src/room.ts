@@ -33,6 +33,16 @@ const FALLBACK_NAMES: Record<Language, string> = {
   en: "Player",
   de: "Spieler",
   es: "Jugador",
+  fr: "Joueur",
+  it: "Giocatore",
+  pt: "Jogador",
+  ru: "Игрок",
+  ar: "لاعب",
+  zh: "玩家",
+  ja: "プレイヤー",
+  ko: "플레이어",
+  hi: "खिलाड़ी",
+  nl: "Speler",
 };
 /** Sends an assignment to a specific live socket. */
 type AssignmentSender = (socketId: string, assignment: PlayerAssignment) => void;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import QRCode from "qrcode";
 import type { GamePhase, GameType, RoomState } from "../../../shared/src/index";
 import {
@@ -15,6 +15,7 @@ import { useI18n } from "../i18n";
 import { TopBar } from "../components/Controls";
 import { Confetti } from "../components/Confetti";
 import { ReactionOverlay } from "../components/Reactions";
+import { QuiplashIcon, TriviaIcon } from "../components/GameIcons";
 import { playSfx } from "../sound";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -45,6 +46,16 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
     playSfx("click");
     void emitAck("game:end");
   };
+  const leaveGame = () => {
+    const inProgress =
+      !!state &&
+      state.phase !== "lobby" &&
+      state.phase !== "gameover" &&
+      state.phase !== "scoreboard";
+    if (inProgress && !window.confirm(t("leaveConfirm"))) return;
+    playSfx("click");
+    onLeave();
+  };
 
   // Sound cues on phase transitions.
   const prevPhase = useRef<GamePhase | null>(null);
@@ -69,6 +80,9 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
         <div className="badge warn">
           {connected ? t("preparingRoom") : t("connecting")}
         </div>
+        <button className="btn link host-leave-center" onClick={onLeave}>
+          {t("leaveRoom")}
+        </button>
       </div>
     );
   }
@@ -85,7 +99,7 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
       <ReactionOverlay />
       <header className="host-header">
         <div className="logo small">
-          <span className="logo-q">Q</span>uibble
+          <span className="logo-q">M</span>atah
         </div>
         <div className="room-code-pill">
           {t("roomCode")}: <b>{state.code || code}</b>
@@ -113,6 +127,9 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
             {t("endGame")}
           </button>
         )}
+        <button className="btn link host-leave" onClick={leaveGame}>
+          {t("leaveRoom")}
+        </button>
       </header>
 
       {isFinalRound && (
@@ -281,14 +298,14 @@ function LobbyView({
       <div className="game-picker">
         <GameCard
           active={selected === "quiplash"}
-          icon="✍️"
+          icon={<QuiplashIcon />}
           title={t("gameQuiplash")}
           desc={t("gameQuiplashDesc")}
           onClick={() => pickMode("quiplash")}
         />
         <GameCard
           active={selected === "trivia"}
-          icon="🧠"
+          icon={<TriviaIcon />}
           title={t("gameTrivia")}
           desc={t("gameTriviaDesc")}
           onClick={() => pickMode("trivia")}
@@ -339,7 +356,7 @@ function GameCard({
   onClick,
 }: {
   active: boolean;
-  icon: string;
+  icon: ReactNode;
   title: string;
   desc: string;
   onClick: () => void;

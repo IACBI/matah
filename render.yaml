@@ -2,7 +2,7 @@
 # https://render.com/docs/blueprint-spec
 services:
   - type: web
-    name: quibble
+    name: matah
     runtime: node
     plan: free
     # NODE_ENV=production makes npm skip devDependencies, but the build needs

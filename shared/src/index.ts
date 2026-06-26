@@ -1,7 +1,7 @@
-// Shared types & contracts between the Quibble server and client.
+// Shared types & contracts between the Matah server and client.
 
-export type Language = "tr" | "en" | "de" | "es";
-export const LANGUAGES: Language[] = ["tr", "en", "de", "es"];
+export type Language = "tr" | "en" | "de" | "es" | "fr" | "it" | "pt" | "ru" | "ar" | "zh" | "ja" | "ko" | "hi" | "nl";
+export const LANGUAGES: Language[] = ["tr", "en", "de", "es", "fr", "it", "pt", "ru", "ar", "zh", "ja", "ko", "hi", "nl"];
 
 export type GameType = "quiplash" | "trivia";
 export const GAME_TYPES: GameType[] = ["quiplash", "trivia"];

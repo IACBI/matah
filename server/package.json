@@ -1,5 +1,5 @@
 {
-  "name": "@quibble/server",
+  "name": "@matah/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "start": "cross-env NODE_ENV=production tsx src/index.ts"
   },
   "dependencies": {
-    "@quibble/shared": "*",
+    "@matah/shared": "*",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
     "cross-env": "^7.0.3",

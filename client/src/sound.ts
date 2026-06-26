@@ -12,7 +12,7 @@ type SfxName =
   | "win"
   | "click";
 
-const MUTE_KEY = "quibble.muted";
+const MUTE_KEY = "matah.muted";
 
 let ctx: AudioContext | null = null;
 let muted = readMutedPref();

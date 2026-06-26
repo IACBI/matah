@@ -396,5 +396,5 @@ if (isProd) {
 }
 
 httpServer.listen(PORT, () => {
-  console.log(`🎉 Quibble server on http://localhost:${PORT} (prod=${isProd})`);
+  console.log(`🎉 Matah server on http://localhost:${PORT} (prod=${isProd})`);
 });

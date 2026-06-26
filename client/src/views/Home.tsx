@@ -79,7 +79,7 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
     <div className="screen home fade-in">
       <TopBar />
       <div className="logo">
-        <span className="logo-q">Q</span>uibble
+        <span className="logo-q">M</span>atah
       </div>
       <p className="tagline">{t("tagline")}</p>
 
@@ -168,7 +168,13 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
           >
             {t("joinBtn")}
           </button>
-          <button className="btn link" onClick={() => setMode("choose")}>
+          <button
+            className="btn link"
+            onClick={() => {
+              setMode("choose");
+              setError("");
+            }}
+          >
             {t("back")}
           </button>
         </div>

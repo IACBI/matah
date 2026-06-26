@@ -1,4 +1,4 @@
-# --- Quibble: single-image build (server serves the built client) ---
+# --- Matah: single-image build (server serves the built client) ---
 FROM node:24-alpine
 
 WORKDIR /app
