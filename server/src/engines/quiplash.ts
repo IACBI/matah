@@ -189,6 +189,33 @@ export class QuiplashEngine implements GameEngine {
       .filter((p) => p.connected && !authors.includes(p.id));
   }
 
+  /**
+   * A participant was kicked. Strip their answers and votes from every matchup
+   * and drop them as an author, so nothing they left behind is shown, voted on,
+   * or counted. Then re-check completion (and skip the active matchup if it is
+   * no longer votable).
+   */
+  handlePlayerRemoved(playerId: string): void {
+    for (const [mi, matchup] of this.matchups.entries()) {
+      matchup.answers = matchup.answers.filter((a) => a.playerId !== playerId);
+      delete matchup.votes[playerId];
+      this.matchupAuthors[mi] = this.matchupAuthors[mi].filter(
+        (id) => id !== playerId
+      );
+    }
+    // If we're mid-vote on a matchup that just lost an answer, it can no longer
+    // be voted on — move to the next votable one.
+    if (this.votingActive) {
+      const active = this.matchups[this.currentMatchupIndex];
+      if (!active || active.answers.length < 2) {
+        this.currentMatchupIndex -= 1; // advanceMatchup pre-increments
+        this.advanceMatchup();
+        return;
+      }
+    }
+    this.handlePlayerDisconnect();
+  }
+
   /** Re-check phase completion when a player drops (see GameEngine). */
   handlePlayerDisconnect(): void {
     // Never fast-forward an abandoned room; the idle sweep will reclaim it.

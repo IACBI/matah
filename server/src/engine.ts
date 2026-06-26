@@ -60,6 +60,12 @@ export interface GameEngine {
    * "everyone done?" conditions so a dropped player doesn't stall the round.
    */
   handlePlayerDisconnect?(playerId: string): void;
+  /**
+   * A player was removed from the room entirely (kicked). Unlike a disconnect,
+   * they are never coming back, so the engine must purge any state they left
+   * behind (answers, votes) so it can't be displayed, voted on, or scored.
+   */
+  handlePlayerRemoved?(playerId: string): void;
   serialize(): EngineView;
   dispose(): void;
 }

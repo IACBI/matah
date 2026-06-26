@@ -40,8 +40,10 @@ async function setup() {
   ps.forEach((p, i) =>
     p.on("player:assignment", (a) => (assignments[ids[i]] = a))
   );
-  await new Promise((r) => host.on("connect", r));
-  await Promise.all(ps.map((p) => new Promise((r) => p.on("connect", r))));
+  await new Promise((r) => (host.connected ? r() : host.once("connect", r)));
+  await Promise.all(
+    ps.map((p) => new Promise((r) => (p.connected ? r() : p.once("connect", r))))
+  );
   const code = (await ack(host, "room:create", { language: "tr" })).data.code;
   for (const [i, p] of ps.entries())
     ids[i] = (
@@ -63,7 +65,7 @@ async function testAudienceAndSafety() {
 
   // Late joiner becomes audience.
   const aud = conn();
-  await new Promise((r) => aud.on("connect", r));
+  await new Promise((r) => (aud.connected ? r() : aud.once("connect", r)));
   const audRes = await ack(aud, "room:join", { code, name: "Seyirci" });
   assert(audRes.ok && audRes.data.isAudience === true, "late join → audience");
   await until(get, (s) => s.audience.length === 1, 5000, "audience in state");

@@ -207,7 +207,6 @@ io.on("connection", (socket) => {
     guard(cb, () => {
       const room = rooms.get(normalizeCode(payload?.code));
       if (!room) return { ok: false, error: "room_not_found" };
-      leaveCurrentRoom();
       const name = safeString(payload?.name, MAX_NAME_LEN).trim();
       if (!name) return { ok: false, error: "name_required" };
       const avatar = (AVATARS as readonly string[]).includes(payload?.avatar ?? "")
@@ -217,6 +216,9 @@ io.on("connection", (socket) => {
       const asAudience = !room.inLobby() || room.isFull();
       if (asAudience && room.isAudienceFull())
         return { ok: false, error: "room_full" };
+      // Only detach from any previous room once the new join is guaranteed to
+      // succeed — a rejected join must not strand the player's old session.
+      leaveCurrentRoom();
       myPid = room.addPlayer(socket.id, name, avatar, asAudience);
       socket.join(room.code);
       joinedCode = room.code;

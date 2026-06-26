@@ -234,8 +234,9 @@ export class Room {
 
   /**
    * Host removed a participant. Drops them from membership, disconnecting any
-   * live socket from the room, then lets the active engine re-check its
-   * "everyone done?" condition so the kicked player can't stall the round.
+   * live socket from the room, then has the active engine purge any state they
+   * left behind (answers/votes) and re-check its "everyone done?" condition so
+   * the kicked player can't stall the round or linger in it.
    * Returns the removed player's current socket id (to notify them), if any.
    */
   kick(targetPid: string): { ok: boolean; socketId?: string; error?: string } {
@@ -245,7 +246,7 @@ export class Room {
     const wasActive = !target.isAudience;
     this.players.delete(targetPid);
     this.sockets.delete(targetPid);
-    if (wasActive) this.engine?.handlePlayerDisconnect?.(targetPid);
+    if (wasActive) this.engine?.handlePlayerRemoved?.(targetPid);
     this.emit();
     return { ok: true, socketId };
   }

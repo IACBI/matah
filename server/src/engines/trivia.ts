@@ -83,6 +83,12 @@ export class TriviaEngine implements GameEngine {
     return true;
   }
 
+  /** A participant was kicked: drop their pending answer, then re-check. */
+  handlePlayerRemoved(playerId: string): void {
+    this.answers.delete(playerId);
+    this.handlePlayerDisconnect();
+  }
+
   /** Re-check completion when a player drops (see GameEngine). */
   handlePlayerDisconnect(): void {
     if (this.revealed) return;
