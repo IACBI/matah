@@ -57,6 +57,12 @@ jobs:
       - name: Disconnected-player skip test
         run: npm run test:disconnect
 
+      - name: New-features test (audience, safety, takeover)
+        run: npm run test:features
+
+      - name: Host-tools test (kick, length, end-game)
+        run: npm run test:hosttools
+
       - name: Stop server
         if: always()
         run: kill "$SERVER_PID" || true

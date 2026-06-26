@@ -111,11 +111,18 @@ export interface ClientToServerEvents {
     ) => void
   ) => void;
   "game:start": (
-    payload: { gameType: GameType },
+    // `rounds` is the desired length (quiplash rounds / trivia questions);
+    // the server clamps it to the mode's allowed range.
+    payload: { gameType: GameType; rounds?: number },
     cb: (res: ApiResult<null>) => void
   ) => void;
   "game:next": (cb: (res: ApiResult<null>) => void) => void;
   "game:restart": (cb: (res: ApiResult<null>) => void) => void;
+  "game:end": (cb: (res: ApiResult<null>) => void) => void;
+  "player:kick": (
+    payload: { playerId: string },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
   "answer:submit": (
     payload: { matchupId: string; text: string },
     cb: (res: ApiResult<null>) => void
@@ -145,6 +152,8 @@ export interface ServerToClientEvents {
   "room:state": (state: RoomState) => void;
   "player:assignment": (assignment: PlayerAssignment) => void;
   "room:reaction": (reaction: Reaction) => void;
+  /** The host removed this client from the room. */
+  "room:kicked": () => void;
 }
 
 export type ApiResult<T> =
@@ -161,6 +170,25 @@ export const DEFAULT_TOTAL_ROUNDS = 3;
 export const TRIVIA_QUESTIONS = 6;
 /** The last trivia question is worth double points. */
 export const TRIVIA_FINAL_MULTIPLIER = 2;
+
+// Host-configurable game length, clamped per mode (see Room.start).
+export const MIN_ROUNDS = 1; // quiplash rounds
+export const MAX_ROUNDS = 5;
+export const MIN_QUESTIONS = 3; // trivia questions (pool has 20 per language)
+export const MAX_QUESTIONS = 10;
+
+/** Clamp a requested length into [min, max], falling back to a default. */
+export function clampLength(
+  requested: number | undefined,
+  min: number,
+  max: number,
+  fallback: number
+): number {
+  if (typeof requested !== "number" || !Number.isFinite(requested)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(requested)));
+}
 
 // Validation limits (shared so client and server agree).
 export const MAX_NAME_LEN = 16;

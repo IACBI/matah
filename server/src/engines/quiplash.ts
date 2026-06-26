@@ -12,7 +12,7 @@ export class QuiplashEngine implements GameEngine {
   readonly type = "quiplash" as const;
 
   private round = 0;
-  private totalRounds = DEFAULT_TOTAL_ROUNDS;
+  private totalRounds: number;
   private matchups: Matchup[] = [];
   private matchupAuthors: string[][] = [];
   private currentMatchupIndex = 0;
@@ -20,7 +20,9 @@ export class QuiplashEngine implements GameEngine {
   private votingActive = false;
   private answeringActive = false;
 
-  constructor(private ctx: EngineContext) {}
+  constructor(private ctx: EngineContext, rounds = DEFAULT_TOTAL_ROUNDS) {
+    this.totalRounds = rounds;
+  }
 
   start(): void {
     this.round = 0;

@@ -3,13 +3,16 @@ import { AVATARS, ROOM_CODE_LENGTH } from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import type { Role } from "../App";
 import { useI18n } from "../i18n";
-import { errorKey } from "../i18n/translations";
+import { errorKey, type TKey } from "../i18n/translations";
 import { TopBar } from "../components/Controls";
 import { playSfx } from "../sound";
 
 interface Props {
   connected: boolean;
   onEnter: (role: Role, code: string, playerId: string) => void;
+  /** A translation key for a one-off notice (e.g. after being kicked). */
+  notice?: string;
+  onDismissNotice?: () => void;
 }
 
 /** A ?code=XXXX in the URL (e.g. from the host-screen QR) prefills the join form. */
@@ -21,7 +24,7 @@ function codeFromUrl(): string {
     .slice(0, ROOM_CODE_LENGTH);
 }
 
-export function Home({ connected, onEnter }: Props) {
+export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
   const { t, lang } = useI18n();
   const initialCode = codeFromUrl();
   const [mode, setMode] = useState<"choose" | "join">(
@@ -82,6 +85,16 @@ export function Home({ connected, onEnter }: Props) {
 
       {!connected && <div className="badge warn">{t("connecting")}</div>}
 
+      {notice && (
+        <button
+          className="badge warn notice"
+          role="status"
+          onClick={onDismissNotice}
+        >
+          {t(notice as TKey)} ✕
+        </button>
+      )}
+
       {mode === "choose" ? (
         <div className="card stack pop-in">
           <button
@@ -120,7 +133,14 @@ export function Home({ connected, onEnter }: Props) {
             maxLength={4}
             inputMode="text"
             autoCapitalize="characters"
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onChange={(e) =>
+              setCode(
+                e.target.value
+                  .toUpperCase()
+                  .replace(/[^A-Z]/g, "")
+                  .slice(0, ROOM_CODE_LENGTH)
+              )
+            }
           />
           <div className="avatar-picker">
             <span className="avatar-label">{t("chooseAvatar")}</span>

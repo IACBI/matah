@@ -8,11 +8,18 @@ import type {
   RoomState,
 } from "../../shared/src/index.js";
 import {
+  clampLength,
   DEFAULT_AVATAR,
+  DEFAULT_TOTAL_ROUNDS,
   MAX_AUDIENCE,
   MAX_NAME_LEN,
   MAX_PLAYERS,
+  MAX_QUESTIONS,
+  MAX_ROUNDS,
   MIN_PLAYERS,
+  MIN_QUESTIONS,
+  MIN_ROUNDS,
+  TRIVIA_QUESTIONS,
 } from "../../shared/src/index.js";
 import type { EngineContext, GameEngine } from "./engine.js";
 import { QuiplashEngine } from "./engines/quiplash.js";
@@ -194,7 +201,7 @@ export class Room {
 
   // ---- game control ----
 
-  start(gameType: GameType): { ok: boolean; error?: string } {
+  start(gameType: GameType, rounds?: number): { ok: boolean; error?: string } {
     if (this.phase !== "lobby") return { ok: false, error: "already_started" };
     if (this.realPlayers.length < MIN_PLAYERS)
       return { ok: false, error: "not_enough_players" };
@@ -204,12 +211,39 @@ export class Room {
       p.score = 0;
       p.streak = 0;
     }
-    this.engine =
-      gameType === "trivia"
-        ? new TriviaEngine(this.engineContext())
-        : new QuiplashEngine(this.engineContext());
+    if (gameType === "trivia") {
+      const count = clampLength(rounds, MIN_QUESTIONS, MAX_QUESTIONS, TRIVIA_QUESTIONS);
+      this.engine = new TriviaEngine(this.engineContext(), count);
+    } else {
+      const count = clampLength(rounds, MIN_ROUNDS, MAX_ROUNDS, DEFAULT_TOTAL_ROUNDS);
+      this.engine = new QuiplashEngine(this.engineContext(), count);
+    }
     this.engine.start();
     return { ok: true };
+  }
+
+  /**
+   * Host removed a participant. Drops them from membership, disconnecting any
+   * live socket from the room, then lets the active engine re-check its
+   * "everyone done?" condition so the kicked player can't stall the round.
+   * Returns the removed player's current socket id (to notify them), if any.
+   */
+  kick(targetPid: string): { ok: boolean; socketId?: string; error?: string } {
+    const target = this.players.get(targetPid);
+    if (!target || target.isHost) return { ok: false, error: "invalid_target" };
+    const socketId = this.sockets.get(targetPid);
+    const wasActive = !target.isAudience;
+    this.players.delete(targetPid);
+    this.sockets.delete(targetPid);
+    if (wasActive) this.engine?.handlePlayerDisconnect?.(targetPid);
+    this.emit();
+    return { ok: true, socketId };
+  }
+
+  /** Host ended the game early — jump straight to the final scoreboard. */
+  endGame(): void {
+    if (this.phase === "lobby" || this.phase === "gameover") return;
+    this.setPhase("scoreboard", 15, () => this.gameOver());
   }
 
   next(): void {

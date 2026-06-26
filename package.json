@@ -30,7 +30,8 @@
     "test:playagain": "node playagain-test.mjs",
     "test:csr": "node csr-test.mjs",
     "test:disconnect": "node disconnect-skip-test.mjs",
-    "test:features": "node new-features-test.mjs"
+    "test:features": "node new-features-test.mjs",
+    "test:hosttools": "node host-tools-test.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

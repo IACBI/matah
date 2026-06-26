@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import type { GamePhase, GameType, RoomState } from "../../../shared/src/index";
-import { MIN_PLAYERS } from "../../../shared/src/index";
+import {
+  DEFAULT_TOTAL_ROUNDS,
+  MAX_QUESTIONS,
+  MAX_ROUNDS,
+  MIN_PLAYERS,
+  MIN_QUESTIONS,
+  MIN_ROUNDS,
+  TRIVIA_QUESTIONS,
+} from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import { useI18n } from "../i18n";
 import { TopBar } from "../components/Controls";
@@ -20,13 +28,22 @@ interface Props {
 
 export function HostScreen({ code, state, connected, onLeave }: Props) {
   const { t } = useI18n();
-  const start = (gameType: GameType) => {
+  const start = (gameType: GameType, rounds: number) => {
     playSfx("submit");
-    emitAck("game:start", { gameType });
+    emitAck("game:start", { gameType, rounds });
   };
   const next = () => {
     playSfx("click");
     emitAck("game:next");
+  };
+  const kick = (playerId: string) => {
+    playSfx("click");
+    void emitAck("player:kick", { playerId });
+  };
+  const endGame = () => {
+    if (!window.confirm(t("endGameConfirm"))) return;
+    playSfx("click");
+    void emitAck("game:end");
   };
 
   // Sound cues on phase transitions.
@@ -89,6 +106,13 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
             {state.timer}
           </div>
         )}
+        {(state.phase === "answering" ||
+          state.phase === "voting" ||
+          state.phase === "results") && (
+          <button className="btn ghost end-game-btn" onClick={endGame}>
+            {t("endGame")}
+          </button>
+        )}
       </header>
 
       {isFinalRound && (
@@ -97,7 +121,9 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
         </div>
       )}
 
-      {state.phase === "lobby" && <LobbyView state={state} onStart={start} />}
+      {state.phase === "lobby" && (
+        <LobbyView state={state} onStart={start} onKick={kick} />
+      )}
 
       {state.phase === "answering" && state.gameType === "quiplash" && (
         <div className="host-body center" key="answering">
@@ -197,13 +223,29 @@ function PlayerChips({
 function LobbyView({
   state,
   onStart,
+  onKick,
 }: {
   state: RoomState;
-  onStart: (g: GameType) => void;
+  onStart: (g: GameType, rounds: number) => void;
+  onKick: (playerId: string) => void;
 }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<GameType>("quiplash");
+  // Length bounds & default depend on the selected mode (rounds vs questions).
+  const bounds =
+    selected === "trivia"
+      ? { min: MIN_QUESTIONS, max: MAX_QUESTIONS, def: TRIVIA_QUESTIONS }
+      : { min: MIN_ROUNDS, max: MAX_ROUNDS, def: DEFAULT_TOTAL_ROUNDS };
+  const [length, setLength] = useState(bounds.def);
   const enough = state.players.length >= MIN_PLAYERS;
+
+  const pickMode = (g: GameType) => {
+    setSelected(g);
+    setLength(
+      g === "trivia" ? TRIVIA_QUESTIONS : DEFAULT_TOTAL_ROUNDS
+    );
+  };
+  const clampedLength = Math.min(bounds.max, Math.max(bounds.min, length));
 
   return (
     <div className="host-body center" key="lobby">
@@ -224,6 +266,14 @@ function LobbyView({
             className={`lobby-player ${!p.connected ? "off" : ""}`}
           >
             <span className="lobby-avatar">{p.avatar}</span> {p.name}
+            <button
+              className="kick-btn"
+              onClick={() => onKick(p.id)}
+              aria-label={t("kickAria", { name: p.name })}
+              title={t("kickAria", { name: p.name })}
+            >
+              ✕
+            </button>
           </div>
         ))}
       </div>
@@ -234,20 +284,43 @@ function LobbyView({
           icon="✍️"
           title={t("gameQuiplash")}
           desc={t("gameQuiplashDesc")}
-          onClick={() => setSelected("quiplash")}
+          onClick={() => pickMode("quiplash")}
         />
         <GameCard
           active={selected === "trivia"}
           icon="🧠"
           title={t("gameTrivia")}
           desc={t("gameTriviaDesc")}
-          onClick={() => setSelected("trivia")}
+          onClick={() => pickMode("trivia")}
         />
+      </div>
+
+      <div className="length-picker" role="group" aria-label={t(selected === "trivia" ? "questionsLabel" : "roundsLabel")}>
+        <span className="length-label">
+          {t(selected === "trivia" ? "questionsLabel" : "roundsLabel")}
+        </span>
+        <button
+          className="length-step"
+          onClick={() => setLength((n) => Math.max(bounds.min, n - 1))}
+          disabled={clampedLength <= bounds.min}
+          aria-label="−"
+        >
+          −
+        </button>
+        <span className="length-value">{clampedLength}</span>
+        <button
+          className="length-step"
+          onClick={() => setLength((n) => Math.min(bounds.max, n + 1))}
+          disabled={clampedLength >= bounds.max}
+          aria-label="+"
+        >
+          +
+        </button>
       </div>
 
       <button
         className="btn primary big"
-        onClick={() => onStart(selected)}
+        onClick={() => onStart(selected, clampedLength)}
         disabled={!enough}
       >
         {enough

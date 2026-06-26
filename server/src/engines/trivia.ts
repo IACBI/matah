@@ -32,10 +32,13 @@ export class TriviaEngine implements GameEngine {
   private revealed = false;
   private lastReveal: NonNullable<TriviaView["reveal"]> | null = null;
 
-  constructor(private ctx: EngineContext) {}
+  constructor(
+    private ctx: EngineContext,
+    private questionCount = TRIVIA_QUESTIONS
+  ) {}
 
   start(): void {
-    this.questions = pickTrivia(this.ctx.language, TRIVIA_QUESTIONS).map((q) => ({
+    this.questions = pickTrivia(this.ctx.language, this.questionCount).map((q) => ({
       ...q,
       id: randomUUID(),
     }));

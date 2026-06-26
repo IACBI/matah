@@ -50,6 +50,19 @@
   padding: 0;
 }
 
+/* Consistent keyboard-focus ring for all interactive controls. Mouse/touch
+   users don't see it (:focus-visible), keyboard users get a clear gold ring. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[role="radio"]:focus-visible,
+[role="menuitemradio"]:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 html,
 body,
 #root {
@@ -491,10 +504,33 @@ body::after {
   font-size: 18px;
   color: var(--on-gold);
   background: var(--gold);
-  padding: 11px 22px;
+  padding: 11px 16px 11px 22px;
   border-radius: 999px;
   box-shadow: 0 4px 0 var(--gold-deep);
   animation: pop 0.32s cubic-bezier(0.2, 1.5, 0.4, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.kick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.22);
+  color: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.kick-btn:hover {
+  background: rgba(0, 0, 0, 0.4);
+  transform: scale(1.12);
 }
 .lobby-player:nth-child(3n + 2) {
   background: var(--coral);
@@ -1282,4 +1318,65 @@ button.trivia-opt:active {
   .game-card {
     width: 100%;
   }
+}
+
+/* ---------- Length picker (host lobby) ---------- */
+.length-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 2px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 8px 16px;
+  margin: 0 0 22px;
+}
+.length-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.length-step {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.length-step:hover:not(:disabled) {
+  transform: scale(1.1);
+}
+.length-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.length-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--gold);
+  min-width: 28px;
+  text-align: center;
+}
+
+/* ---------- End-game button (host header) ---------- */
+.end-game-btn {
+  padding: 8px 16px;
+  font-size: 15px;
+}
+
+/* ---------- Dismissible notice (home) ---------- */
+.badge.notice {
+  cursor: pointer;
+  border: none;
+  font: inherit;
 }
