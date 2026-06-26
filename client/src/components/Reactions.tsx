@@ -3,6 +3,8 @@ import type { Reaction } from "../../../shared/src/index";
 import { REACTIONS } from "../../../shared/src/index";
 import { socket, emitAck } from "../socket";
 import { useI18n } from "../i18n";
+import { Avatar } from "./Avatar";
+import { ReactionIcon } from "./icons";
 import { playSfx } from "../sound";
 
 interface FloatingReaction extends Reaction {
@@ -42,9 +44,9 @@ export function ReactionOverlay() {
           className="reaction-float"
           style={{ left: `${i.left}vw` }}
         >
-          <span className="reaction-emoji">{i.emoji}</span>
+          <ReactionIcon id={i.emoji} className="reaction-emoji" />
           <span className="reaction-sender">
-            {i.avatar} {i.name}
+            <Avatar id={i.avatar} /> {i.name}
           </span>
         </span>
       ))}
@@ -74,9 +76,9 @@ export function ReactionBar() {
           key={emoji}
           className="reaction-btn"
           onClick={() => send(emoji)}
-          aria-label={`${t("sendReaction")}: ${emoji}`}
+          aria-label={t("sendReaction")}
         >
-          {emoji}
+          <ReactionIcon id={emoji} />
         </button>
       ))}
     </div>

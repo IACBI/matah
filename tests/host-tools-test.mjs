@@ -42,7 +42,7 @@ async function setup() {
   const code = (await ack(host, "room:create", { language: "tr" })).data.code;
   for (const [i, p] of ps.entries())
     ids[i] = (
-      await ack(p, "room:join", { code, name: names[i], avatar: "🦊" })
+      await ack(p, "room:join", { code, name: names[i], avatar: "fox" })
     ).data.playerId;
   await until(() => st, (s) => s.players.length === 3, 8000, "3 players");
   return { host, ps, ids, code, get: () => st };

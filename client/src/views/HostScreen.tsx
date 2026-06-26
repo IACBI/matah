@@ -16,6 +16,8 @@ import { TopBar } from "../components/Controls";
 import { Confetti } from "../components/Confetti";
 import { ReactionOverlay } from "../components/Reactions";
 import { QuiplashIcon, TriviaIcon } from "../components/GameIcons";
+import { Avatar } from "../components/Avatar";
+import { IconCheck, IconClose, IconCopy, Medal, PartyIcon } from "../components/icons";
 import { playSfx } from "../sound";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -187,8 +189,8 @@ function CopyCodeButton({ code }: { code: string }) {
     }
   };
   return (
-    <button className="copy-btn" onClick={copy} aria-label={t("copyCode")}>
-      {copied ? t("copied") : "📋"}
+    <button className="copy-btn" onClick={copy} aria-label={copied ? t("copied") : t("copyCode")}>
+      {copied ? <IconCheck /> : <IconCopy />}
     </button>
   );
 }
@@ -229,8 +231,8 @@ function PlayerChips({
     <div className="player-chips">
       {state.players.map((p) => (
         <span key={p.id} className={`chip ${p[flag] ? "done" : "pending"}`}>
-          {p[flag] ? "✓ " : "… "}
-          {p.avatar} {p.name}
+          {p[flag] ? <IconCheck className="chip-tick" /> : <span className="chip-wait" />}
+          <Avatar id={p.avatar} /> {p.name}
         </span>
       ))}
     </div>
@@ -282,14 +284,14 @@ function LobbyView({
             key={p.id}
             className={`lobby-player ${!p.connected ? "off" : ""}`}
           >
-            <span className="lobby-avatar">{p.avatar}</span> {p.name}
+            <Avatar id={p.avatar} className="lobby-avatar" /> {p.name}
             <button
               className="kick-btn"
               onClick={() => onKick(p.id)}
               aria-label={t("kickAria", { name: p.name })}
               title={t("kickAria", { name: p.name })}
             >
-              ✕
+              <IconClose />
             </button>
           </div>
         ))}
@@ -514,11 +516,12 @@ function ScoreboardView({
 }) {
   const { t } = useI18n();
   const ranked = [...state.players].sort((a, b) => b.score - a.score);
-  const medals = ["🥇", "🥈", "🥉"];
   return (
     <div className="host-body center" key="scoreboard">
       <Confetti />
-      <h1 className="phase-title bounce-in">{t("gameOver")}</h1>
+      <h1 className="phase-title bounce-in">
+        <PartyIcon /> {t("gameOver")}
+      </h1>
       <div className="scoreboard">
         {ranked.map((p, i) => (
           <div
@@ -526,9 +529,11 @@ function ScoreboardView({
             className={`score-row rank-${i} pop-in`}
             style={{ animationDelay: `${i * 0.12}s` }}
           >
-            <span className="score-rank">{medals[i] ?? `${i + 1}.`}</span>
+            <span className="score-rank">
+              {i < 3 ? <Medal rank={i} /> : `${i + 1}.`}
+            </span>
             <span className="score-name">
-              {p.avatar} {p.name}
+              <Avatar id={p.avatar} /> {p.name}
             </span>
             <span className="score-pts">{p.score}</span>
           </div>
