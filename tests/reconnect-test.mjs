@@ -20,8 +20,10 @@ const bindAssign = (sock) =>
   sock.on("player:assignment", (a) => (p1Assignment = a));
 bindAssign(p1);
 
-await new Promise((r) => host.on("connect", r));
-await Promise.all([p1, p2, p3].map((p) => new Promise((r) => p.on("connect", r))));
+await new Promise((r) => (host.connected ? r() : host.once("connect", r)));
+await Promise.all(
+  [p1, p2, p3].map((p) => new Promise((r) => (p.connected ? r() : p.once("connect", r))))
+);
 
 const code = (await ack(host, "room:create", { language: "tr" })).data.code;
 const ids = [];
@@ -48,7 +50,7 @@ log(offline ? "✓ p1 koptu (connected=false görünüyor)" : "✗ p1 hâlâ ba�
 p1Assignment = null;
 p1 = conn();
 bindAssign(p1);
-await new Promise((r) => p1.on("connect", r));
+await new Promise((r) => (p1.connected ? r() : p1.once("connect", r)));
 const rj = await ack(p1, "room:rejoin", { code, playerId: p1pid });
 log(rj.ok ? "✓ rejoin başarılı" : "✗ rejoin BAŞARISIZ: " + rj.error);
 await wait(400);

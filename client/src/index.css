@@ -1,5 +1,5 @@
 /* ============================================================
-   Quibble — "Late-Night Game Show"
+   Matah — "Late-Night Game Show"
    Warm near-black canvas · signature gold · coral + teal pops
    Display: Bricolage Grotesque · Body: Hanken Grotesk · Mono: Space Mono
    ============================================================ */
@@ -35,10 +35,17 @@
   --shadow-lg: 0 28px 60px -12px rgba(0, 0, 0, 0.65);
   --shadow-card: 0 16px 34px -14px rgba(0, 0, 0, 0.6);
 
+  /* Non-Latin scripts (Arabic, CJK, Devanagari, Cyrillic) fall back to the
+     user's installed system fonts so all 14 locales render without bundling
+     heavy webfonts. */
+  --font-fallback: system-ui, "Segoe UI", "Noto Sans", "Noto Sans Arabic",
+    "Noto Naskh Arabic", "Noto Sans SC", "Microsoft YaHei", "Noto Sans JP",
+    "Yu Gothic", "Noto Sans KR", "Malgun Gothic", "Noto Sans Devanagari",
+    "Nirmala UI", sans-serif;
   --font-display: "Bricolage Grotesque Variable", "Hanken Grotesk Variable",
-    sans-serif;
-  --font-body: "Hanken Grotesk Variable", system-ui, sans-serif;
-  --font-mono: "Space Mono", ui-monospace, monospace;
+    var(--font-fallback);
+  --font-body: "Hanken Grotesk Variable", var(--font-fallback);
+  --font-mono: "Space Mono", ui-monospace, var(--font-fallback);
 
   --radius: 22px;
   --radius-sm: 14px;
@@ -48,6 +55,19 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* Consistent keyboard-focus ring for all interactive controls. Mouse/touch
+   users don't see it (:focus-visible), keyboard users get a clear gold ring. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[role="radio"]:focus-visible,
+[role="menuitemradio"]:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 html,
@@ -321,6 +341,9 @@ body::after {
   border-radius: 12px;
   padding: 9px 12px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   backdrop-filter: blur(10px);
   transition: transform 0.1s ease, border-color 0.2s ease;
 }
@@ -363,6 +386,9 @@ body::after {
   background: none;
   border: none;
   border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   padding: 10px 12px;
   cursor: pointer;
 }
@@ -372,6 +398,50 @@ body::after {
 .lang-opt.active {
   background: var(--gold);
   color: var(--on-gold);
+}
+
+/* ---------- Waving flags ---------- */
+.flag {
+  display: inline-block;
+  width: 26px;
+  height: 17px;
+  flex: 0 0 auto;
+  perspective: 220px;
+  line-height: 0;
+}
+.flag-wave {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 3px;
+  transform-origin: left center;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+  animation: flag-wave 3s ease-in-out infinite;
+}
+/* stagger so a menu full of flags doesn't ripple in lockstep */
+.lang-opt:nth-child(2n) .flag-wave {
+  animation-delay: -0.6s;
+}
+.lang-opt:nth-child(3n) .flag-wave {
+  animation-delay: -1.2s;
+}
+.lang-opt:nth-child(4n) .flag-wave {
+  animation-delay: -1.8s;
+}
+@keyframes flag-wave {
+  0%,
+  100% {
+    transform: rotateY(-8deg) skewY(-1deg) scaleX(0.99);
+  }
+  50% {
+    transform: rotateY(10deg) skewY(1.2deg) scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flag-wave {
+    animation: none;
+    transform: none;
+  }
 }
 
 /* ---------- Host header ---------- */
@@ -491,10 +561,33 @@ body::after {
   font-size: 18px;
   color: var(--on-gold);
   background: var(--gold);
-  padding: 11px 22px;
+  padding: 11px 16px 11px 22px;
   border-radius: 999px;
   box-shadow: 0 4px 0 var(--gold-deep);
   animation: pop 0.32s cubic-bezier(0.2, 1.5, 0.4, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.kick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.22);
+  color: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.kick-btn:hover {
+  background: rgba(0, 0, 0, 0.4);
+  transform: scale(1.12);
 }
 .lobby-player:nth-child(3n + 2) {
   background: var(--coral);
@@ -551,6 +644,128 @@ body::after {
 .game-icon {
   font-size: 42px;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+}
+.game-svg {
+  width: 56px;
+  height: 56px;
+  overflow: visible;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
+}
+
+/* ----- Quiplash icon ----- */
+.qi {
+  animation: qi-float 4.5s ease-in-out infinite;
+}
+.qi-line {
+  stroke-dasharray: 46;
+  stroke-dashoffset: 46;
+  animation: qi-draw 4.5s ease-in-out infinite;
+}
+.qi-line2 {
+  stroke-dasharray: 22;
+  stroke-dashoffset: 22;
+  animation: qi-draw 4.5s ease-in-out infinite 0.5s;
+}
+.qi-pen {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: qi-pen 4.5s ease-in-out infinite;
+}
+@keyframes qi-float {
+  50% {
+    transform: translateY(-3px) rotate(-1.5deg);
+  }
+}
+@keyframes qi-draw {
+  0% {
+    stroke-dashoffset: 46;
+  }
+  35%,
+  80% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes qi-pen {
+  0%,
+  100% {
+    transform: translate(-6px, 1px) rotate(-4deg);
+  }
+  40% {
+    transform: translate(2px, -1px) rotate(2deg);
+  }
+}
+
+/* ----- Trivia icon ----- */
+.ti {
+  animation: ti-bob 4s ease-in-out infinite;
+}
+.ti-bulb {
+  transform-box: fill-box;
+  transform-origin: 50% 60%;
+  animation: ti-glow 3s ease-in-out infinite;
+}
+.ti-rays {
+  transform-box: fill-box;
+  transform-origin: 50% 40%;
+  animation: ti-rays 3s ease-in-out infinite;
+}
+.ti-filament {
+  animation: ti-flicker 3s ease-in-out infinite;
+}
+@keyframes ti-bob {
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+@keyframes ti-glow {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+@keyframes ti-rays {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+@keyframes ti-flicker {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qi,
+  .qi-line,
+  .qi-line2,
+  .qi-pen,
+  .ti,
+  .ti-bulb,
+  .ti-rays,
+  .ti-filament {
+    animation: none;
+  }
+  .qi-line,
+  .qi-line2 {
+    stroke-dashoffset: 0;
+  }
 }
 .game-title {
   font-family: var(--font-display);
@@ -1282,4 +1497,112 @@ button.trivia-opt:active {
   .game-card {
     width: 100%;
   }
+}
+
+/* ---------- Length picker (host lobby) ---------- */
+.length-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 2px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 8px 16px;
+  margin: 0 0 22px;
+}
+.length-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.length-step {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.length-step:hover:not(:disabled) {
+  transform: scale(1.1);
+}
+.length-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.length-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--gold);
+  min-width: 28px;
+  text-align: center;
+}
+
+/* ---------- End-game button (host header) ---------- */
+.end-game-btn {
+  padding: 8px 16px;
+  font-size: 15px;
+}
+
+/* ---------- Dismissible notice (home) ---------- */
+.badge.notice {
+  cursor: pointer;
+  border: none;
+  font: inherit;
+}
+
+/* ---------- Leave / back controls ---------- */
+.host-leave {
+  font-size: 14px;
+  padding: 6px 10px;
+  opacity: 0.75;
+}
+.host-leave:hover {
+  opacity: 1;
+}
+.host-leave-center {
+  margin-top: 18px;
+}
+.player-leave {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--bg-sunken);
+  color: var(--ink-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.player-leave:hover {
+  background: var(--bg-card);
+  color: var(--ink);
+  transform: scale(1.08);
+}
+
+/* ---------- RTL (Arabic) ---------- */
+[dir="rtl"] .player-leave,
+[dir="rtl"] .host-leave {
+  transform: scaleX(-1); /* flip the ← arrow */
+}
+[dir="rtl"] .code-input {
+  direction: ltr; /* room codes are Latin, keep them left-to-right */
+}
+[dir="rtl"] .logo,
+[dir="rtl"] .logo.small {
+  direction: ltr; /* the "Matah" wordmark stays LTR */
 }

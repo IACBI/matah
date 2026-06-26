@@ -68,7 +68,9 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 
 const httpServer = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-  cors: { origin: CLIENT_ORIGIN },
+  // Reflect the request origin when no explicit allow-list is configured.
+  // Set CLIENT_ORIGIN in production to lock connections to your deploy URL.
+  cors: { origin: CLIENT_ORIGIN === "*" ? true : CLIENT_ORIGIN },
   // Drop oversized payloads early; our messages are tiny.
   maxHttpBufferSize: 4096,
   pingTimeout: 20_000,
@@ -158,9 +160,27 @@ io.on("connection", (socket) => {
   const currentRoom = (): Room | null =>
     joinedCode ? rooms.get(joinedCode) ?? null : null;
 
+  // Detach this socket from any room it's already in before binding a new one.
+  // Without this, a second create/join on the same socket would orphan a
+  // still-"connected" player in the previous room until the idle sweep.
+  const leaveCurrentRoom = (): void => {
+    const room = currentRoom();
+    if (!room) return;
+    room.handleDisconnect(socket.id);
+    socket.leave(room.code);
+    room.emit();
+    if (rooms.get(room.code) === room && room.isEmpty()) {
+      room.dispose();
+      rooms.delete(room.code);
+    }
+    joinedCode = null;
+    myPid = null;
+  };
+
   socket.on("room:create", (payload, cb) => {
     guard(cb, () => {
       if (rooms.size >= MAX_ROOMS) return { ok: false, error: "server_busy" };
+      leaveCurrentRoom();
       const language = (
         LANGUAGES.includes((payload?.language as Language))
           ? payload.language
@@ -196,6 +216,9 @@ io.on("connection", (socket) => {
       const asAudience = !room.inLobby() || room.isFull();
       if (asAudience && room.isAudienceFull())
         return { ok: false, error: "room_full" };
+      // Only detach from any previous room once the new join is guaranteed to
+      // succeed — a rejected join must not strand the player's old session.
+      leaveCurrentRoom();
       myPid = room.addPlayer(socket.id, name, avatar, asAudience);
       socket.join(room.code);
       joinedCode = room.code;
@@ -211,7 +234,9 @@ io.on("connection", (socket) => {
     guard(cb, () => {
       const room = rooms.get(normalizeCode(payload?.code));
       const playerId = safeString(payload?.playerId, 64);
-      if (!room || !room.rejoin(playerId, socket.id))
+      if (!room) return { ok: false, error: "session_not_found" };
+      if (joinedCode && joinedCode !== room.code) leaveCurrentRoom();
+      if (!room.rejoin(playerId, socket.id))
         return { ok: false, error: "session_not_found" };
       myPid = playerId;
       socket.join(room.code);
@@ -237,10 +262,40 @@ io.on("connection", (socket) => {
       const gameType = payload?.gameType as GameType;
       if (!GAME_TYPES.includes(gameType))
         return { ok: false, error: "invalid_game" };
-      const res = room.start(gameType);
+      const res = room.start(gameType, payload?.rounds);
       return res.ok
         ? { ok: true, data: null }
         : { ok: false, error: res.error! };
+    });
+  });
+
+  socket.on("game:end", (cb) => {
+    guard(cb, () => {
+      const room = currentRoom();
+      if (!room || !myPid) return { ok: false, error: "no_room" };
+      if (!room.canControl(myPid)) return { ok: false, error: "host_only" };
+      room.endGame();
+      return { ok: true, data: null };
+    });
+  });
+
+  socket.on("player:kick", (payload, cb) => {
+    guard(cb, () => {
+      const room = currentRoom();
+      if (!room || !myPid) return { ok: false, error: "no_room" };
+      if (!room.canControl(myPid)) return { ok: false, error: "host_only" };
+      const targetPid = safeString(payload?.playerId, 64);
+      if (!targetPid || targetPid === myPid)
+        return { ok: false, error: "invalid_target" };
+      const res = room.kick(targetPid);
+      if (!res.ok) return { ok: false, error: res.error ?? "invalid_target" };
+      if (res.socketId) {
+        // Tell the kicked client and pull their socket out of the room so they
+        // stop receiving its broadcasts.
+        io.to(res.socketId).emit("room:kicked");
+        io.in(res.socketId).socketsLeave(room.code);
+      }
+      return { ok: true, data: null };
     });
   });
 
@@ -343,5 +398,5 @@ if (isProd) {
 }
 
 httpServer.listen(PORT, () => {
-  console.log(`🎉 Quibble server on http://localhost:${PORT} (prod=${isProd})`);
+  console.log(`🎉 Matah server on http://localhost:${PORT} (prod=${isProd})`);
 });

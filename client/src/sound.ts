@@ -12,8 +12,18 @@ type SfxName =
   | "win"
   | "click";
 
+const MUTE_KEY = "matah.muted";
+
 let ctx: AudioContext | null = null;
-let muted = false;
+let muted = readMutedPref();
+
+function readMutedPref(): boolean {
+  try {
+    return localStorage.getItem(MUTE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function ac(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -95,6 +105,11 @@ export function playSfx(name: SfxName): void {
 
 export function setMuted(value: boolean): void {
   muted = value;
+  try {
+    localStorage.setItem(MUTE_KEY, value ? "1" : "0");
+  } catch {
+    /* storage unavailable (private mode) — keep the in-memory preference */
+  }
 }
 
 export function isMuted(): boolean {

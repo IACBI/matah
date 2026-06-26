@@ -16,8 +16,10 @@ const ids = [];
 let st = null;
 host.on("room:state", (s) => (st = s));
 
-await new Promise((r) => host.on("connect", r));
-await Promise.all(ps.map((p) => new Promise((r) => p.on("connect", r))));
+await new Promise((r) => (host.connected ? r() : host.once("connect", r)));
+await Promise.all(
+  ps.map((p) => new Promise((r) => (p.connected ? r() : p.once("connect", r))))
+);
 
 const code = (await ack(host, "room:create", { language: "en" })).data.code;
 for (const [i, p] of ps.entries())

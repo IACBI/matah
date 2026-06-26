@@ -23,6 +23,14 @@ export function Confetti() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // Respect users who asked for reduced motion — skip the animation entirely.
+    if (
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const resize = () => {
       canvas.width = window.innerWidth * dpr;

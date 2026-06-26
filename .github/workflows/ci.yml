@@ -6,9 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+# A newer push to the same branch/PR cancels an in-flight run instead of
+# letting both occupy a runner.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    # Safety net: a wedged test fails in minutes instead of burning the
+    # default 6-hour runner limit.
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v6
@@ -56,6 +65,12 @@ jobs:
 
       - name: Disconnected-player skip test
         run: npm run test:disconnect
+
+      - name: New-features test (audience, safety, takeover)
+        run: npm run test:features
+
+      - name: Host-tools test (kick, length, end-game)
+        run: npm run test:hosttools
 
       - name: Stop server
         if: always()

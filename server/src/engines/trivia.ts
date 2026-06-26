@@ -32,10 +32,13 @@ export class TriviaEngine implements GameEngine {
   private revealed = false;
   private lastReveal: NonNullable<TriviaView["reveal"]> | null = null;
 
-  constructor(private ctx: EngineContext) {}
+  constructor(
+    private ctx: EngineContext,
+    private questionCount = TRIVIA_QUESTIONS
+  ) {}
 
   start(): void {
-    this.questions = pickTrivia(this.ctx.language, TRIVIA_QUESTIONS).map((q) => ({
+    this.questions = pickTrivia(this.ctx.language, this.questionCount).map((q) => ({
       ...q,
       id: randomUUID(),
     }));
@@ -78,6 +81,12 @@ export class TriviaEngine implements GameEngine {
     if (this.ctx.players().every((p) => !p.connected || p.hasSubmitted))
       this.reveal();
     return true;
+  }
+
+  /** A participant was kicked: drop their pending answer, then re-check. */
+  handlePlayerRemoved(playerId: string): void {
+    this.answers.delete(playerId);
+    this.handlePlayerDisconnect();
   }
 
   /** Re-check completion when a player drops (see GameEngine). */

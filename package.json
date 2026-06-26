@@ -1,8 +1,8 @@
 {
-  "name": "quibble",
+  "name": "matah",
   "version": "0.1.0",
   "private": true,
-  "description": "Quibble - a Jackbox-style multiplayer party game",
+  "description": "Matah - a Jackbox-style multiplayer party game",
   "author": "𝓐.𝓒.𝓑",
   "license": "MIT",
   "keywords": [
@@ -25,12 +25,13 @@
     "build": "npm --workspace client run build",
     "start": "npm --workspace server run start",
     "typecheck": "npm --workspace server run typecheck && npm --workspace client run typecheck",
-    "test:e2e": "node e2e-test.mjs",
-    "test:reconnect": "node reconnect-test.mjs",
-    "test:playagain": "node playagain-test.mjs",
-    "test:csr": "node csr-test.mjs",
-    "test:disconnect": "node disconnect-skip-test.mjs",
-    "test:features": "node new-features-test.mjs"
+    "test:e2e": "node tests/e2e-test.mjs",
+    "test:reconnect": "node tests/reconnect-test.mjs",
+    "test:playagain": "node tests/playagain-test.mjs",
+    "test:csr": "node tests/csr-test.mjs",
+    "test:disconnect": "node tests/disconnect-skip-test.mjs",
+    "test:features": "node tests/new-features-test.mjs",
+    "test:hosttools": "node tests/host-tools-test.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

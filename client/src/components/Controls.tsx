@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { LANGUAGES } from "../../../shared/src/index";
 import { useI18n } from "../i18n";
-import { LANGUAGE_FLAGS, LANGUAGE_LABELS } from "../i18n/translations";
+import { LANGUAGE_LABELS } from "../i18n/translations";
+import { Flag } from "./Flag";
 import { isMuted, playSfx, setMuted } from "../sound";
 
 export function LanguageSwitcher() {
@@ -40,7 +41,7 @@ export function LanguageSwitcher() {
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        {LANGUAGE_FLAGS[lang]} <span className="lang-caret">▾</span>
+        <Flag code={lang} /> <span className="lang-caret">▾</span>
       </button>
       {open && (
         <div className="lang-menu" role="menu">
@@ -57,7 +58,7 @@ export function LanguageSwitcher() {
                 playSfx("click");
               }}
             >
-              {LANGUAGE_FLAGS[l]} {LANGUAGE_LABELS[l]}
+              <Flag code={l} /> {LANGUAGE_LABELS[l]}
             </button>
           ))}
         </div>

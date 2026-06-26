@@ -11,7 +11,8 @@ import type { Language } from "../../../shared/src/index";
 import { LANGUAGES } from "../../../shared/src/index";
 import { translate, type TKey } from "./translations";
 
-const STORAGE_KEY = "quibble.lang";
+const STORAGE_KEY = "matah.lang";
+const RTL_LANGS = new Set<Language>(["ar"]);
 
 function detectLanguage(): Language {
   const saved = localStorage.getItem(STORAGE_KEY) as Language | null;
@@ -31,9 +32,11 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Language>(detectLanguage);
 
-  // Keep <html lang> in sync (initial detect + switches) for a11y and SEO.
+  // Keep <html lang> and text direction in sync (initial detect + switches)
+  // for a11y and SEO. Arabic is right-to-left.
   useEffect(() => {
     document.documentElement.lang = lang;
+    document.documentElement.dir = RTL_LANGS.has(lang) ? "rtl" : "ltr";
   }, [lang]);
 
   const setLang = useCallback((next: Language) => {

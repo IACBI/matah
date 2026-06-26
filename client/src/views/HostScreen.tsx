@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import QRCode from "qrcode";
 import type { GamePhase, GameType, RoomState } from "../../../shared/src/index";
-import { MIN_PLAYERS } from "../../../shared/src/index";
+import {
+  DEFAULT_TOTAL_ROUNDS,
+  MAX_QUESTIONS,
+  MAX_ROUNDS,
+  MIN_PLAYERS,
+  MIN_QUESTIONS,
+  MIN_ROUNDS,
+  TRIVIA_QUESTIONS,
+} from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import { useI18n } from "../i18n";
 import { TopBar } from "../components/Controls";
 import { Confetti } from "../components/Confetti";
 import { ReactionOverlay } from "../components/Reactions";
+import { QuiplashIcon, TriviaIcon } from "../components/GameIcons";
 import { playSfx } from "../sound";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -20,13 +29,32 @@ interface Props {
 
 export function HostScreen({ code, state, connected, onLeave }: Props) {
   const { t } = useI18n();
-  const start = (gameType: GameType) => {
+  const start = (gameType: GameType, rounds: number) => {
     playSfx("submit");
-    emitAck("game:start", { gameType });
+    emitAck("game:start", { gameType, rounds });
   };
   const next = () => {
     playSfx("click");
     emitAck("game:next");
+  };
+  const kick = (playerId: string) => {
+    playSfx("click");
+    void emitAck("player:kick", { playerId });
+  };
+  const endGame = () => {
+    if (!window.confirm(t("endGameConfirm"))) return;
+    playSfx("click");
+    void emitAck("game:end");
+  };
+  const leaveGame = () => {
+    const inProgress =
+      !!state &&
+      state.phase !== "lobby" &&
+      state.phase !== "gameover" &&
+      state.phase !== "scoreboard";
+    if (inProgress && !window.confirm(t("leaveConfirm"))) return;
+    playSfx("click");
+    onLeave();
   };
 
   // Sound cues on phase transitions.
@@ -52,6 +80,9 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
         <div className="badge warn">
           {connected ? t("preparingRoom") : t("connecting")}
         </div>
+        <button className="btn link host-leave-center" onClick={onLeave}>
+          {t("leaveRoom")}
+        </button>
       </div>
     );
   }
@@ -68,7 +99,7 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
       <ReactionOverlay />
       <header className="host-header">
         <div className="logo small">
-          <span className="logo-q">Q</span>uibble
+          <span className="logo-q">M</span>atah
         </div>
         <div className="room-code-pill">
           {t("roomCode")}: <b>{state.code || code}</b>
@@ -89,6 +120,16 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
             {state.timer}
           </div>
         )}
+        {(state.phase === "answering" ||
+          state.phase === "voting" ||
+          state.phase === "results") && (
+          <button className="btn ghost end-game-btn" onClick={endGame}>
+            {t("endGame")}
+          </button>
+        )}
+        <button className="btn link host-leave" onClick={leaveGame}>
+          {t("leaveRoom")}
+        </button>
       </header>
 
       {isFinalRound && (
@@ -97,7 +138,9 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
         </div>
       )}
 
-      {state.phase === "lobby" && <LobbyView state={state} onStart={start} />}
+      {state.phase === "lobby" && (
+        <LobbyView state={state} onStart={start} onKick={kick} />
+      )}
 
       {state.phase === "answering" && state.gameType === "quiplash" && (
         <div className="host-body center" key="answering">
@@ -197,13 +240,29 @@ function PlayerChips({
 function LobbyView({
   state,
   onStart,
+  onKick,
 }: {
   state: RoomState;
-  onStart: (g: GameType) => void;
+  onStart: (g: GameType, rounds: number) => void;
+  onKick: (playerId: string) => void;
 }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<GameType>("quiplash");
+  // Length bounds & default depend on the selected mode (rounds vs questions).
+  const bounds =
+    selected === "trivia"
+      ? { min: MIN_QUESTIONS, max: MAX_QUESTIONS, def: TRIVIA_QUESTIONS }
+      : { min: MIN_ROUNDS, max: MAX_ROUNDS, def: DEFAULT_TOTAL_ROUNDS };
+  const [length, setLength] = useState(bounds.def);
   const enough = state.players.length >= MIN_PLAYERS;
+
+  const pickMode = (g: GameType) => {
+    setSelected(g);
+    setLength(
+      g === "trivia" ? TRIVIA_QUESTIONS : DEFAULT_TOTAL_ROUNDS
+    );
+  };
+  const clampedLength = Math.min(bounds.max, Math.max(bounds.min, length));
 
   return (
     <div className="host-body center" key="lobby">
@@ -224,6 +283,14 @@ function LobbyView({
             className={`lobby-player ${!p.connected ? "off" : ""}`}
           >
             <span className="lobby-avatar">{p.avatar}</span> {p.name}
+            <button
+              className="kick-btn"
+              onClick={() => onKick(p.id)}
+              aria-label={t("kickAria", { name: p.name })}
+              title={t("kickAria", { name: p.name })}
+            >
+              ✕
+            </button>
           </div>
         ))}
       </div>
@@ -231,23 +298,46 @@ function LobbyView({
       <div className="game-picker">
         <GameCard
           active={selected === "quiplash"}
-          icon="✍️"
+          icon={<QuiplashIcon />}
           title={t("gameQuiplash")}
           desc={t("gameQuiplashDesc")}
-          onClick={() => setSelected("quiplash")}
+          onClick={() => pickMode("quiplash")}
         />
         <GameCard
           active={selected === "trivia"}
-          icon="🧠"
+          icon={<TriviaIcon />}
           title={t("gameTrivia")}
           desc={t("gameTriviaDesc")}
-          onClick={() => setSelected("trivia")}
+          onClick={() => pickMode("trivia")}
         />
+      </div>
+
+      <div className="length-picker" role="group" aria-label={t(selected === "trivia" ? "questionsLabel" : "roundsLabel")}>
+        <span className="length-label">
+          {t(selected === "trivia" ? "questionsLabel" : "roundsLabel")}
+        </span>
+        <button
+          className="length-step"
+          onClick={() => setLength((n) => Math.max(bounds.min, n - 1))}
+          disabled={clampedLength <= bounds.min}
+          aria-label="−"
+        >
+          −
+        </button>
+        <span className="length-value">{clampedLength}</span>
+        <button
+          className="length-step"
+          onClick={() => setLength((n) => Math.min(bounds.max, n + 1))}
+          disabled={clampedLength >= bounds.max}
+          aria-label="+"
+        >
+          +
+        </button>
       </div>
 
       <button
         className="btn primary big"
-        onClick={() => onStart(selected)}
+        onClick={() => onStart(selected, clampedLength)}
         disabled={!enough}
       >
         {enough
@@ -266,7 +356,7 @@ function GameCard({
   onClick,
 }: {
   active: boolean;
-  icon: string;
+  icon: ReactNode;
   title: string;
   desc: string;
   onClick: () => void;

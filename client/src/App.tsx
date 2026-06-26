@@ -7,7 +7,7 @@ import { PlayerScreen } from "./views/PlayerScreen";
 
 export type Role = "home" | "host" | "player";
 
-const SESSION_KEY = "quibble.session";
+const SESSION_KEY = "matah.session";
 
 interface Session {
   role: Role;
@@ -22,6 +22,8 @@ export function App() {
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [assignment, setAssignment] = useState<PlayerAssignment | null>(null);
   const [connected, setConnected] = useState(socket.connected);
+  // A short notice to surface on the Home screen (e.g. after being kicked).
+  const [notice, setNotice] = useState("");
 
   // Wire up socket listeners once. Every (re)connect re-claims the saved
   // session, so a mid-game network drop — which reconnects with a *new*
@@ -59,11 +61,21 @@ export function App() {
       tryRejoin();
     };
     const onDisconnect = () => setConnected(false);
+    // The host removed us — drop the session and return to the home screen.
+    const onKicked = () => {
+      sessionStorage.removeItem(SESSION_KEY);
+      setRole("home");
+      setRoomState(null);
+      setAssignment(null);
+      setCode("");
+      setNotice("kickedNotice");
+    };
 
     socket.on("room:state", onState);
     socket.on("player:assignment", onAssignment);
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
+    socket.on("room:kicked", onKicked);
 
     // Cover the case where the socket connected before this effect ran.
     if (socket.connected) tryRejoin();
@@ -73,10 +85,12 @@ export function App() {
       socket.off("player:assignment", onAssignment);
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
+      socket.off("room:kicked", onKicked);
     };
   }, []);
 
   const enterRoom = (nextRole: Role, nextCode: string, playerId: string) => {
+    setNotice("");
     setRole(nextRole);
     setCode(nextCode);
     setMyPlayerId(playerId);
@@ -95,7 +109,14 @@ export function App() {
   };
 
   if (role === "home") {
-    return <Home onEnter={enterRoom} connected={connected} />;
+    return (
+      <Home
+        onEnter={enterRoom}
+        connected={connected}
+        notice={notice}
+        onDismissNotice={() => setNotice("")}
+      />
+    );
   }
 
   if (role === "host") {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerAssignment, RoomState } from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import { useI18n } from "../i18n";
@@ -48,6 +48,16 @@ export function PlayerScreen({
     state.phase === "gameover" ||
     (state.phase === "voting" && isAudience);
 
+  const leaveGame = () => {
+    const inProgress =
+      state.phase !== "lobby" &&
+      state.phase !== "gameover" &&
+      state.phase !== "scoreboard";
+    if (inProgress && !window.confirm(t("leaveConfirm"))) return;
+    playSfx("click");
+    onLeave();
+  };
+
   return (
     <div className="screen player">
       {!connected && (
@@ -56,6 +66,14 @@ export function PlayerScreen({
         </div>
       )}
       <header className="player-header">
+        <button
+          className="player-leave"
+          onClick={leaveGame}
+          aria-label={t("leaveRoom")}
+          title={t("leaveRoom")}
+        >
+          ←
+        </button>
         <span className="player-name">
           <span className="player-avatar">{me?.avatar ?? audienceMe?.avatar}</span>{" "}
           {me?.name ?? audienceMe?.name ?? t("you")}
@@ -93,7 +111,11 @@ export function PlayerScreen({
         (isAudience ? (
           <AudienceWaitView />
         ) : state.gameType === "quiplash" ? (
-          <AnsweringView assignment={assignment} submitted={me?.hasSubmitted} />
+          <AnsweringView
+            assignment={assignment}
+            submitted={me?.hasSubmitted}
+            timer={state.timer}
+          />
         ) : (
           <TriviaAnswerView state={state} submitted={me?.hasSubmitted} />
         ))}
@@ -165,15 +187,57 @@ function AudienceWaitView() {
 function AnsweringView({
   assignment,
   submitted,
+  timer,
 }: {
   assignment: PlayerAssignment | null;
   submitted?: boolean;
+  timer?: number | null;
 }) {
   const { t } = useI18n();
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [sent, setSent] = useState<Record<string, boolean>>({});
-  const [busy, setBusy] = useState(false);
+  // Per-matchup in-flight flag so sending one prompt doesn't lock the other.
+  const [sending, setSending] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+  // Tracks matchups currently being submitted, to dedupe a manual click racing
+  // the timer's auto-submit (refs update synchronously, unlike state).
+  const inFlight = useRef<Set<string>>(new Set());
+  const sentRef = useRef(sent);
+  sentRef.current = sent;
+
+  const send = useCallback(
+    async (matchupId: string) => {
+      const text = answersRef.current[matchupId]?.trim();
+      if (!text || sentRef.current[matchupId] || inFlight.current.has(matchupId))
+        return;
+      inFlight.current.add(matchupId);
+      setSending((s) => ({ ...s, [matchupId]: true }));
+      setError("");
+      const res = await emitAck("answer:submit", { matchupId, text });
+      inFlight.current.delete(matchupId);
+      setSending((s) => ({ ...s, [matchupId]: false }));
+      if (res.ok) {
+        playSfx("submit");
+        setSent((s) => ({ ...s, [matchupId]: true }));
+      } else {
+        setError(t(errorKey(res.error ?? "submit_failed")));
+      }
+    },
+    [t]
+  );
+
+  // When the answering clock is almost out, auto-submit any typed-but-unsent
+  // drafts so the player's words aren't replaced by a canned safety quip.
+  useEffect(() => {
+    if (timer === null || timer === undefined || timer > 2 || !assignment) return;
+    for (const p of assignment.prompts) {
+      if (!sentRef.current[p.matchupId] && answersRef.current[p.matchupId]?.trim()) {
+        void send(p.matchupId);
+      }
+    }
+  }, [timer, assignment, send]);
 
   if (!assignment) {
     return (
@@ -182,21 +246,6 @@ function AnsweringView({
       </div>
     );
   }
-
-  const send = async (matchupId: string) => {
-    const text = answers[matchupId]?.trim();
-    if (!text || busy) return;
-    setBusy(true);
-    setError("");
-    const res = await emitAck("answer:submit", { matchupId, text });
-    setBusy(false);
-    if (res.ok) {
-      playSfx("submit");
-      setSent((s) => ({ ...s, [matchupId]: true }));
-    } else {
-      setError(t(errorKey(res.error ?? "submit_failed")));
-    }
-  };
 
   const allSent =
     submitted || assignment.prompts.every((p) => sent[p.matchupId]);
@@ -233,7 +282,7 @@ function AnsweringView({
               <button
                 className="btn primary"
                 onClick={() => send(p.matchupId)}
-                disabled={busy || !answers[p.matchupId]?.trim()}
+                disabled={sending[p.matchupId] || !answers[p.matchupId]?.trim()}
               >
                 {t("send")}
               </button>
