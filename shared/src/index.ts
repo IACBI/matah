@@ -17,7 +17,7 @@ export type GamePhase =
 export interface Player {
   id: string;
   name: string;
-  avatar: string; // emoji avatar picked at join time
+  avatar: string; // avatar id picked at join time (rendered as an SVG)
   score: number;
   connected: boolean;
   isHost: boolean; // the TV/host screen — displays only, never plays
@@ -194,12 +194,16 @@ export function clampLength(
 export const MAX_NAME_LEN = 16;
 export const MAX_ANSWER_LEN = 120;
 
-// Emoji avatars players can pick from (server validates against this list).
+// Avatar ids players can pick from (rendered as animated SVGs on the client;
+// server validates against this list). See client Avatar.tsx for the art.
 export const AVATARS = [
-  "😎", "🦊", "🐱", "🐸", "🦄", "👻", "🤖", "🐼",
-  "🐙", "🦁", "🍕", "🚀", "🌵", "🧁", "🐲", "🥷",
+  "cool", "fox", "cat", "frog", "unicorn", "ghost", "robot", "panda",
+  "octopus", "lion", "pizza", "rocket", "cactus", "cupcake", "dragon", "ninja",
 ] as const;
-export const DEFAULT_AVATAR = "🙂";
+export const DEFAULT_AVATAR = "smiley";
+/** The host (TV) screen's avatar id. */
+export const HOST_AVATAR = "tv";
 
-// Emoji reactions anyone can fire at the host screen during a game.
-export const REACTIONS = ["😂", "❤️", "🔥", "👏", "😮", "💀"] as const;
+// Reaction ids anyone can fire at the host screen during a game (rendered as
+// animated SVGs client-side).
+export const REACTIONS = ["laugh", "heart", "fire", "clap", "wow", "skull"] as const;

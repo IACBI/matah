@@ -47,7 +47,7 @@ async function setup() {
   const code = (await ack(host, "room:create", { language: "tr" })).data.code;
   for (const [i, p] of ps.entries())
     ids[i] = (
-      await ack(p, "room:join", { code, name: names[i], avatar: "🦊" })
+      await ack(p, "room:join", { code, name: names[i], avatar: "fox" })
     ).data.playerId;
   await until(() => st, (s) => s.players.length === 3, 8000, "3 players");
   return { host, ps, ids, code, get: () => st, assignments };
@@ -57,7 +57,7 @@ async function testAudienceAndSafety() {
   log("\n=== AUDIENCE + SAFETY + REACTIONS (quiplash) ===");
   const { host, ps, ids, code, get, assignments } = await setup();
 
-  assert(get().players.every((p) => p.avatar === "🦊"), "avatars stored");
+  assert(get().players.every((p) => p.avatar === "fox"), "avatars stored");
   assert(get().hostConnected === true, "hostConnected broadcast");
 
   await ack(host, "game:start", { gameType: "quiplash" });
@@ -74,11 +74,11 @@ async function testAudienceAndSafety() {
   // Audience reaction is broadcast.
   let reaction = null;
   host.on("room:reaction", (r) => (reaction = r));
-  const rRes = await ack(aud, "reaction:send", { emoji: "🔥" });
+  const rRes = await ack(aud, "reaction:send", { emoji: "fire" });
   assert(rRes.ok, "reaction accepted");
-  await until(() => reaction, (r) => r.emoji === "🔥", 5000, "reaction broadcast");
+  await until(() => reaction, (r) => r.emoji === "fire", 5000, "reaction broadcast");
   log("✓ reaction broadcast received");
-  const badR = await ack(aud, "reaction:send", { emoji: "🧨" });
+  const badR = await ack(aud, "reaction:send", { emoji: "kaboom" });
   assert(!badR.ok, "unknown reaction emoji rejected");
 
   // Only player 0 answers; players 1-2 stay silent → safety answers on timeout.

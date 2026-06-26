@@ -3,6 +3,7 @@ import { LANGUAGES } from "../../../shared/src/index";
 import { useI18n } from "../i18n";
 import { LANGUAGE_LABELS } from "../i18n/translations";
 import { Flag } from "./Flag";
+import { IconChevron, IconSound } from "./icons";
 import { isMuted, playSfx, setMuted } from "../sound";
 
 export function LanguageSwitcher() {
@@ -41,7 +42,7 @@ export function LanguageSwitcher() {
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <Flag code={lang} /> <span className="lang-caret">▾</span>
+        <Flag code={lang} /> <IconChevron className="lang-caret" />
       </button>
       {open && (
         <div className="lang-menu" role="menu">
@@ -81,7 +82,7 @@ export function SoundToggle() {
         if (next) playSfx("click");
       }}
     >
-      {on ? "🔊" : "🔇"}
+      <IconSound on={on} />
     </button>
   );
 }

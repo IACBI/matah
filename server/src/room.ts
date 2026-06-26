@@ -11,6 +11,7 @@ import {
   clampLength,
   DEFAULT_AVATAR,
   DEFAULT_TOTAL_ROUNDS,
+  HOST_AVATAR,
   MAX_AUDIENCE,
   MAX_NAME_LEN,
   MAX_PLAYERS,
@@ -84,7 +85,7 @@ export class Room {
   /** Adds the host (TV) screen. Returns its stable pid. */
   addHost(socketId: string): string {
     const pid = randomUUID();
-    this.players.set(pid, this.newPlayer(pid, "TV", "📺", { isHost: true }));
+    this.players.set(pid, this.newPlayer(pid, "TV", HOST_AVATAR, { isHost: true }));
     this.sockets.set(pid, socketId);
     return pid;
   }

@@ -5,6 +5,8 @@ import { useI18n } from "../i18n";
 import { errorKey } from "../i18n/translations";
 import { TopBar } from "../components/Controls";
 import { ReactionBar } from "../components/Reactions";
+import { Avatar } from "../components/Avatar";
+import { IconBack, IconTimer, VerdictRight, VerdictWrong } from "../components/icons";
 import { playSfx } from "../sound";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -72,10 +74,10 @@ export function PlayerScreen({
           aria-label={t("leaveRoom")}
           title={t("leaveRoom")}
         >
-          ←
+          <IconBack />
         </button>
         <span className="player-name">
-          <span className="player-avatar">{me?.avatar ?? audienceMe?.avatar}</span>{" "}
+          <Avatar id={me?.avatar ?? audienceMe?.avatar ?? ""} className="player-avatar" />{" "}
           {me?.name ?? audienceMe?.name ?? t("you")}
         </span>
         <span className="player-stats">
@@ -93,7 +95,7 @@ export function PlayerScreen({
               className={`player-timer ${state.timer <= 5 ? "danger" : ""}`}
               aria-live="off"
             >
-              ⏱ {state.timer}
+              <IconTimer /> {state.timer}
             </span>
           )}
         </span>
@@ -480,7 +482,7 @@ function TriviaPlayerResult({
 
   return (
     <div className={`player-body center fade-in result-${correct ? "right" : "wrong"}`}>
-      <div className="verdict-emoji bounce-in">{correct ? "🎉" : "😅"}</div>
+      <div className="verdict-emoji bounce-in">{correct ? <VerdictRight /> : <VerdictWrong />}</div>
       <h2>{correct ? t("triviaRight") : t("triviaWrong")}</h2>
       {correct ? (
         <p className="big-score bounce-in">+{mine?.points}</p>

@@ -1608,9 +1608,8 @@ button.trivia-opt:active {
 }
 
 /* ---------- RTL (Arabic) ---------- */
-[dir="rtl"] .player-leave,
-[dir="rtl"] .host-leave {
-  transform: scaleX(-1); /* flip the ← arrow */
+[dir="rtl"] .player-leave .ui-icon {
+  transform: scaleX(-1); /* the back arrow points the other way in RTL */
 }
 [dir="rtl"] .code-input {
   direction: ltr; /* room codes are Latin, keep them left-to-right */
@@ -1618,4 +1617,96 @@ button.trivia-opt:active {
 [dir="rtl"] .logo,
 [dir="rtl"] .logo.small {
   direction: ltr; /* the "Matah" wordmark stays LTR */
+}
+
+/* ============ SVG icons & avatars (replace all UI emoji) ============ */
+
+/* Stroke glyphs inherit the surrounding text colour. */
+.ui-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.14em;
+  flex: 0 0 auto;
+}
+.sound-toggle .ui-icon { width: 18px; height: 18px; }
+.lang-caret.ui-icon { width: 12px; height: 12px; opacity: 0.6; }
+.copy-btn .ui-icon { width: 16px; height: 16px; }
+.kick-btn .ui-icon { width: 13px; height: 13px; }
+.player-leave .ui-icon { width: 22px; height: 22px; }
+.player-timer .ui-icon { vertical-align: -0.18em; }
+.chip-tick { width: 1.05em; height: 1.05em; color: var(--ok); vertical-align: -0.2em; }
+.chip-wait {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+  vertical-align: 0.02em;
+  animation: chip-pulse 1.1s ease-in-out infinite;
+}
+@keyframes chip-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.7; } }
+
+/* Avatars: soft badges that bob gently. */
+.avatar-svg {
+  display: inline-block;
+  width: 1.3em;
+  height: 1.3em;
+  vertical-align: -0.34em;
+  line-height: 0;
+  flex: 0 0 auto;
+}
+.avatar-svg svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.avatar-bob {
+  transform-origin: 50% 60%;
+  animation: av-bob 3.4s ease-in-out infinite;
+}
+.av-shine { animation: av-twinkle 3.4s ease-in-out infinite; }
+@keyframes av-bob {
+  0%, 100% { transform: translateY(2%) rotate(-1.5deg); }
+  50% { transform: translateY(-5%) rotate(1.5deg); }
+}
+@keyframes av-twinkle { 0%, 92%, 100% { opacity: 1; } 96% { opacity: 0.3; } }
+.avatar-opt .avatar-svg { width: 30px; height: 30px; vertical-align: middle; }
+.lobby-avatar.avatar-svg { width: 1.45em; height: 1.45em; }
+.player-avatar.avatar-svg { width: 1.4em; height: 1.4em; }
+.score-name .avatar-svg { width: 1.05em; height: 1.05em; }
+.reaction-sender .avatar-svg { width: 1.6em; height: 1.6em; }
+
+/* Reaction icons — lively idle animation invites a tap. */
+.rx-icon { display: inline-block; width: 1em; height: 1em; line-height: 0; }
+.rx-icon svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.rx-heart svg { animation: rx-beat 1s ease-in-out infinite; transform-origin: 50% 55%; }
+.rx-fire svg { animation: rx-flicker 0.85s ease-in-out infinite; transform-origin: 50% 85%; }
+.rx-laugh svg { animation: rx-tilt 1.7s ease-in-out infinite; transform-origin: 50% 80%; }
+.rx-wow svg { animation: rx-pop 1.5s ease-in-out infinite; transform-origin: 50% 50%; }
+.rx-clap svg { animation: rx-shake 0.8s ease-in-out infinite; transform-origin: 50% 70%; }
+.rx-skull svg { animation: rx-tilt 2.1s ease-in-out infinite; transform-origin: 50% 60%; }
+@keyframes rx-beat { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.18); } 45% { transform: scale(1); } 60% { transform: scale(1.1); } }
+@keyframes rx-flicker { 0%, 100% { transform: scale(1) rotate(-2deg); } 50% { transform: scale(1.08) rotate(2deg); } }
+@keyframes rx-tilt { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
+@keyframes rx-pop { 0%, 100% { transform: scale(0.96); } 50% { transform: scale(1.08); } }
+@keyframes rx-shake { 0%, 100% { transform: translateX(-1px) rotate(-6deg); } 50% { transform: translateX(1px) rotate(6deg); } }
+
+/* Medals — a slow celebratory shimmer. */
+.medal-icon { display: inline-block; width: 1em; height: 1em; vertical-align: -0.16em; line-height: 0; }
+.medal-icon svg { width: 100%; height: 100%; display: block; }
+.medal-icon { animation: medal-tilt 4s ease-in-out infinite; transform-origin: 50% 50%; }
+@keyframes medal-tilt { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+
+/* Verdicts + party burst. */
+.verdict-icon { display: inline-block; width: 1em; height: 1em; line-height: 0; }
+.verdict-icon svg { width: 100%; height: 100%; display: block; }
+.party-icon { display: inline-block; width: 1em; height: 1em; vertical-align: -0.12em; line-height: 0; }
+.party-icon svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.party-bits { animation: party-bits 1.8s ease-in-out infinite; transform-origin: 50% 30%; }
+@keyframes party-bits { 0%, 100% { transform: translateY(0) scale(1); opacity: 1; } 50% { transform: translateY(-2px) scale(1.15); opacity: 0.85; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-bob, .av-shine, .chip-wait,
+  .rx-heart svg, .rx-fire svg, .rx-laugh svg, .rx-wow svg, .rx-clap svg, .rx-skull svg,
+  .medal-icon, .party-bits {
+    animation: none;
+  }
 }

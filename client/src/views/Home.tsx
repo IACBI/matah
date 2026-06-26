@@ -5,6 +5,8 @@ import type { Role } from "../App";
 import { useI18n } from "../i18n";
 import { errorKey, type TKey } from "../i18n/translations";
 import { TopBar } from "../components/Controls";
+import { Avatar } from "../components/Avatar";
+import { IconClose } from "../components/icons";
 import { playSfx } from "../sound";
 
 interface Props {
@@ -91,7 +93,7 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
           role="status"
           onClick={onDismissNotice}
         >
-          {t(notice as TKey)} ✕
+          {t(notice as TKey)} <IconClose />
         </button>
       )}
 
@@ -156,7 +158,7 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
                     playSfx("click");
                   }}
                 >
-                  {a}
+                  <Avatar id={a} />
                 </button>
               ))}
             </div>
