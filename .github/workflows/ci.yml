@@ -101,6 +101,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --include=dev
 
+      - name: Build production bundles
+        run: npm run build
+
       - name: Run 60-second load and leak check
         run: npm run test:load
 
