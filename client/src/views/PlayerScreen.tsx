@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerAssignment, RoomState } from "../../../shared/src/index";
+import { MAX_ANSWER_LEN } from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import { useI18n } from "../i18n";
 import { errorKey } from "../i18n/translations";
@@ -10,27 +11,70 @@ import { IconBack, IconTimer, VerdictRight, VerdictWrong } from "../components/i
 import { playSfx } from "../sound";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
+const DRAFT_PREFIX = "matah.drafts.";
+
+function draftKey(code: string, playerId: string): string {
+  return `${DRAFT_PREFIX}${code}.${playerId}`;
+}
+
+function readDrafts(code: string, playerId: string): Record<string, string> {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(draftKey(code, playerId)) ?? "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDrafts(
+  code: string,
+  playerId: string,
+  drafts: Record<string, string>,
+): void {
+  try {
+    if (Object.keys(drafts).length === 0) {
+      sessionStorage.removeItem(draftKey(code, playerId));
+    } else {
+      sessionStorage.setItem(draftKey(code, playerId), JSON.stringify(drafts));
+    }
+  } catch {
+    // Draft persistence is best-effort; in-memory typing remains available.
+  }
+}
 
 interface Props {
   code: string;
   myPlayerId: string;
   state: RoomState | null;
   assignment: PlayerAssignment | null;
+  secondsLeft: number | null;
   connected: boolean;
-  onLeave: () => void;
+  leaving: boolean;
+  onLeave: () => Promise<void>;
 }
 
 export function PlayerScreen({
+  code,
   myPlayerId,
   state,
   assignment,
+  secondsLeft,
   connected,
+  leaving,
   onLeave,
 }: Props) {
   const { t } = useI18n();
+  const [controlPending, setControlPending] = useState(false);
+  const [controlError, setControlError] = useState("");
   const me = state?.players.find((p) => p.id === myPlayerId);
   const audienceMe = state?.audience.find((a) => a.id === myPlayerId);
   const isAudience = !me && !!audienceMe;
+
+  useEffect(() => {
+    if (state && (state.phase !== "answering" || state.gameType !== "quiplash")) {
+      writeDrafts(code, myPlayerId, {});
+    }
+  }, [code, myPlayerId, state]);
 
   if (!state) {
     return (
@@ -57,11 +101,24 @@ export function PlayerScreen({
       state.phase !== "scoreboard";
     if (inProgress && !window.confirm(t("leaveConfirm"))) return;
     playSfx("click");
-    onLeave();
+    void onLeave();
+  };
+
+  const rematch = async () => {
+    if (controlPending) return;
+    setControlPending(true);
+    setControlError("");
+    const result = await emitAck<null>("game:rematch", {
+      phaseId: state.phaseId,
+    });
+    setControlPending(false);
+    if (result.ok) playSfx("submit");
+    else setControlError(t(errorKey(result.error)));
   };
 
   return (
-    <div className="screen player">
+    <main className="screen player">
+      <TopBar />
       {!connected && (
         <div className="reconnect-overlay" role="alert">
           <div className="badge warn">{t("reconnecting")}</div>
@@ -90,12 +147,13 @@ export function PlayerScreen({
               {me?.score ?? 0} {t("points")}
             </span>
           )}
-          {state.timer !== null && (
+          {secondsLeft !== null && (
             <span
-              className={`player-timer ${state.timer <= 5 ? "danger" : ""}`}
+              className={`player-timer ${secondsLeft <= 5 ? "danger" : ""}`}
               aria-live="off"
+              role="timer"
             >
-              <IconTimer /> {state.timer}
+              <IconTimer /> {secondsLeft}
             </span>
           )}
         </span>
@@ -116,14 +174,16 @@ export function PlayerScreen({
           <AnsweringView
             assignment={assignment}
             submitted={me?.hasSubmitted}
-            timer={state.timer}
+            timer={secondsLeft}
+            code={code}
+            playerId={myPlayerId}
           />
         ) : (
           <TriviaAnswerView state={state} submitted={me?.hasSubmitted} />
         ))}
 
       {state.phase === "voting" && (
-        <VotingView state={state} myPlayerId={myPlayerId} />
+        <VotingView state={state} assignment={assignment} />
       )}
 
       {state.phase === "results" &&
@@ -150,28 +210,31 @@ export function PlayerScreen({
               <p className="hint">{t("youScored")}</p>
             </>
           )}
-          {state.phase === "gameover" && !state.hostConnected && !isAudience && (
+          {state.phase === "gameover" && state.controllerPlayerId === myPlayerId && !isAudience && (
             <>
               <p className="hint">{t("hostGone")}</p>
               <button
                 className="btn primary"
-                onClick={() => {
-                  playSfx("submit");
-                  void emitAck("game:restart");
-                }}
+                onClick={() => void rematch()}
+                disabled={controlPending}
               >
                 {t("playAgain")}
               </button>
             </>
           )}
-          <button className="btn ghost" onClick={onLeave}>
+          <button className="btn ghost" onClick={() => void onLeave()} disabled={leaving}>
             {t("exit")}
           </button>
+          {controlError && (
+            <div className="badge error" role="alert">
+              {controlError}
+            </div>
+          )}
         </div>
       )}
 
       {showReactions && <ReactionBar />}
-    </div>
+    </main>
   );
 }
 
@@ -190,13 +253,19 @@ function AnsweringView({
   assignment,
   submitted,
   timer,
+  code,
+  playerId,
 }: {
   assignment: PlayerAssignment | null;
   submitted?: boolean;
   timer?: number | null;
+  code: string;
+  playerId: string;
 }) {
   const { t } = useI18n();
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>(
+    () => readDrafts(code, playerId),
+  );
   const [sent, setSent] = useState<Record<string, boolean>>({});
   // Per-matchup in-flight flag so sending one prompt doesn't lock the other.
   const [sending, setSending] = useState<Record<string, boolean>>({});
@@ -223,12 +292,33 @@ function AnsweringView({
       if (res.ok) {
         playSfx("submit");
         setSent((s) => ({ ...s, [matchupId]: true }));
+        setAnswers((current) => {
+          const next = { ...current };
+          delete next[matchupId];
+          writeDrafts(code, playerId, next);
+          return next;
+        });
       } else {
         setError(t(errorKey(res.error ?? "submit_failed")));
       }
     },
-    [t]
+    [code, playerId, t]
   );
+
+  useEffect(() => {
+    if (!assignment) return;
+    const activeIds = new Set(assignment.prompts.map((prompt) => prompt.matchupId));
+    setSent(Object.fromEntries(
+      assignment.prompts.map((prompt) => [prompt.matchupId, prompt.submitted]),
+    ));
+    setAnswers((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([matchupId]) => activeIds.has(matchupId))
+      );
+      writeDrafts(code, playerId, next);
+      return next;
+    });
+  }, [assignment, code, playerId]);
 
   // When the answering clock is almost out, auto-submit any typed-but-unsent
   // drafts so the player's words aren't replaced by a canned safety quip.
@@ -275,11 +365,16 @@ function AnsweringView({
               <textarea
                 className="input answer-input"
                 placeholder={t("yourAnswer")}
-                maxLength={120}
+                maxLength={MAX_ANSWER_LEN}
                 value={answers[p.matchupId] ?? ""}
-                onChange={(e) =>
-                  setAnswers((a) => ({ ...a, [p.matchupId]: e.target.value }))
-                }
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setAnswers((current) => {
+                    const next = { ...current, [p.matchupId]: value };
+                    writeDrafts(code, playerId, next);
+                    return next;
+                  });
+                }}
               />
               <button
                 className="btn primary"
@@ -292,17 +387,17 @@ function AnsweringView({
           )}
         </div>
       ))}
-      {error && <div className="badge error shake">{error}</div>}
+      {error && <div className="badge error shake" role="alert">{error}</div>}
     </div>
   );
 }
 
 function VotingView({
   state,
-  myPlayerId,
+  assignment,
 }: {
   state: RoomState;
-  myPlayerId: string;
+  assignment: PlayerAssignment | null;
 }) {
   const { t } = useI18n();
   const matchup = state.quiplash?.activeMatchup ?? null;
@@ -324,7 +419,9 @@ function VotingView({
     );
   }
 
-  const isAuthor = matchup.answers.some((a) => a.playerId === myPlayerId);
+  const isAuthor = assignment?.prompts.some(
+    (prompt) => prompt.matchupId === matchup.id
+  );
 
   if (isAuthor) {
     return (
@@ -344,18 +441,18 @@ function VotingView({
     );
   }
 
-  const vote = async (answerPlayerId: string) => {
+  const vote = async (answerId: string) => {
     if (busy) return;
     setBusy(true);
     setError("");
     const res = await emitAck("vote:submit", {
       matchupId: matchup.id,
-      answerPlayerId,
+      answerId,
     });
     setBusy(false);
     if (res.ok) {
       playSfx("vote");
-      setVoted(answerPlayerId);
+      setVoted(answerId);
     } else {
       setError(t(errorKey(res.error ?? "vote_failed")));
     }
@@ -368,9 +465,9 @@ function VotingView({
       <div className="vote-options">
         {matchup.answers.map((a, i) => (
           <button
-            key={a.playerId}
+            key={a.answerId}
             className={`vote-btn c${i}`}
-            onClick={() => vote(a.playerId)}
+            onClick={() => vote(a.answerId)}
             disabled={busy}
             aria-label={t("ariaVote", { text: a.text })}
           >
@@ -378,7 +475,7 @@ function VotingView({
           </button>
         ))}
       </div>
-      {error && <div className="badge error shake">{error}</div>}
+      {error && <div className="badge error shake" role="alert">{error}</div>}
     </div>
   );
 }
@@ -448,7 +545,7 @@ function TriviaAnswerView({
           </button>
         ))}
       </div>
-      {error && <div className="badge error shake">{error}</div>}
+      {error && <div className="badge error shake" role="alert">{error}</div>}
     </div>
   );
 }

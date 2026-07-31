@@ -4,7 +4,17 @@
    Display: Bricolage Grotesque · Body: Hanken Grotesk · Mono: Space Mono
    ============================================================ */
 
+/* Room codes only use ASCII; ship one modern Space Mono file and weight. */
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("@fontsource/space-mono/files/space-mono-latin-700-normal.woff2") format("woff2");
+}
+
 :root {
+  color-scheme: dark;
   /* surfaces */
   --bg: #14110c;
   --bg-elev: #1e1810;
@@ -73,7 +83,7 @@ textarea:focus-visible,
 html,
 body,
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
@@ -121,10 +131,29 @@ body::after {
 /* ---------- Layout ---------- */
 .screen {
   position: relative;
-  min-height: 100%;
-  padding: clamp(18px, 4vw, 52px);
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-block: max(clamp(18px, 4vw, 52px), env(safe-area-inset-top))
+    max(clamp(18px, 4vw, 52px), env(safe-area-inset-bottom));
+  padding-inline: max(clamp(18px, 4vw, 52px), env(safe-area-inset-left))
+    max(clamp(18px, 4vw, 52px), env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
+}
+.screen.host,
+.screen.player {
+  padding-block-start: max(64px, calc(env(safe-area-inset-top) + 54px));
+}
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
 }
 .center {
   display: flex;
@@ -287,6 +316,12 @@ body::after {
   border-color: var(--gold);
   box-shadow: 0 0 0 3px rgba(246, 189, 69, 0.22);
 }
+.field-label {
+  margin-bottom: -8px;
+  color: var(--ink-dim);
+  font-size: 13px;
+  font-weight: 700;
+}
 .code-input {
   font-family: var(--font-mono);
   text-align: center;
@@ -325,8 +360,8 @@ body::after {
 /* ---------- Top bar: language + sound ---------- */
 .top-bar {
   position: fixed;
-  top: 14px;
-  right: 14px;
+  top: max(14px, env(safe-area-inset-top));
+  inset-inline-end: max(14px, env(safe-area-inset-right));
   display: flex;
   gap: 8px;
   z-index: 50;
@@ -358,48 +393,21 @@ body::after {
 .lang-switcher {
   position: relative;
 }
+.lang-current {
+  position: relative;
+}
+.lang-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
 .lang-caret {
   font-size: 10px;
   opacity: 0.6;
 }
-.lang-menu {
-  position: absolute;
-  top: 116%;
-  right: 0;
-  background: var(--bg-elev);
-  border: 1.5px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 158px;
-  box-shadow: var(--shadow-lg);
-  animation: popIn 0.16s ease;
-}
-.lang-opt {
-  font-family: var(--font-body);
-  font-size: 15px;
-  font-weight: 600;
-  text-align: left;
-  color: var(--ink);
-  background: none;
-  border: none;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 12px;
-  cursor: pointer;
-}
-.lang-opt:hover {
-  background: rgba(248, 241, 226, 0.07);
-}
-.lang-opt.active {
-  background: var(--gold);
-  color: var(--on-gold);
-}
-
 /* ---------- Waving flags ---------- */
 .flag {
   display: inline-block;
@@ -421,19 +429,6 @@ body::after {
    overall flutter, anchored at the pole (left) like a flag in a breeze. */
 .flag-anim .flag-wave {
   animation: flag-wave 3.2s ease-in-out infinite;
-}
-/* stagger so a menu full of flags doesn't flutter in lockstep */
-.lang-opt:nth-child(2n) .flag-anim .flag-wave,
-.lang-opt:nth-child(2n) .flag-wave {
-  animation-delay: -0.7s;
-}
-.lang-opt:nth-child(3n) .flag-anim .flag-wave,
-.lang-opt:nth-child(3n) .flag-wave {
-  animation-delay: -1.4s;
-}
-.lang-opt:nth-child(4n) .flag-anim .flag-wave,
-.lang-opt:nth-child(4n) .flag-wave {
-  animation-delay: -2.1s;
 }
 @keyframes flag-wave {
   0%,
@@ -480,9 +475,10 @@ body::after {
   align-items: center;
   gap: 10px;
 }
-.room-code-pill b {
+.room-code-pill bdi {
   font-family: var(--font-mono);
   font-size: 24px;
+  font-weight: 700;
   letter-spacing: 0.18em;
   color: var(--gold);
 }
@@ -497,7 +493,7 @@ body::after {
   font-size: 14px;
 }
 .timer {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-family: var(--font-mono);
   font-size: 34px;
   font-weight: 700;
@@ -918,7 +914,7 @@ body::after {
   margin-bottom: 6px;
 }
 .ra-meta {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 12.5px;
   color: var(--muted);
 }
@@ -949,7 +945,7 @@ body::after {
   font-weight: 600;
   font-family: var(--font-body);
   color: var(--ink);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   box-shadow: var(--shadow-card);
   transition: transform 0.1s ease, border-color 0.2s ease, filter 0.2s ease;
@@ -1051,7 +1047,7 @@ button.trivia-opt:active {
 .score-name {
   font-family: var(--font-display);
   font-weight: 700;
-  text-align: left;
+  text-align: start;
   letter-spacing: -0.01em;
 }
 .score-pts {
@@ -1272,9 +1268,23 @@ button.trivia-opt:active {
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
+    animation: none !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
+}
+.content-language {
+  width: min(320px, 100%);
+  display: grid;
+  gap: 7px;
+  color: var(--ink-dim);
+  font-weight: 700;
+  text-align: start;
+  margin-bottom: 18px;
+}
+.command-error {
+  align-self: center;
+  margin-bottom: 14px;
 }
 
 /* ---------- Player timer + reconnect overlay ---------- */
@@ -1310,6 +1320,8 @@ button.trivia-opt:active {
   font-size: 1.1em;
 }
 .avatar-picker {
+  min-width: 0;
+  border: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1334,7 +1346,13 @@ button.trivia-opt:active {
   border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  display: grid;
+  place-items: center;
   transition: transform 0.08s ease, border-color 0.1s ease;
+}
+.avatar-opt:has(input:focus-visible) {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
 }
 .avatar-opt:hover {
   transform: translateY(-2px);
@@ -1372,7 +1390,7 @@ button.trivia-opt:active {
 
 /* ---------- Copy button + header pills ---------- */
 .copy-btn {
-  margin-left: 8px;
+  margin-inline-start: 8px;
   font-size: 13px;
   font-weight: 700;
   color: var(--ink-dim);
@@ -1387,7 +1405,7 @@ button.trivia-opt:active {
   border-color: var(--gold);
 }
 .audience-pill {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 13px;
   color: var(--teal);
   border: 1.5px solid var(--teal-deep);
@@ -1460,7 +1478,7 @@ button.trivia-opt:active {
 }
 .reaction-bar {
   position: sticky;
-  bottom: 10px;
+  bottom: max(10px, env(safe-area-inset-bottom));
   align-self: center;
   display: flex;
   gap: 8px;
@@ -1490,6 +1508,36 @@ button.trivia-opt:active {
 
 /* ---------- Responsive ---------- */
 @media (max-width: 600px) {
+  body {
+    background-attachment: scroll;
+  }
+  .screen {
+    padding-inline: max(14px, env(safe-area-inset-left))
+      max(14px, env(safe-area-inset-right));
+  }
+  .player-header {
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .player-name {
+    min-width: 0;
+    max-width: calc(100% - 48px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .player-stats {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .host-header {
+    gap: 9px;
+  }
+  .room-code-pill {
+    max-width: 100%;
+  }
   .vs-grid {
     grid-template-columns: 1fr;
   }
@@ -1568,9 +1616,17 @@ button.trivia-opt:active {
 
 /* ---------- Dismissible notice (home) ---------- */
 .badge.notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.notice-close {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
-  border: none;
-  font: inherit;
 }
 
 /* ---------- Leave / back controls ---------- */

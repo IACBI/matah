@@ -20,7 +20,7 @@ export const LANGUAGE_LABELS: Record<Language, string> = {
   nl: "Nederlands",
 };
 
-const dict = {
+export const dict = {
   en: {
     tagline: "The hilarious party game you play with friends",
     connecting: "Connecting to server…",
@@ -83,6 +83,8 @@ const dict = {
     triviaRight: "Correct!",
     streak: "{n} streak",
     language: "Language",
+    soundOn: "Sound on",
+    soundOff: "Sound muted",
     errRoomNotFound: "Room not found",
     errGameStarted: "The game already started",
     errRoomFull: "Room is full",
@@ -116,6 +118,7 @@ const dict = {
     questionsLabel: "Questions",
     kickedTitle: "Removed from room",
     kickedNotice: "The host removed you from the game.",
+    sessionReplacedNotice: "This session was opened on another device.",
     leaveRoom: "Leave",
     leaveConfirm: "Leave this game and return to the menu?",
   },
@@ -159,7 +162,7 @@ const dict = {
     voteOnPhone: "Telefondan favorine oy ver!",
     yourMatchup: "Bu senin eşleşmen!",
     cantVoteOwn: "Kendine oy veremezsin. TV'ye bak.",
-    voteSaved: "Oyun kaydedildi!",
+    voteSaved: "Oyunuz kaydedildi!",
     waitingOthers: "Diğerleri bekleniyor…",
     resultsOnScreen: "Sonuçlar ekranda!",
     lookAtTv: "TV'ye bak",
@@ -181,6 +184,8 @@ const dict = {
     triviaRight: "Doğru!",
     streak: "{n} seri",
     language: "Dil",
+    soundOn: "Ses açık",
+    soundOff: "Ses kapalı",
     errRoomNotFound: "Oda bulunamadı",
     errGameStarted: "Oyun çoktan başladı",
     errRoomFull: "Oda dolu",
@@ -214,6 +219,7 @@ const dict = {
     questionsLabel: "Soru",
     kickedTitle: "Odadan çıkarıldın",
     kickedNotice: "Host seni oyundan çıkardı.",
+    sessionReplacedNotice: "Bu oturum başka bir cihazda açıldı.",
     leaveRoom: "Ayrıl",
     leaveConfirm: "Bu oyundan çıkıp menüye dönülsün mü?",
   },
@@ -279,6 +285,8 @@ const dict = {
     triviaRight: "Richtig!",
     streak: "{n}er-Serie",
     language: "Sprache",
+    soundOn: "Ton an",
+    soundOff: "Ton aus",
     errRoomNotFound: "Raum nicht gefunden",
     errGameStarted: "Das Spiel hat schon begonnen",
     errRoomFull: "Raum ist voll",
@@ -312,6 +320,7 @@ const dict = {
     questionsLabel: "Fragen",
     kickedTitle: "Aus dem Raum entfernt",
     kickedNotice: "Der Host hat dich aus dem Spiel entfernt.",
+    sessionReplacedNotice: "Diese Sitzung wurde auf einem anderen Gerät geöffnet.",
     leaveRoom: "Verlassen",
     leaveConfirm: "Dieses Spiel verlassen und zum Menü zurückkehren?",
   },
@@ -377,6 +386,8 @@ const dict = {
     triviaRight: "¡Correcto!",
     streak: "racha de {n}",
     language: "Idioma",
+    soundOn: "Sonido activado",
+    soundOff: "Sonido desactivado",
     errRoomNotFound: "Sala no encontrada",
     errGameStarted: "El juego ya empezó",
     errRoomFull: "La sala está llena",
@@ -410,6 +421,7 @@ const dict = {
     questionsLabel: "Preguntas",
     kickedTitle: "Expulsado de la sala",
     kickedNotice: "El anfitrión te expulsó del juego.",
+    sessionReplacedNotice: "Esta sesión se abrió en otro dispositivo.",
     leaveRoom: "Salir",
     leaveConfirm: "¿Salir de este juego y volver al menú?",
   },
@@ -475,6 +487,8 @@ const dict = {
     triviaRight: "Correct!",
     streak: "série de {n}",
     language: "Langue",
+    soundOn: "Son activé",
+    soundOff: "Son coupé",
     errRoomNotFound: "Salon introuvable",
     errGameStarted: "La partie a déjà commencé",
     errRoomFull: "Le salon est plein",
@@ -508,6 +522,9 @@ const dict = {
     questionsLabel: "Questions",
     kickedTitle: "Retiré du salon",
     kickedNotice: "L'hôte t'a retiré de la partie.",
+    sessionReplacedNotice: "Cette session a été ouverte sur un autre appareil.",
+    leaveRoom: "Quitter",
+    leaveConfirm: "Quitter cette partie et revenir au menu ?",
   },
   it: {
     tagline: "Il divertentissimo party game da giocare con gli amici",
@@ -571,6 +588,8 @@ const dict = {
     triviaRight: "Corretto!",
     streak: "{n} di fila",
     language: "Lingua",
+    soundOn: "Audio attivo",
+    soundOff: "Audio disattivato",
     errRoomNotFound: "Stanza non trovata",
     errGameStarted: "La partita è già iniziata",
     errRoomFull: "La stanza è piena",
@@ -604,6 +623,9 @@ const dict = {
     questionsLabel: "Domande",
     kickedTitle: "Rimosso dalla stanza",
     kickedNotice: "L'host ti ha rimosso dalla partita.",
+    sessionReplacedNotice: "Questa sessione è stata aperta su un altro dispositivo.",
+    leaveRoom: "Esci",
+    leaveConfirm: "Uscire da questa partita e tornare al menu?",
   },
   pt: {
     tagline: "O jogo de festa hilariante que jogas com amigos",
@@ -667,6 +689,8 @@ const dict = {
     triviaRight: "Correto!",
     streak: "{n} seguidas",
     language: "Idioma",
+    soundOn: "Som ligado",
+    soundOff: "Som desligado",
     errRoomNotFound: "Sala não encontrada",
     errGameStarted: "O jogo já começou",
     errRoomFull: "A sala está cheia",
@@ -700,6 +724,9 @@ const dict = {
     questionsLabel: "Perguntas",
     kickedTitle: "Removido da sala",
     kickedNotice: "O anfitrião removeu-te do jogo.",
+    sessionReplacedNotice: "Esta sessão foi aberta noutro dispositivo.",
+    leaveRoom: "Sair",
+    leaveConfirm: "Sair deste jogo e voltar ao menu?",
   },
   ru: {
     tagline: "Уморительная вечериночная игра для компании друзей",
@@ -763,6 +790,8 @@ const dict = {
     triviaRight: "Верно!",
     streak: "серия из {n}",
     language: "Язык",
+    soundOn: "Звук включён",
+    soundOff: "Звук выключен",
     errRoomNotFound: "Комната не найдена",
     errGameStarted: "Игра уже началась",
     errRoomFull: "Комната заполнена",
@@ -796,6 +825,9 @@ const dict = {
     questionsLabel: "Вопросы",
     kickedTitle: "Удалён из комнаты",
     kickedNotice: "Ведущий удалил вас из игры.",
+    sessionReplacedNotice: "Этот сеанс открыт на другом устройстве.",
+    leaveRoom: "Выйти",
+    leaveConfirm: "Выйти из игры и вернуться в меню?",
   },
   ar: {
     tagline: "لعبة الحفلات المضحكة التي تلعبها مع أصدقائك",
@@ -859,6 +891,8 @@ const dict = {
     triviaRight: "إجابة صحيحة!",
     streak: "{n} متتالية",
     language: "اللغة",
+    soundOn: "الصوت مفعّل",
+    soundOff: "الصوت مكتوم",
     errRoomNotFound: "لم يتم العثور على الغرفة",
     errGameStarted: "بدأت اللعبة بالفعل",
     errRoomFull: "الغرفة ممتلئة",
@@ -892,6 +926,9 @@ const dict = {
     questionsLabel: "الأسئلة",
     kickedTitle: "تمت إزالتك من الغرفة",
     kickedNotice: "أزالك المضيف من اللعبة.",
+    sessionReplacedNotice: "تم فتح هذه الجلسة على جهاز آخر.",
+    leaveRoom: "مغادرة",
+    leaveConfirm: "مغادرة هذه اللعبة والعودة إلى القائمة؟",
   },
   zh: {
     tagline: "和朋友一起玩的爆笑派对游戏",
@@ -955,6 +992,8 @@ const dict = {
     triviaRight: "答对了！",
     streak: "连对 {n} 次",
     language: "语言",
+    soundOn: "声音已开启",
+    soundOff: "已静音",
     errRoomNotFound: "找不到房间",
     errGameStarted: "游戏已经开始了",
     errRoomFull: "房间已满",
@@ -988,6 +1027,9 @@ const dict = {
     questionsLabel: "题数",
     kickedTitle: "已被移出房间",
     kickedNotice: "房主把你移出了游戏。",
+    sessionReplacedNotice: "此会话已在另一台设备上打开。",
+    leaveRoom: "离开",
+    leaveConfirm: "离开本局并返回菜单吗？",
   },
   ja: {
     tagline: "友達とワイワイ盛り上がる爆笑パーティーゲーム",
@@ -1051,6 +1093,8 @@ const dict = {
     triviaRight: "正解！",
     streak: "{n}連続",
     language: "言語",
+    soundOn: "サウンドオン",
+    soundOff: "ミュート",
     errRoomNotFound: "ルームが見つかりません",
     errGameStarted: "ゲームはすでに始まっています",
     errRoomFull: "ルームが満員です",
@@ -1084,6 +1128,9 @@ const dict = {
     questionsLabel: "問題数",
     kickedTitle: "ルームから退出させられました",
     kickedNotice: "ホストによってゲームから退出させられました。",
+    sessionReplacedNotice: "このセッションは別の端末で開かれました。",
+    leaveRoom: "退出",
+    leaveConfirm: "このゲームを退出してメニューに戻りますか？",
   },
   ko: {
     tagline: "친구들과 함께 즐기는 폭소 파티 게임",
@@ -1147,6 +1194,8 @@ const dict = {
     triviaRight: "정답이에요!",
     streak: "{n}연속",
     language: "언어",
+    soundOn: "소리 켜짐",
+    soundOff: "음소거",
     errRoomNotFound: "방을 찾을 수 없어요",
     errGameStarted: "게임이 이미 시작됐어요",
     errRoomFull: "방이 가득 찼어요",
@@ -1180,6 +1229,9 @@ const dict = {
     questionsLabel: "문제 수",
     kickedTitle: "방에서 내보내짐",
     kickedNotice: "방장이 당신을 게임에서 내보냈어요.",
+    sessionReplacedNotice: "이 세션이 다른 기기에서 열렸어요.",
+    leaveRoom: "나가기",
+    leaveConfirm: "이 게임을 나가 메뉴로 돌아갈까요?",
   },
   hi: {
     tagline: "दोस्तों के साथ खेलने वाला धमाकेदार पार्टी गेम",
@@ -1243,6 +1295,8 @@ const dict = {
     triviaRight: "सही!",
     streak: "{n} की लय",
     language: "भाषा",
+    soundOn: "आवाज़ चालू",
+    soundOff: "आवाज़ बंद",
     errRoomNotFound: "रूम नहीं मिला",
     errGameStarted: "गेम पहले ही शुरू हो चुका है",
     errRoomFull: "रूम भर चुका है",
@@ -1276,6 +1330,9 @@ const dict = {
     questionsLabel: "सवाल",
     kickedTitle: "रूम से हटाया गया",
     kickedNotice: "होस्ट ने आपको गेम से हटा दिया।",
+    sessionReplacedNotice: "यह सेशन किसी दूसरे डिवाइस पर खोला गया है।",
+    leaveRoom: "बाहर जाएँ",
+    leaveConfirm: "इस गेम से बाहर जाकर मेन्यू पर लौटें?",
   },
   nl: {
     tagline: "Het hilarische partyspel dat je met vrienden speelt",
@@ -1339,6 +1396,8 @@ const dict = {
     triviaRight: "Goed!",
     streak: "{n} op rij",
     language: "Taal",
+    soundOn: "Geluid aan",
+    soundOff: "Geluid gedempt",
     errRoomNotFound: "Ruimte niet gevonden",
     errGameStarted: "Het spel is al begonnen",
     errRoomFull: "Ruimte is vol",
@@ -1372,6 +1431,9 @@ const dict = {
     questionsLabel: "Vragen",
     kickedTitle: "Uit de ruimte verwijderd",
     kickedNotice: "De host heeft je uit het spel verwijderd.",
+    sessionReplacedNotice: "Deze sessie is op een ander apparaat geopend.",
+    leaveRoom: "Verlaten",
+    leaveConfirm: "Dit spel verlaten en teruggaan naar het menu?",
   },
 } satisfies Record<Language, Record<string, string>>;
 
@@ -1384,7 +1446,7 @@ export function translate(
   let str: string = (table as Record<string, string>)[key] ?? dict.en[key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      str = str.replace(`{${k}}`, String(v));
+      str = str.replaceAll(`{${k}}`, String(v));
     }
   }
   return str;
@@ -1409,6 +1471,11 @@ const ERROR_CODE_TO_KEY: Record<string, TKey> = {
   invalid_game: "errServer",
   invalid_reaction: "errServer",
   invalid_target: "errServer",
+  invalid_language: "errServer",
+  invalid_phase: "errServer",
+  invalid_request: "errServer",
+  request_timeout: "errServer",
+  disconnected: "errServer",
 };
 
 export function errorKey(code?: string): TKey {

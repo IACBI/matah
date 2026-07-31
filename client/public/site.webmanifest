@@ -4,7 +4,6 @@
   "description": "The hilarious party game you play with friends.",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "portrait",
   "background_color": "#14110c",
   "theme_color": "#14110c",
   "icons": [

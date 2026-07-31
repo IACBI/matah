@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import QRCode from "qrcode";
-import type { GamePhase, GameType, RoomState } from "../../../shared/src/index";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type {
+  GamePhase,
+  GameType,
+  Language,
+  RoomState,
+} from "../../../shared/src/index";
 import {
   DEFAULT_TOTAL_ROUNDS,
   MAX_QUESTIONS,
@@ -9,9 +13,11 @@ import {
   MIN_QUESTIONS,
   MIN_ROUNDS,
   TRIVIA_QUESTIONS,
+  LANGUAGES,
 } from "../../../shared/src/index";
-import { emitAck } from "../socket";
+import { emitAck, type ClientResult } from "../socket";
 import { useI18n } from "../i18n";
+import { errorKey, LANGUAGE_LABELS } from "../i18n/translations";
 import { TopBar } from "../components/Controls";
 import { Confetti } from "../components/Confetti";
 import { ReactionOverlay } from "../components/Reactions";
@@ -25,28 +31,74 @@ const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
 interface Props {
   code: string;
   state: RoomState | null;
+  secondsLeft: number | null;
   connected: boolean;
-  onLeave: () => void;
+  leaving: boolean;
+  onLeave: () => Promise<void>;
 }
 
-export function HostScreen({ code, state, connected, onLeave }: Props) {
+export function HostScreen({
+  code,
+  state,
+  secondsLeft,
+  connected,
+  leaving,
+  onLeave,
+}: Props) {
   const { t } = useI18n();
-  const start = (gameType: GameType, rounds: number) => {
-    playSfx("submit");
-    emitAck("game:start", { gameType, rounds });
+  const [pending, setPending] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState("");
+  const pendingRef = useRef(false);
+
+  const runCommand = useCallback(
+    async (name: string, action: () => Promise<ClientResult<null>>) => {
+      if (pendingRef.current) return false;
+      pendingRef.current = true;
+      setPending(name);
+      setCommandError("");
+      const result = await action();
+      if (!result.ok) setCommandError(t(errorKey(result.error)));
+      pendingRef.current = false;
+      setPending(null);
+      return result.ok;
+    },
+    [t]
+  );
+
+  const start = async (gameType: GameType, rounds: number) => {
+    if (!state) return;
+    const ok = await runCommand("start", () =>
+      emitAck<null>("game:start", { gameType, rounds, phaseId: state.phaseId })
+    );
+    if (ok) playSfx("submit");
   };
-  const next = () => {
-    playSfx("click");
-    emitAck("game:next");
+  const next = async () => {
+    if (!state) return;
+    const ok = await runCommand("next", () =>
+      emitAck<null>("game:next", { phaseId: state.phaseId })
+    );
+    if (ok) playSfx("click");
   };
-  const kick = (playerId: string) => {
-    playSfx("click");
-    void emitAck("player:kick", { playerId });
+  const kick = async (playerId: string) => {
+    if (!state) return;
+    const ok = await runCommand("kick", () =>
+      emitAck<null>("player:kick", { playerId, phaseId: state.phaseId })
+    );
+    if (ok) playSfx("click");
   };
-  const endGame = () => {
+  const setGameLanguage = async (language: Language) => {
+    if (!state) return;
+    await runCommand("language", () =>
+      emitAck<null>("room:setLanguage", { language, phaseId: state.phaseId })
+    );
+  };
+  const endGame = async () => {
+    if (!state) return;
     if (!window.confirm(t("endGameConfirm"))) return;
-    playSfx("click");
-    void emitAck("game:end");
+    const ok = await runCommand("end", () =>
+      emitAck<null>("game:end", { phaseId: state.phaseId })
+    );
+    if (ok) playSfx("click");
   };
   const leaveGame = () => {
     const inProgress =
@@ -56,7 +108,7 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
       state.phase !== "scoreboard";
     if (inProgress && !window.confirm(t("leaveConfirm"))) return;
     playSfx("click");
-    onLeave();
+    void onLeave();
   };
 
   // Sound cues on phase transitions.
@@ -82,7 +134,7 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
         <div className="badge warn">
           {connected ? t("preparingRoom") : t("connecting")}
         </div>
-        <button className="btn link host-leave-center" onClick={onLeave}>
+        <button className="btn link host-leave-center" onClick={() => void onLeave()} disabled={leaving}>
           {t("leaveRoom")}
         </button>
       </div>
@@ -96,7 +148,7 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
     (state.phase === "answering" || state.phase === "voting");
 
   return (
-    <div className="screen host">
+    <main className="screen host">
       <TopBar />
       <ReactionOverlay />
       <header className="host-header">
@@ -104,7 +156,7 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
           <span className="logo-q">M</span>atah
         </div>
         <div className="room-code-pill">
-          {t("roomCode")}: <b>{state.code || code}</b>
+          {t("roomCode")}: <bdi>{state.code || code}</bdi>
           <CopyCodeButton code={state.code || code} />
         </div>
         {state.round > 0 && state.phase !== "gameover" && (
@@ -117,22 +169,28 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
             {t("audienceCount", { n: state.audience.length })}
           </div>
         )}
-        {state.timer !== null && (
-          <div className={`timer ${state.timer <= 5 ? "danger" : ""}`}>
-            {state.timer}
+        {secondsLeft !== null && (
+          <div className={`timer ${secondsLeft <= 5 ? "danger" : ""}`} role="timer" aria-label={`${secondsLeft}`}>
+            {secondsLeft}
           </div>
         )}
         {(state.phase === "answering" ||
           state.phase === "voting" ||
           state.phase === "results") && (
-          <button className="btn ghost end-game-btn" onClick={endGame}>
+          <button className="btn ghost end-game-btn" onClick={() => void endGame()} disabled={pending !== null}>
             {t("endGame")}
           </button>
         )}
-        <button className="btn link host-leave" onClick={leaveGame}>
+        <button className="btn link host-leave" onClick={leaveGame} disabled={leaving || pending !== null}>
           {t("leaveRoom")}
         </button>
       </header>
+
+      {commandError && (
+        <div className="badge error command-error" role="alert">
+          {commandError}
+        </div>
+      )}
 
       {isFinalRound && (
         <div className="final-banner pop-in">
@@ -141,7 +199,13 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
       )}
 
       {state.phase === "lobby" && (
-        <LobbyView state={state} onStart={start} onKick={kick} />
+        <LobbyView
+          state={state}
+          pending={pending !== null}
+          onStart={start}
+          onKick={kick}
+          onLanguage={setGameLanguage}
+        />
       )}
 
       {state.phase === "answering" && state.gameType === "quiplash" && (
@@ -161,7 +225,7 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
       )}
 
       {state.phase === "results" && state.gameType === "quiplash" && (
-        <QuiplashResultsView state={state} onNext={next} />
+        <QuiplashResultsView state={state} onNext={next} pending={pending !== null} />
       )}
 
       {state.phase === "results" && state.gameType === "trivia" && (
@@ -169,9 +233,15 @@ export function HostScreen({ code, state, connected, onLeave }: Props) {
       )}
 
       {(state.phase === "scoreboard" || state.phase === "gameover") && (
-        <ScoreboardView state={state} onLeave={onLeave} />
+        <ScoreboardView
+          state={state}
+          pending={pending !== null || leaving}
+          onRematch={() => runCommand("rematch", () => emitAck<null>("game:rematch", { phaseId: state.phaseId }))}
+          onChangeSettings={() => runCommand("restart", () => emitAck<null>("game:restart", { phaseId: state.phaseId }))}
+          onLeave={onLeave}
+        />
       )}
-    </div>
+    </main>
   );
 }
 
@@ -201,14 +271,25 @@ function JoinQr({ code }: { code: string }) {
   const [src, setSrc] = useState<string>("");
 
   useEffect(() => {
+    let cancelled = false;
     const url = `${window.location.origin}/?code=${code}`;
-    QRCode.toDataURL(url, {
-      margin: 1,
-      width: 220,
-      color: { dark: "#14110c", light: "#f8f1e2" },
-    })
-      .then(setSrc)
-      .catch(() => setSrc(""));
+    void import("qrcode")
+      .then(({ default: QRCode }) =>
+        QRCode.toDataURL(url, {
+          margin: 1,
+          width: 220,
+          color: { dark: "#14110c", light: "#f8f1e2" },
+        })
+      )
+      .then((dataUrl) => {
+        if (!cancelled) setSrc(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setSrc("");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [code]);
 
   if (!src) return null;
@@ -241,12 +322,16 @@ function PlayerChips({
 
 function LobbyView({
   state,
+  pending,
   onStart,
   onKick,
+  onLanguage,
 }: {
   state: RoomState;
+  pending: boolean;
   onStart: (g: GameType, rounds: number) => void;
   onKick: (playerId: string) => void;
+  onLanguage: (language: Language) => void;
 }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<GameType>("quiplash");
@@ -275,6 +360,22 @@ function LobbyView({
 
       <JoinQr code={state.code} />
 
+      <label className="content-language">
+        <span>{t("language")}</span>
+        <select
+          className="input"
+          value={state.language}
+          disabled={pending}
+          onChange={(event) => onLanguage(event.target.value as Language)}
+        >
+          {LANGUAGES.map((language) => (
+            <option key={language} value={language}>
+              {LANGUAGE_LABELS[language]}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <div className="lobby-players">
         {state.players.length === 0 && (
           <p className="hint">{t("waitingPlayers")}</p>
@@ -288,6 +389,7 @@ function LobbyView({
             <button
               className="kick-btn"
               onClick={() => onKick(p.id)}
+              disabled={pending}
               aria-label={t("kickAria", { name: p.name })}
               title={t("kickAria", { name: p.name })}
             >
@@ -340,7 +442,7 @@ function LobbyView({
       <button
         className="btn primary big"
         onClick={() => onStart(selected, clampedLength)}
-        disabled={!enough}
+        disabled={!enough || pending}
       >
         {enough
           ? t("startGame", { n: state.players.length })
@@ -364,7 +466,11 @@ function GameCard({
   onClick: () => void;
 }) {
   return (
-    <button className={`game-card ${active ? "active" : ""}`} onClick={onClick}>
+    <button
+      className={`game-card ${active ? "active" : ""}`}
+      onClick={onClick}
+      aria-pressed={active}
+    >
       <span className="game-icon">{icon}</span>
       <span className="game-title">{title}</span>
       <span className="game-desc">{desc}</span>
@@ -387,7 +493,7 @@ function QuiplashVoteView({ state }: { state: RoomState }) {
       <p className="hint">{t("voteOnPhone")}</p>
       <div className="vs-grid">
         {m.answers.map((a, i) => (
-          <div key={a.playerId} className={`vs-card c${i} pop-in`}>
+          <div key={a.answerId} className={`vs-card c${i} pop-in`}>
             <span className="vs-text">{a.text}</span>
           </div>
         ))}
@@ -399,9 +505,11 @@ function QuiplashVoteView({ state }: { state: RoomState }) {
 function QuiplashResultsView({
   state,
   onNext,
+  pending,
 }: {
   state: RoomState;
   onNext: () => void;
+  pending: boolean;
 }) {
   const { t } = useI18n();
   return (
@@ -437,7 +545,7 @@ function QuiplashResultsView({
         })}
       </div>
       <div className="center">
-        <button className="btn ghost" onClick={onNext}>
+        <button className="btn ghost" onClick={onNext} disabled={pending}>
           {t("continueBtn")}
         </button>
       </div>
@@ -509,10 +617,16 @@ function TriviaResultsView({ state }: { state: RoomState }) {
 
 function ScoreboardView({
   state,
+  pending,
+  onRematch,
+  onChangeSettings,
   onLeave,
 }: {
   state: RoomState;
-  onLeave: () => void;
+  pending: boolean;
+  onRematch: () => void;
+  onChangeSettings: () => void;
+  onLeave: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const ranked = [...state.players].sort((a, b) => b.score - a.score);
@@ -542,15 +656,16 @@ function ScoreboardView({
       <div className="scoreboard-actions">
         <button
           className="btn primary"
-          onClick={() => {
-            playSfx("submit");
-            emitAck("game:restart");
-          }}
+          onClick={onRematch}
+          disabled={pending}
         >
           {t("playAgain")}
         </button>
-        <button className="btn ghost" onClick={onLeave}>
+        <button className="btn ghost" onClick={onChangeSettings} disabled={pending}>
           {t("backToMenu")}
+        </button>
+        <button className="btn link" onClick={() => void onLeave()} disabled={pending}>
+          {t("leaveRoom")}
         </button>
       </div>
     </div>
