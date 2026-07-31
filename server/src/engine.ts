@@ -32,6 +32,7 @@ export interface EngineContext {
   resetFlags(): void;
   /** Show the final scoreboard, then end the game. */
   toScoreboard(seconds: number): void;
+  /** Monotonic milliseconds for gameplay timing. */
   now(): number;
 }
 
@@ -47,7 +48,7 @@ export interface GameEngine {
   readonly type: GameType;
   start(): void;
   handleAnswer?(playerId: string, matchupId: string, text: string): boolean;
-  handleVote?(playerId: string, matchupId: string, answerPlayerId: string): boolean;
+  handleVote?(playerId: string, matchupId: string, answerId: string): boolean;
   handleTriviaAnswer?(
     playerId: string,
     questionId: string,

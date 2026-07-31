@@ -32,8 +32,14 @@ export interface Player {
 export interface Matchup {
   id: string;
   prompt: string;
-  answers: { playerId: string; playerName: string; text: string }[];
-  votes: Record<string, string>; // voterId -> answer playerId
+  answers: {
+    answerId: string;
+    playerId: string;
+    playerName: string;
+    text: string;
+    isSafety: boolean;
+  }[];
+  votes: Record<string, string>; // voterId -> answerId
 }
 
 export interface MatchupResult {
@@ -42,6 +48,7 @@ export interface MatchupResult {
     playerId: string;
     playerName: string;
     text: string;
+    isSafety: boolean;
     votes: number;
     pointsAwarded: number;
   }[];
@@ -50,13 +57,17 @@ export interface MatchupResult {
 export interface QuiplashView {
   currentMatchupIndex: number;
   totalMatchups: number;
-  activeMatchup: Pick<Matchup, "id" | "prompt" | "answers"> | null;
+  activeMatchup: {
+    id: string;
+    prompt: string;
+    answers: { answerId: string; text: string }[];
+  } | null;
   lastResults: MatchupResult[] | null;
 }
 
 /** Personalized prompts a player must answer (quiplash answering phase). */
 export interface PlayerAssignment {
-  prompts: { matchupId: string; prompt: string }[];
+  prompts: { matchupId: string; prompt: string; submitted: boolean }[];
 }
 
 // ---- Trivia ----
@@ -86,7 +97,14 @@ export interface RoomState {
   players: Player[]; // active (non-host, non-audience) players
   audience: Pick<Player, "id" | "name" | "avatar" | "connected">[];
   hostConnected: boolean; // false → players may take over host controls
-  timer: number | null;
+  /** Monotonically increasing guard for control commands. */
+  phaseId: number;
+  /** Unix epoch milliseconds when the current phase expires. */
+  phaseEndsAt: number | null;
+  /** Server clock sample paired with phaseEndsAt for client clock-offset handling. */
+  serverNow: number;
+  /** Elected player controller while the host is unavailable; null otherwise. */
+  controllerPlayerId: string | null;
   quiplash?: QuiplashView;
   trivia?: TriviaView;
 }
@@ -96,31 +114,47 @@ export interface RoomState {
 export interface ClientToServerEvents {
   "room:create": (
     payload: { language: Language },
-    cb: (res: ApiResult<{ code: string; playerId: string }>) => void
+    cb: (res: ApiResult<SessionResult>) => void
   ) => void;
   "room:join": (
     payload: { code: string; name: string; avatar?: string },
     cb: (
-      res: ApiResult<{ code: string; playerId: string; isAudience: boolean }>
+      res: ApiResult<SessionResult>
     ) => void
   ) => void;
   "room:rejoin": (
-    payload: { code: string; playerId: string },
-    cb: (
-      res: ApiResult<{ code: string; playerId: string; isAudience: boolean }>
-    ) => void
+    payload: { code: string; resumeToken: string },
+    cb: (res: ApiResult<SessionResult>) => void
+  ) => void;
+  "room:leave": (cb: (res: ApiResult<null>) => void) => void;
+  "room:setLanguage": (
+    payload: { language: Language; phaseId: number },
+    cb: (res: ApiResult<null>) => void
   ) => void;
   "game:start": (
     // `rounds` is the desired length (quiplash rounds / trivia questions);
     // the server clamps it to the mode's allowed range.
-    payload: { gameType: GameType; rounds?: number },
+    payload: { gameType: GameType; rounds?: number; phaseId: number },
     cb: (res: ApiResult<null>) => void
   ) => void;
-  "game:next": (cb: (res: ApiResult<null>) => void) => void;
-  "game:restart": (cb: (res: ApiResult<null>) => void) => void;
-  "game:end": (cb: (res: ApiResult<null>) => void) => void;
+  "game:next": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  "game:restart": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  "game:rematch": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  "game:end": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
   "player:kick": (
-    payload: { playerId: string },
+    payload: { playerId: string; phaseId: number },
     cb: (res: ApiResult<null>) => void
   ) => void;
   "answer:submit": (
@@ -128,7 +162,7 @@ export interface ClientToServerEvents {
     cb: (res: ApiResult<null>) => void
   ) => void;
   "vote:submit": (
-    payload: { matchupId: string; answerPlayerId: string },
+    payload: { matchupId: string; answerId: string },
     cb: (res: ApiResult<null>) => void
   ) => void;
   "trivia:answer": (
@@ -154,11 +188,42 @@ export interface ServerToClientEvents {
   "room:reaction": (reaction: Reaction) => void;
   /** The host removed this client from the room. */
   "room:kicked": () => void;
+  /** A newer connection resumed this session. */
+  "room:session-replaced": () => void;
 }
+
+export interface SessionResult {
+  code: string;
+  playerId: string;
+  resumeToken: string;
+  isAudience: boolean;
+}
+
+export type ApiErrorCode =
+  | "already_started"
+  | "host_only"
+  | "invalid_game"
+  | "invalid_language"
+  | "invalid_phase"
+  | "invalid_reaction"
+  | "invalid_request"
+  | "invalid_target"
+  | "name_required"
+  | "no_room"
+  | "not_enough_players"
+  | "rate_limited"
+  | "room_full"
+  | "room_not_found"
+  | "server_busy"
+  | "server_error"
+  | "session_not_found"
+  | "stale_phase"
+  | "submit_failed"
+  | "vote_failed";
 
 export type ApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string };
+  | { ok: false; error: ApiErrorCode };
 
 // ---- Tunables ----
 

@@ -5,6 +5,10 @@
   "description": "Matah - a Jackbox-style multiplayer party game",
   "author": "𝓐.𝓒.𝓑",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "npm@11.4.2",
   "keywords": [
     "party-game",
     "multiplayer",
@@ -22,18 +26,41 @@
     "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "npm --workspace server run dev",
     "dev:client": "npm --workspace client run dev",
-    "build": "npm --workspace client run build",
+    "build": "npm --workspace server run build && npm --workspace client run build",
     "start": "npm --workspace server run start",
     "typecheck": "npm --workspace server run typecheck && npm --workspace client run typecheck",
+    "lint": "eslint .",
+    "test": "npm run test:unit && npm run test:integration && npm run test:client",
+    "test:unit": "node --import tsx --test tests/unit/*.test.mjs",
+    "test:integration": "node --import tsx --test tests/integration/*.test.mjs",
+    "test:coverage:server": "node --import tsx --experimental-test-coverage --test --test-coverage-include=server/src/engines/*.ts --test-coverage-include=server/src/rateLimiter.ts --test-coverage-include=server/src/util.ts --test-coverage-lines=90 --test-coverage-branches=85 tests/unit/*.test.mjs tests/integration/*.test.mjs",
+    "test:client": "npm --workspace client run test",
+    "test:coverage:client": "npm --workspace client run test:coverage",
+    "test:browser": "node tests/browser-test.mjs",
+    "test:load": "node --import tsx tests/load-test.mjs",
     "test:e2e": "node tests/e2e-test.mjs",
     "test:reconnect": "node tests/reconnect-test.mjs",
     "test:playagain": "node tests/playagain-test.mjs",
     "test:csr": "node tests/csr-test.mjs",
     "test:disconnect": "node tests/disconnect-skip-test.mjs",
     "test:features": "node tests/new-features-test.mjs",
-    "test:hosttools": "node tests/host-tools-test.mjs"
+    "test:hosttools": "node tests/host-tools-test.mjs",
+    "test:smoke": "node tests/run-smoke-suite.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@eslint/js": "^9.39.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@vitest/coverage-v8": "^3.2.7",
+    "axe-core": "^4.10.3",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.39.3",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.4.0",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.55.1",
+    "typescript-eslint": "^8.46.2",
+    "vitest": "^3.2.4"
   }
 }

@@ -425,8 +425,17 @@ const PROMPTS: Record<Language, string[]> = {
   ],
 };
 
-export function pickPrompts(language: Language, count: number): string[] {
-  return sample(PROMPTS[language] ?? PROMPTS.en, count);
+export function pickPrompts(
+  language: Language,
+  count: number,
+  excluded: ReadonlySet<string> = new Set(),
+): string[] {
+  const pool = PROMPTS[language] ?? PROMPTS.en;
+  const fresh = pool.filter((prompt) => !excluded.has(prompt));
+  const candidates = fresh.length >= count
+    ? fresh
+    : [...fresh, ...pool.filter((prompt) => excluded.has(prompt))];
+  return sample(candidates, count);
 }
 
 // Canned "safety quips" used when a player runs out of time, so their

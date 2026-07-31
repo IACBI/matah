@@ -1,11 +1,19 @@
-import { randomUUID } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+import { performance } from "node:perf_hooks";
 import type {
+  ApiErrorCode,
   GamePhase,
   GameType,
   Language,
   Player,
   PlayerAssignment,
   RoomState,
+  SessionResult,
 } from "../../shared/src/index.js";
 import {
   clampLength,
@@ -25,10 +33,21 @@ import {
 import type { EngineContext, GameEngine } from "./engine.js";
 import { QuiplashEngine } from "./engines/quiplash.js";
 import { TriviaEngine } from "./engines/trivia.js";
+import { sanitizeUserText } from "./util.js";
 
 type Broadcast = (state: RoomState) => void;
+type AssignmentSender = (socketId: string, assignment: PlayerAssignment) => void;
 
-/** Localized default for players who somehow join with an empty name. */
+export const DEFAULT_MEMBER_EXPIRY_MS = 120_000;
+export const DEFAULT_CONTROLLER_FAILOVER_MS = 10_000;
+
+export interface RoomLifecycleOptions {
+  memberExpiryMs?: number;
+  controllerFailoverMs?: number;
+  wallNow?: () => number;
+  monotonicNow?: () => number;
+}
+
 const FALLBACK_NAMES: Record<Language, string> = {
   tr: "Oyuncu",
   en: "Player",
@@ -45,91 +64,185 @@ const FALLBACK_NAMES: Record<Language, string> = {
   hi: "खिलाड़ी",
   nl: "Speler",
 };
-/** Sends an assignment to a specific live socket. */
-type AssignmentSender = (socketId: string, assignment: PlayerAssignment) => void;
 
-/**
- * A single game room. Owns authoritative membership, the phase timeline and
- * scores; delegates the actual game flow to a swappable engine.
- *
- * Player identity (`pid`) is stable for the whole game and decoupled from the
- * socket id, so a player can drop and reconnect (new socket) without losing
- * their seat, score, or in-flight prompts.
- */
+interface RejoinResult extends SessionResult {
+  replacedSocketId?: string;
+}
+
+interface LastGameConfig {
+  gameType: GameType;
+  rounds: number;
+}
+
+/** Authoritative in-memory state and lifecycle for one room. */
 export class Room {
   readonly code: string;
-  private players = new Map<string, Player>(); // pid -> player
-  private sockets = new Map<string, string>(); // pid -> current socket id
+  private players = new Map<string, Player>();
+  private sockets = new Map<string, string>(); // playerId -> current socket
+  private sessionHashes = new Map<string, Buffer>();
+  private memberExpiry = new Map<string, NodeJS.Timeout>();
+
   private phase: GamePhase = "lobby";
+  private phaseId = 0;
+  private phaseEndsAt: number | null = null;
   private language: Language;
   private gameType: GameType | null = null;
+  private lastGameConfig: LastGameConfig | null = null;
   private engine: GameEngine | null = null;
+  private recentContent: Record<GameType, Set<string>> = {
+    quiplash: new Set(),
+    trivia: new Set(),
+  };
 
-  private timer: number | null = null;
   private timerHandle: NodeJS.Timeout | null = null;
   private onTimeout: (() => void) | null = null;
-  private lastActivity = Date.now();
+  private controllerPlayerId: string | null = null;
+  private controllerTimer: NodeJS.Timeout | null = null;
+  private hostDisconnectedAt: number | null = null;
+  private lastActivity: number;
+  private readonly memberExpiryMs: number;
+  private readonly controllerFailoverMs: number;
+  private readonly wallNow: () => number;
+  private readonly monotonicNow: () => number;
 
   constructor(
     code: string,
     language: Language,
     private broadcast: Broadcast,
-    private sendAssignmentFn: AssignmentSender
+    private sendAssignmentFn: AssignmentSender,
+    options: RoomLifecycleOptions = {}
   ) {
     this.code = code;
     this.language = language;
+    this.memberExpiryMs = options.memberExpiryMs ?? DEFAULT_MEMBER_EXPIRY_MS;
+    this.controllerFailoverMs =
+      options.controllerFailoverMs ?? DEFAULT_CONTROLLER_FAILOVER_MS;
+    this.wallNow = options.wallNow ?? Date.now;
+    this.monotonicNow = options.monotonicNow ?? (() => performance.now());
+    this.lastActivity = this.wallNow();
   }
 
-  // ---- membership ----
+  // ---- membership and private resume credentials ----
 
-  /** Adds the host (TV) screen. Returns its stable pid. */
-  addHost(socketId: string): string {
-    const pid = randomUUID();
-    this.players.set(pid, this.newPlayer(pid, "TV", HOST_AVATAR, { isHost: true }));
-    this.sockets.set(pid, socketId);
-    return pid;
+  addHost(socketId: string): SessionResult {
+    const result = this.addMember(socketId, "TV", HOST_AVATAR, {
+      isHost: true,
+    });
+    this.onHostConnected();
+    return result;
   }
 
-  /** Adds a player (or an audience member). Returns their stable pid. */
   addPlayer(
     socketId: string,
     name: string,
     avatar: string = DEFAULT_AVATAR,
     isAudience = false
-  ): string {
-    const pid = randomUUID();
+  ): SessionResult {
     const clean =
-      name.trim().slice(0, MAX_NAME_LEN) || FALLBACK_NAMES[this.language];
-    this.players.set(pid, this.newPlayer(pid, clean, avatar, { isAudience }));
-    this.sockets.set(pid, socketId);
-    return pid;
+      sanitizeUserText(name, MAX_NAME_LEN) || FALLBACK_NAMES[this.language];
+    return this.addMember(socketId, clean, avatar, { isAudience });
   }
 
-  /** Reattaches an existing pid to a new socket after a reconnect. */
-  rejoin(pid: string, socketId: string): boolean {
-    const player = this.players.get(pid);
-    if (!player) return false;
-    this.sockets.set(pid, socketId);
+  private addMember(
+    socketId: string,
+    name: string,
+    avatar: string,
+    flags: { isHost?: boolean; isAudience?: boolean }
+  ): SessionResult {
+    const playerId = randomUUID();
+    const resumeToken = this.rotateResumeToken(playerId);
+    const player = this.newPlayer(playerId, name, avatar, flags);
+    this.players.set(playerId, player);
+    this.sockets.set(playerId, socketId);
+    this.touch();
+    return {
+      code: this.code,
+      playerId,
+      resumeToken,
+      isAudience: player.isAudience,
+    };
+  }
+
+  /** Reattaches by a private token and rotates it to prevent replay. */
+  rejoin(resumeToken: string, socketId: string): RejoinResult | null {
+    const playerId = this.playerIdForToken(resumeToken);
+    if (!playerId) return null;
+    const player = this.players.get(playerId);
+    if (!player) return null;
+
+    const existingPlayerId = this.pidForSocket(socketId);
+    if (existingPlayerId && existingPlayerId !== playerId) {
+      this.removeMember(existingPlayerId);
+    }
+
+    const replacedSocketId = this.sockets.get(playerId);
+    this.sockets.set(playerId, socketId);
     player.connected = true;
-    return true;
+    this.clearMemberExpiry(playerId);
+    if (player.isHost) this.onHostConnected();
+    this.touch();
+
+    return {
+      code: this.code,
+      playerId,
+      resumeToken: this.rotateResumeToken(playerId),
+      isAudience: player.isAudience,
+      replacedSocketId:
+        replacedSocketId && replacedSocketId !== socketId
+          ? replacedSocketId
+          : undefined,
+    };
   }
 
-  /** Re-sends the current per-player assignment (e.g. after reconnect). */
-  resendAssignment(pid: string): void {
-    const a = this.engine?.currentAssignment?.(pid);
-    if (a) this.sendAssignmentToPid(pid, a);
+  /** Socket.IO CSR retains the opaque socket session, so no token is exposed. */
+  recoverSocket(socketId: string): string | null {
+    const playerId = this.pidForSocket(socketId);
+    if (!playerId) return null;
+    const player = this.players.get(playerId);
+    if (!player) return null;
+    player.connected = true;
+    this.clearMemberExpiry(playerId);
+    if (player.isHost) this.onHostConnected();
+    this.touch();
+    return playerId;
   }
 
-  private sendAssignmentToPid(pid: string, a: PlayerAssignment): void {
-    const socketId = this.sockets.get(pid);
-    if (socketId) this.sendAssignmentFn(socketId, a);
+  private rotateResumeToken(playerId: string): string {
+    const token = randomBytes(32).toString("base64url");
+    this.sessionHashes.set(playerId, this.hashToken(token));
+    return token;
+  }
+
+  private playerIdForToken(token: string): string | null {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+    const candidate = this.hashToken(token);
+    for (const [playerId, expected] of this.sessionHashes) {
+      if (timingSafeEqual(candidate, expected)) return playerId;
+    }
+    return null;
+  }
+
+  private hashToken(token: string): Buffer {
+    return createHash("sha256").update(token, "utf8").digest();
+  }
+
+  resendAssignment(playerId: string): void {
+    const assignment = this.engine?.currentAssignment?.(playerId);
+    if (assignment) this.sendAssignmentToPid(playerId, assignment);
+  }
+
+  private sendAssignmentToPid(playerId: string, assignment: PlayerAssignment): void {
+    const socketId = this.sockets.get(playerId);
+    if (socketId && this.players.get(playerId)?.connected) {
+      this.sendAssignmentFn(socketId, assignment);
+    }
   }
 
   private newPlayer(
     id: string,
     name: string,
     avatar: string,
-    flags: { isHost?: boolean; isAudience?: boolean } = {}
+    flags: { isHost?: boolean; isAudience?: boolean }
   ): Player {
     return {
       id,
@@ -145,13 +258,16 @@ export class Room {
     };
   }
 
-  /** Active players: in the game, excluding the host screen and audience. */
   get realPlayers(): Player[] {
     return [...this.players.values()].filter((p) => !p.isHost && !p.isAudience);
   }
 
   get audiencePlayers(): Player[] {
     return [...this.players.values()].filter((p) => p.isAudience);
+  }
+
+  private get connectedRealPlayers(): Player[] {
+    return this.realPlayers.filter((p) => p.connected);
   }
 
   isFull(): boolean {
@@ -162,163 +278,320 @@ export class Room {
     return this.audiencePlayers.length >= MAX_AUDIENCE;
   }
 
-  isAudience(pid: string): boolean {
-    return this.players.get(pid)?.isAudience === true;
+  isAudience(playerId: string): boolean {
+    return this.players.get(playerId)?.isAudience === true;
   }
 
-  /** True while the host (TV) screen has a live socket. */
   hostConnected(): boolean {
     return [...this.players.values()].some((p) => p.isHost && p.connected);
   }
 
-  /**
-   * Host controls (start/next/restart) normally require the host, but if the
-   * host screen dropped, any active player may take over so the room never
-   * gets stuck.
-   */
-  canControl(pid: string): boolean {
-    if (this.isHost(pid)) return true;
-    const p = this.players.get(pid);
-    return !!p && !p.isAudience && !this.hostConnected();
+  canControl(playerId: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player?.connected) return false;
+    if (player.isHost) return this.hostConnected();
+    return !player.isAudience && playerId === this.controllerPlayerId;
+  }
+
+  controlError(playerId: string, expectedPhaseId: unknown): ApiErrorCode | null {
+    if (!Number.isInteger(expectedPhaseId) || expectedPhaseId !== this.phaseId) {
+      return "stale_phase";
+    }
+    return this.canControl(playerId) ? null : "host_only";
+  }
+
+  get currentPhaseId(): number {
+    return this.phaseId;
   }
 
   isEmpty(): boolean {
     return [...this.players.values()].every((p) => !p.connected);
   }
 
+  isVacant(): boolean {
+    return this.players.size === 0;
+  }
+
   inLobby(): boolean {
     return this.phase === "lobby";
   }
 
-  /** Marks the player currently mapped to this socket offline (reconnect-safe). */
   handleDisconnect(socketId: string): void {
-    for (const [pid, sid] of this.sockets) {
-      if (sid === socketId) {
-        const p = this.players.get(pid);
-        if (p) p.connected = false;
-        // Let the engine re-check its "everyone done?" conditions so the
-        // dropped player doesn't stall the current phase until the timer.
-        if (p && !p.isHost) this.engine?.handlePlayerDisconnect?.(pid);
-        return;
+    const playerId = this.pidForSocket(socketId);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player || !player.connected) return;
+
+    player.connected = false;
+    this.scheduleMemberExpiry(playerId);
+    this.touch();
+    if (player.isHost) {
+      this.beginControllerFailover();
+    } else {
+      this.engine?.handlePlayerDisconnect?.(playerId);
+      if (this.controllerPlayerId === playerId) {
+        this.controllerPlayerId = null;
+        this.electController();
       }
     }
   }
 
-  /** The pid currently bound to this socket id, if any. */
+  /** Explicit leave removes the reservation immediately. */
+  leaveBySocket(socketId: string): string | null {
+    const playerId = this.pidForSocket(socketId);
+    if (!playerId) return null;
+    this.removeMember(playerId);
+    return playerId;
+  }
+
+  private scheduleMemberExpiry(playerId: string): void {
+    this.clearMemberExpiry(playerId);
+    const handle = setTimeout(() => {
+      this.memberExpiry.delete(playerId);
+      if (!this.players.get(playerId)?.connected) this.removeMember(playerId);
+    }, this.memberExpiryMs);
+    handle.unref();
+    this.memberExpiry.set(playerId, handle);
+  }
+
+  private clearMemberExpiry(playerId: string): void {
+    const handle = this.memberExpiry.get(playerId);
+    if (handle) clearTimeout(handle);
+    this.memberExpiry.delete(playerId);
+  }
+
+  private removeMember(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    this.clearMemberExpiry(playerId);
+    this.players.delete(playerId);
+    this.sockets.delete(playerId);
+    this.sessionHashes.delete(playerId);
+    if (!player.isHost) this.engine?.handlePlayerRemoved?.(playerId);
+    if (player.isHost) {
+      this.beginControllerFailover();
+    } else if (this.controllerPlayerId === playerId) {
+      this.controllerPlayerId = null;
+      this.electController();
+    }
+    this.touch();
+    this.emit();
+  }
+
   pidForSocket(socketId: string): string | null {
-    for (const [pid, sid] of this.sockets) if (sid === socketId) return pid;
+    for (const [playerId, boundSocketId] of this.sockets) {
+      if (boundSocketId === socketId) return playerId;
+    }
     return null;
+  }
+
+  private onHostConnected(): void {
+    this.hostDisconnectedAt = null;
+    this.controllerPlayerId = null;
+    if (this.controllerTimer) clearTimeout(this.controllerTimer);
+    this.controllerTimer = null;
+  }
+
+  private beginControllerFailover(): void {
+    if (this.hostConnected()) return;
+    const now = this.wallNow();
+    this.hostDisconnectedAt ??= now;
+    const elapsed = now - this.hostDisconnectedAt;
+    if (elapsed < this.controllerFailoverMs) this.controllerPlayerId = null;
+    if (this.controllerTimer) clearTimeout(this.controllerTimer);
+    const remaining = Math.max(
+      0,
+      this.controllerFailoverMs - elapsed
+    );
+    this.controllerTimer = setTimeout(() => {
+      this.controllerTimer = null;
+      this.electController();
+    }, remaining);
+    this.controllerTimer.unref();
+  }
+
+  private electController(): void {
+    if (this.hostConnected()) {
+      this.onHostConnected();
+      return;
+    }
+    if (
+      this.hostDisconnectedAt === null ||
+      this.wallNow() - this.hostDisconnectedAt < this.controllerFailoverMs
+    ) {
+      this.beginControllerFailover();
+      return;
+    }
+    const next = this.connectedRealPlayers[0]?.id ?? null;
+    if (next !== this.controllerPlayerId) {
+      this.controllerPlayerId = next;
+      this.emit();
+    }
   }
 
   // ---- game control ----
 
-  start(gameType: GameType, rounds?: number): { ok: boolean; error?: string } {
-    if (this.phase !== "lobby") return { ok: false, error: "already_started" };
-    if (this.realPlayers.length < MIN_PLAYERS)
-      return { ok: false, error: "not_enough_players" };
-
-    this.gameType = gameType;
-    for (const p of this.players.values()) {
-      p.score = 0;
-      p.streak = 0;
-    }
-    if (gameType === "trivia") {
-      const count = clampLength(rounds, MIN_QUESTIONS, MAX_QUESTIONS, TRIVIA_QUESTIONS);
-      this.engine = new TriviaEngine(this.engineContext(), count);
-    } else {
-      const count = clampLength(rounds, MIN_ROUNDS, MAX_ROUNDS, DEFAULT_TOTAL_ROUNDS);
-      this.engine = new QuiplashEngine(this.engineContext(), count);
-    }
-    this.engine.start();
-    return { ok: true };
+  setLanguage(language: Language): ApiErrorCode | null {
+    if (this.phase !== "lobby") return "invalid_phase";
+    this.language = language;
+    this.bumpRevision();
+    return null;
   }
 
-  /**
-   * Host removed a participant. Drops them from membership, disconnecting any
-   * live socket from the room, then has the active engine purge any state they
-   * left behind (answers/votes) and re-check its "everyone done?" condition so
-   * the kicked player can't stall the round or linger in it.
-   * Returns the removed player's current socket id (to notify them), if any.
-   */
-  kick(targetPid: string): { ok: boolean; socketId?: string; error?: string } {
-    const target = this.players.get(targetPid);
+  start(gameType: GameType, rounds?: number): ApiErrorCode | null {
+    if (this.phase !== "lobby") return "already_started";
+    if (this.connectedRealPlayers.length < MIN_PLAYERS) {
+      return "not_enough_players";
+    }
+    const count = gameType === "trivia"
+      ? clampLength(rounds, MIN_QUESTIONS, MAX_QUESTIONS, TRIVIA_QUESTIONS)
+      : clampLength(rounds, MIN_ROUNDS, MAX_ROUNDS, DEFAULT_TOTAL_ROUNDS);
+    this.startGame(gameType, count, false);
+    return null;
+  }
+
+  private startGame(gameType: GameType, rounds: number, isRematch: boolean): void {
+    this.clearTimer();
+    this.engine?.dispose();
+    this.gameType = gameType;
+    this.lastGameConfig = { gameType, rounds };
+    for (const player of this.players.values()) {
+      player.score = 0;
+      player.streak = 0;
+      player.hasSubmitted = false;
+      player.hasVoted = false;
+    }
+    const previousContent = isRematch
+      ? new Set(this.recentContent[gameType])
+      : new Set<string>();
+    const selectedContent = new Set<string>();
+    this.recentContent[gameType] = selectedContent;
+    const recordContent = (key: string): void => {
+      selectedContent.add(key);
+    };
+    this.engine = gameType === "trivia"
+      ? new TriviaEngine(this.engineContext(), rounds, previousContent, recordContent)
+      : new QuiplashEngine(this.engineContext(), rounds, previousContent, recordContent);
+    this.touch();
+    this.engine.start();
+  }
+
+  rematch(): ApiErrorCode | null {
+    if (this.phase !== "scoreboard" && this.phase !== "gameover") {
+      return "invalid_phase";
+    }
+    if (!this.lastGameConfig) return "invalid_game";
+    if (this.connectedRealPlayers.length < MIN_PLAYERS) {
+      return "not_enough_players";
+    }
+    this.startGame(this.lastGameConfig.gameType, this.lastGameConfig.rounds, true);
+    return null;
+  }
+
+  kick(targetPlayerId: string): {
+    ok: boolean;
+    socketId?: string;
+    error?: ApiErrorCode;
+  } {
+    const target = this.players.get(targetPlayerId);
     if (!target || target.isHost) return { ok: false, error: "invalid_target" };
-    const socketId = this.sockets.get(targetPid);
-    const wasActive = !target.isAudience;
-    this.players.delete(targetPid);
-    this.sockets.delete(targetPid);
-    if (wasActive) this.engine?.handlePlayerRemoved?.(targetPid);
-    this.emit();
+    const socketId = this.sockets.get(targetPlayerId);
+    this.removeMember(targetPlayerId);
+    this.bumpRevision();
     return { ok: true, socketId };
   }
 
-  /** Host ended the game early — jump straight to the final scoreboard. */
-  endGame(): void {
-    if (this.phase === "lobby" || this.phase === "gameover") return;
-    this.setPhase("scoreboard", 15, () => this.gameOver());
-  }
-
-  next(): void {
-    if (this.phase === "lobby" || this.phase === "gameover") return;
-    if (this.onTimeout) {
-      const cb = this.onTimeout;
-      this.clearTimer();
-      cb();
+  endGame(): ApiErrorCode | null {
+    if (
+      this.phase === "lobby" ||
+      this.phase === "scoreboard" ||
+      this.phase === "gameover"
+    ) {
+      return "invalid_phase";
     }
+    this.engine?.dispose();
+    this.setPhase("scoreboard", 15, () => this.gameOver());
+    return null;
   }
 
-  isHost(pid: string): boolean {
-    return this.players.get(pid)?.isHost === true;
+  next(): ApiErrorCode | null {
+    if (this.phase === "lobby" || this.phase === "gameover" || !this.onTimeout) {
+      return "invalid_phase";
+    }
+    const callback = this.onTimeout;
+    this.clearTimer();
+    callback();
+    this.touch();
+    return null;
   }
 
-  /** Identity payload for a reaction broadcast; null for the host screen. */
-  getReactionSender(
-    pid: string
-  ): { playerId: string; name: string; avatar: string } | null {
-    const p = this.players.get(pid);
-    if (!p || p.isHost) return null;
-    return { playerId: p.id, name: p.name, avatar: p.avatar };
-  }
-
-  /** Returns a finished game to the lobby, keeping the same players. */
-  returnToLobby(): void {
+  returnToLobby(): ApiErrorCode | null {
+    if (this.phase === "lobby") return "invalid_phase";
     this.clearTimer();
     this.engine?.dispose();
     this.engine = null;
     this.gameType = null;
-    this.phase = "lobby";
-    // Audience members waited a whole game — promote them to real players
-    // (join order) while there is room.
-    for (const p of this.players.values()) {
-      if (p.isAudience && this.realPlayers.length < MAX_PLAYERS) {
-        p.isAudience = false;
+    for (const player of this.players.values()) {
+      if (
+        player.connected &&
+        player.isAudience &&
+        this.realPlayers.length < MAX_PLAYERS
+      ) {
+        player.isAudience = false;
       }
     }
-    for (const p of this.players.values()) {
-      p.score = 0;
-      p.streak = 0;
-      p.hasSubmitted = false;
-      p.hasVoted = false;
+    for (const player of this.players.values()) {
+      player.score = 0;
+      player.streak = 0;
+      player.hasSubmitted = false;
+      player.hasVoted = false;
     }
-    this.emit();
+    this.touch();
+    this.setPhase("lobby", null, null);
+    return null;
   }
 
-  submitAnswer(pid: string, matchupId: string, text: string): boolean {
+  isHost(playerId: string): boolean {
+    return this.players.get(playerId)?.isHost === true;
+  }
+
+  getReactionSender(
+    playerId: string
+  ): { playerId: string; name: string; avatar: string } | null {
+    if (this.phase === "lobby" || this.phase === "gameover") return null;
+    const player = this.players.get(playerId);
+    if (!player || player.isHost || !player.connected) return null;
+    this.touch();
+    return { playerId: player.id, name: player.name, avatar: player.avatar };
+  }
+
+  submitAnswer(playerId: string, matchupId: string, text: string): boolean {
     if (this.phase !== "answering") return false;
-    return this.engine?.handleAnswer?.(pid, matchupId, text) ?? false;
+    const accepted = this.engine?.handleAnswer?.(playerId, matchupId, text) ?? false;
+    if (accepted) this.touch();
+    return accepted;
   }
 
-  submitVote(pid: string, matchupId: string, answerPlayerId: string): boolean {
+  submitVote(playerId: string, matchupId: string, answerId: string): boolean {
     if (this.phase !== "voting") return false;
-    return this.engine?.handleVote?.(pid, matchupId, answerPlayerId) ?? false;
+    const accepted = this.engine?.handleVote?.(playerId, matchupId, answerId) ?? false;
+    if (accepted) this.touch();
+    return accepted;
   }
 
-  submitTriviaAnswer(pid: string, questionId: string, optionIndex: number): boolean {
+  submitTriviaAnswer(
+    playerId: string,
+    questionId: string,
+    optionIndex: number
+  ): boolean {
     if (this.phase !== "answering") return false;
-    return this.engine?.handleTriviaAnswer?.(pid, questionId, optionIndex) ?? false;
+    const accepted =
+      this.engine?.handleTriviaAnswer?.(playerId, questionId, optionIndex) ?? false;
+    if (accepted) this.touch();
+    return accepted;
   }
 
-  // ---- engine context ----
+  // ---- engine context and phase deadline ----
 
   private engineContext(): EngineContext {
     return {
@@ -326,38 +599,37 @@ export class Room {
       players: () => this.realPlayers,
       audience: () => this.audiencePlayers,
       getPlayer: (id) => {
-        const p = this.players.get(id);
-        return p && !p.isHost && !p.isAudience ? p : undefined;
+        const player = this.players.get(id);
+        return player && !player.isHost && !player.isAudience ? player : undefined;
       },
       getParticipant: (id) => {
-        const p = this.players.get(id);
-        return p && !p.isHost ? p : undefined;
+        const player = this.players.get(id);
+        return player && !player.isHost ? player : undefined;
       },
       setPhase: (phase, seconds, onTimeout) =>
         this.setPhase(phase, seconds, onTimeout),
       emit: () => this.emit(),
-      sendAssignment: (pid, a) => this.sendAssignmentToPid(pid, a),
+      sendAssignment: (playerId, assignment) =>
+        this.sendAssignmentToPid(playerId, assignment),
       award: (id, points) => {
-        const p = this.players.get(id);
-        if (p) p.score += points;
+        const player = this.players.get(id);
+        if (player) player.score += points;
       },
       resetFlags: () => {
-        for (const p of this.players.values()) {
-          p.hasSubmitted = false;
-          p.hasVoted = false;
+        for (const player of this.players.values()) {
+          player.hasSubmitted = false;
+          player.hasVoted = false;
         }
       },
       toScoreboard: (seconds) =>
         this.setPhase("scoreboard", seconds, () => this.gameOver()),
-      now: () => Date.now(),
+      now: this.monotonicNow,
     };
   }
 
   private gameOver(): void {
     this.setPhase("gameover", null, null);
   }
-
-  // ---- phase + timer machinery ----
 
   private setPhase(
     phase: GamePhase,
@@ -366,36 +638,37 @@ export class Room {
   ): void {
     this.clearTimer();
     this.phase = phase;
-    this.timer = seconds;
+    this.phaseId += 1;
+    this.phaseEndsAt = seconds === null ? null : this.wallNow() + seconds * 1000;
     this.onTimeout = onTimeout;
     this.emit();
 
     if (seconds !== null && onTimeout) {
-      this.timerHandle = setInterval(() => {
-        if (this.timer === null) return;
-        this.timer -= 1;
-        if (this.timer <= 0) {
-          const cb = this.onTimeout;
-          this.clearTimer();
-          cb?.();
-        } else {
-          this.emit();
-        }
-      }, 1000);
+      this.timerHandle = setTimeout(() => {
+        const callback = this.onTimeout;
+        this.clearTimer();
+        callback?.();
+      }, seconds * 1000);
+      this.timerHandle.unref();
     }
   }
 
+  private bumpRevision(): void {
+    this.phaseId += 1;
+    this.touch();
+    this.emit();
+  }
+
   private clearTimer(): void {
-    if (this.timerHandle) clearInterval(this.timerHandle);
+    if (this.timerHandle) clearTimeout(this.timerHandle);
     this.timerHandle = null;
-    this.timer = null;
+    this.phaseEndsAt = null;
     this.onTimeout = null;
   }
 
-  // ---- serialization ----
-
   private buildState(): RoomState {
     const view = this.engine?.serialize();
+    const serverNow = this.wallNow();
     return {
       code: this.code,
       phase: this.phase,
@@ -403,32 +676,41 @@ export class Room {
       language: this.language,
       round: view?.round ?? 0,
       totalRounds: view?.totalRounds ?? 0,
-      players: this.realPlayers.map((p) => ({ ...p })),
-      audience: this.audiencePlayers.map((p) => ({
-        id: p.id,
-        name: p.name,
-        avatar: p.avatar,
-        connected: p.connected,
+      players: this.realPlayers.map((player) => ({ ...player })),
+      audience: this.audiencePlayers.map((player) => ({
+        id: player.id,
+        name: player.name,
+        avatar: player.avatar,
+        connected: player.connected,
       })),
       hostConnected: this.hostConnected(),
-      timer: this.timer,
+      phaseId: this.phaseId,
+      phaseEndsAt: this.phaseEndsAt,
+      serverNow,
+      controllerPlayerId: this.controllerPlayerId,
       quiplash: view?.quiplash,
       trivia: view?.trivia,
     };
   }
 
   emit(): void {
-    this.lastActivity = Date.now();
     this.broadcast(this.buildState());
   }
 
-  /** True if the room has had no activity for longer than maxIdleMs. */
+  private touch(): void {
+    this.lastActivity = this.wallNow();
+  }
+
   isStale(maxIdleMs: number): boolean {
-    return Date.now() - this.lastActivity > maxIdleMs;
+    return this.isEmpty() && this.wallNow() - this.lastActivity > maxIdleMs;
   }
 
   dispose(): void {
     this.clearTimer();
     this.engine?.dispose();
+    for (const handle of this.memberExpiry.values()) clearTimeout(handle);
+    this.memberExpiry.clear();
+    if (this.controllerTimer) clearTimeout(this.controllerTimer);
+    this.controllerTimer = null;
   }
 }

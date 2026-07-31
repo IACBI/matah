@@ -319,6 +319,15 @@ const TRIVIA: Record<Language, TriviaQuestion[]> = {
   ],
 };
 
-export function pickTrivia(language: Language, count: number): TriviaQuestion[] {
-  return sample(TRIVIA[language] ?? TRIVIA.en, count);
+export function pickTrivia(
+  language: Language,
+  count: number,
+  excluded: ReadonlySet<string> = new Set(),
+): TriviaQuestion[] {
+  const pool = TRIVIA[language] ?? TRIVIA.en;
+  const fresh = pool.filter((question) => !excluded.has(question.text));
+  const candidates = fresh.length >= count
+    ? fresh
+    : [...fresh, ...pool.filter((question) => excluded.has(question.text))];
+  return sample(candidates, count);
 }

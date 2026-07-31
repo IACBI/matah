@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
-import type { Matchup, MatchupResult } from "../../../shared/src/index.js";
+import type {
+  Matchup,
+  MatchupResult,
+  PlayerAssignment,
+} from "../../../shared/src/index.js";
 import { DEFAULT_TOTAL_ROUNDS, MAX_ANSWER_LEN } from "../../../shared/src/index.js";
 import type { EngineContext, EngineView, GameEngine } from "../engine.js";
 import { pickPrompts, pickSafetyAnswer } from "../content/prompts.js";
 
 const ANSWER_SECONDS = 60;
 const VOTE_SECONDS = 20;
+const MIN_VOTE_DISPLAY_SECONDS = 3;
 const RESULTS_SECONDS = 9;
+const MATCHUP_POINT_POOL = 1_000;
 
 export class QuiplashEngine implements GameEngine {
   readonly type = "quiplash" as const;
@@ -19,8 +25,17 @@ export class QuiplashEngine implements GameEngine {
   private lastResults: MatchupResult[] | null = null;
   private votingActive = false;
   private answeringActive = false;
+  private voteMinHandle: NodeJS.Timeout | null = null;
+  private votingStartedAt = 0;
 
-  constructor(private ctx: EngineContext, rounds = DEFAULT_TOTAL_ROUNDS) {
+  private usedPrompts = new Set<string>();
+
+  constructor(
+    private ctx: EngineContext,
+    rounds = DEFAULT_TOTAL_ROUNDS,
+    private avoidPrompts: ReadonlySet<string> = new Set(),
+    private recordPrompt: (prompt: string) => void = () => {},
+  ) {
     this.totalRounds = rounds;
   }
 
@@ -34,7 +49,15 @@ export class QuiplashEngine implements GameEngine {
     this.lastResults = null;
     const players = this.ctx.players();
     const n = players.length;
-    const prompts = pickPrompts(this.ctx.language, n);
+    const prompts = pickPrompts(
+      this.ctx.language,
+      n,
+      new Set([...this.avoidPrompts, ...this.usedPrompts]),
+    );
+    for (const prompt of prompts) {
+      this.usedPrompts.add(prompt);
+      this.recordPrompt(prompt);
+    }
 
     this.matchups = prompts.map((prompt) => ({
       id: randomUUID(),
@@ -63,16 +86,22 @@ export class QuiplashEngine implements GameEngine {
     const prompts = this.matchupAuthors
       .map((authors, mi) =>
         authors.includes(playerId)
-          ? { matchupId: this.matchups[mi].id, prompt: this.matchups[mi].prompt }
+          ? {
+              matchupId: this.matchups[mi].id,
+              prompt: this.matchups[mi].prompt,
+              submitted: this.matchups[mi].answers.some(
+                (answer) => answer.playerId === playerId && !answer.isSafety,
+              ),
+            }
           : null
       )
-      .filter((x): x is { matchupId: string; prompt: string } => x !== null);
+      .filter((x): x is PlayerAssignment["prompts"][number] => x !== null);
     return { prompts };
   }
 
-  /** Re-sendable assignment for reconnects (only meaningful while answering). */
+  /** Re-sendable assignment also identifies authors during anonymous voting. */
   currentAssignment(playerId: string) {
-    if (this.answeringActive && this.matchups.length > 0) {
+    if ((this.answeringActive || this.votingActive) && this.matchups.length > 0) {
       return this.assignmentFor(playerId);
     }
     return null;
@@ -88,9 +117,11 @@ export class QuiplashEngine implements GameEngine {
     if (matchup.answers.some((a) => a.playerId === playerId)) return false;
 
     matchup.answers.push({
+      answerId: randomUUID(),
       playerId,
       playerName: player.name,
       text: text.trim().slice(0, MAX_ANSWER_LEN) || "…",
+      isSafety: false,
     });
 
     const assignedCount = this.matchupAuthors.filter((a) =>
@@ -110,6 +141,7 @@ export class QuiplashEngine implements GameEngine {
   }
 
   private beginVoting(): void {
+    if (!this.answeringActive) return;
     this.answeringActive = false;
     this.fillSafetyAnswers();
     this.currentMatchupIndex = -1;
@@ -127,15 +159,19 @@ export class QuiplashEngine implements GameEngine {
         const author = this.ctx.getPlayer(authorId);
         if (!author) continue;
         matchup.answers.push({
+          answerId: randomUUID(),
           playerId: authorId,
           playerName: author.name,
           text: pickSafetyAnswer(this.ctx.language),
+          isSafety: true,
         });
       }
     }
   }
 
   private advanceMatchup(): void {
+    this.clearVoteMinTimer();
+    this.votingActive = false;
     this.currentMatchupIndex += 1;
     // Skip matchups that can't be voted on: not enough answers, or nobody
     // connected who is allowed to vote.
@@ -145,6 +181,7 @@ export class QuiplashEngine implements GameEngine {
     while (
       this.currentMatchupIndex < this.matchups.length &&
       (this.matchups[this.currentMatchupIndex].answers.length < 2 ||
+        this.matchups[this.currentMatchupIndex].answers.every((a) => a.isSafety) ||
         !hasVoterFor(this.currentMatchupIndex))
     ) {
       this.currentMatchupIndex += 1;
@@ -155,10 +192,11 @@ export class QuiplashEngine implements GameEngine {
     }
     this.ctx.resetFlags();
     this.votingActive = true;
+    this.votingStartedAt = this.ctx.now();
     this.ctx.setPhase("voting", VOTE_SECONDS, () => this.advanceMatchup());
   }
 
-  handleVote(playerId: string, matchupId: string, answerPlayerId: string): boolean {
+  handleVote(playerId: string, matchupId: string, answerId: string): boolean {
     if (!this.votingActive) return false;
     const matchup = this.matchups[this.currentMatchupIndex];
     if (!matchup || matchup.id !== matchupId) return false;
@@ -168,25 +206,45 @@ export class QuiplashEngine implements GameEngine {
     const authors = this.matchupAuthors[this.currentMatchupIndex];
     if (authors.includes(playerId)) return false; // can't vote your own
     if (matchup.votes[playerId]) return false; // already voted
-    if (!matchup.answers.some((a) => a.playerId === answerPlayerId)) return false;
+    const answer = matchup.answers.find((a) => a.answerId === answerId);
+    if (!answer) return false;
+    if (answer.playerId === playerId) return false;
 
-    matchup.votes[playerId] = answerPlayerId;
+    matchup.votes[playerId] = answerId;
     player.hasVoted = true;
     this.ctx.emit();
 
-    // Only wait on connected, non-author active players — the audience and
-    // disconnected players never hold up the matchup. (If only the audience
-    // can vote, let the timer run so everyone gets a chance.)
-    const eligible = this.eligibleVoters(authors);
-    if (eligible.length > 0 && eligible.every((p) => p.hasVoted))
-      this.advanceMatchup();
+    this.advanceWhenVotingComplete(authors);
     return true;
   }
 
   private eligibleVoters(authors: string[]) {
-    return this.ctx
-      .players()
-      .filter((p) => p.connected && !authors.includes(p.id));
+    return [...this.ctx.players(), ...this.ctx.audience()].filter(
+      (p) => p.connected && !authors.includes(p.id)
+    );
+  }
+
+  private advanceWhenVotingComplete(authors: string[]): void {
+    const eligible = this.eligibleVoters(authors);
+    if (eligible.length === 0 || !eligible.every((p) => p.hasVoted)) return;
+    const remainingMs =
+      MIN_VOTE_DISPLAY_SECONDS * 1000 - (this.ctx.now() - this.votingStartedAt);
+    if (remainingMs <= 0) {
+      this.advanceMatchup();
+    } else if (!this.voteMinHandle) {
+      this.voteMinHandle = setTimeout(() => {
+        this.voteMinHandle = null;
+        if (!this.votingActive) return;
+        const currentAuthors = this.matchupAuthors[this.currentMatchupIndex] ?? [];
+        this.advanceWhenVotingComplete(currentAuthors);
+      }, remainingMs);
+      this.voteMinHandle.unref();
+    }
+  }
+
+  private clearVoteMinTimer(): void {
+    if (this.voteMinHandle) clearTimeout(this.voteMinHandle);
+    this.voteMinHandle = null;
   }
 
   /**
@@ -226,9 +284,7 @@ export class QuiplashEngine implements GameEngine {
         this.beginVoting();
     } else if (this.votingActive) {
       const authors = this.matchupAuthors[this.currentMatchupIndex] ?? [];
-      const eligible = this.eligibleVoters(authors);
-      if (eligible.length > 0 && eligible.every((p) => p.hasVoted))
-        this.advanceMatchup();
+      this.advanceWhenVotingComplete(authors);
     }
   }
 
@@ -237,17 +293,33 @@ export class QuiplashEngine implements GameEngine {
     for (const matchup of this.matchups) {
       if (matchup.answers.length < 2) continue;
       const counts: Record<string, number> = {};
-      for (const a of matchup.answers) counts[a.playerId] = 0;
+      for (const a of matchup.answers) counts[a.answerId] = 0;
       for (const voted of Object.values(matchup.votes)) {
         if (counts[voted] !== undefined) counts[voted] += 1;
       }
+      const humanAnswerIds = new Set(
+        matchup.answers.filter((answer) => !answer.isSafety).map((answer) => answer.answerId),
+      );
+      const totalHumanVotes = Object.entries(counts).reduce(
+        (sum, [answerId, count]) => sum + (humanAnswerIds.has(answerId) ? count : 0),
+        0,
+      );
       results.push({
         prompt: matchup.prompt,
         answers: matchup.answers.map((a) => {
-          const votes = counts[a.playerId] ?? 0;
-          const pointsAwarded = votes * 100 * this.round;
+          const votes = counts[a.answerId] ?? 0;
+          const pointsAwarded = a.isSafety || totalHumanVotes === 0
+            ? 0
+            : Math.round((votes / totalHumanVotes) * MATCHUP_POINT_POOL * this.round);
           this.ctx.award(a.playerId, pointsAwarded);
-          return { ...a, votes, pointsAwarded };
+          return {
+            playerId: a.playerId,
+            playerName: a.playerName,
+            text: a.text,
+            isSafety: a.isSafety,
+            votes,
+            pointsAwarded,
+          };
         }),
       });
     }
@@ -272,7 +344,7 @@ export class QuiplashEngine implements GameEngine {
           ? {
               id: active.id,
               prompt: active.prompt,
-              answers: active.answers.map((a) => ({ ...a })),
+              answers: active.answers.map(({ answerId, text }) => ({ answerId, text })),
             }
           : null,
         lastResults: this.lastResults,
@@ -280,5 +352,9 @@ export class QuiplashEngine implements GameEngine {
     };
   }
 
-  dispose(): void {}
+  dispose(): void {
+    this.answeringActive = false;
+    this.votingActive = false;
+    this.clearVoteMinTimer();
+  }
 }
