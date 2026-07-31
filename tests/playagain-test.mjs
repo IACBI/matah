@@ -5,8 +5,10 @@ import { io } from "socket.io-client";
 
 const URL = process.env.TEST_URL ?? "http://localhost:3001";
 const log = (...a) => console.log(...a);
-const conn = () => io(URL, { transports: ["websocket"], forceNew: true });
-const ack = (s, e, ...a) => new Promise((r) => s.emit(e, ...a, (x) => r(x)));
+const conn = () => io(URL, { transports: ["websocket"], forceNew: true, extraHeaders: { Origin: URL } });
+const ack = (s, e, ...a) => new Promise((resolve, reject) =>
+  s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))
+);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const host = conn();
@@ -27,7 +29,7 @@ for (const [i, p] of ps.entries())
 await wait(200);
 
 // Play a quick trivia game to completion.
-await ack(host, "game:start", { gameType: "trivia" });
+await ack(host, "game:start", { gameType: "trivia", rounds: 3, phaseId: st.phaseId });
 await wait(300);
 const answered = new Set();
 let safety = 80;
@@ -37,7 +39,7 @@ while (st.phase !== "scoreboard" && st.phase !== "gameover" && safety-- > 0) {
     for (const [i, p] of ps.entries())
       await ack(p, "trivia:answer", { questionId: st.trivia.question.id, optionIndex: i % 4 });
   } else if (st.phase === "results") {
-    await ack(host, "game:next");
+    await ack(host, "game:next", { phaseId: st.phaseId });
   }
   await wait(150);
 }
@@ -46,11 +48,11 @@ const someScore = st.players.some((p) => p.score > 0);
 log("  skorlar oluştu mu:", someScore);
 
 // A non-host player must NOT be able to restart.
-const bad = await ack(ps[0], "game:restart");
+const bad = await ack(ps[0], "game:restart", { phaseId: st.phaseId });
 log(bad.ok ? "✗ oyuncu restart edebildi (HATA)" : "✓ oyuncu restart engellendi: " + bad.error);
 
 // Host restarts -> back to lobby, same players, scores reset.
-const good = await ack(host, "game:restart");
+const good = await ack(host, "game:restart", { phaseId: st.phaseId });
 await wait(300);
 const backToLobby = st.phase === "lobby";
 const samePlayers = st.players.length === 3 && ids.every((id) => st.players.some((p) => p.id === id));
@@ -59,7 +61,7 @@ log("✓ host restart:", good.ok);
 log("  lobiye döndü:", backToLobby, "| aynı oyuncular:", samePlayers, "| skorlar sıfır:", scoresReset);
 
 // A fresh game can start again.
-const restart = await ack(host, "game:start", { gameType: "quiplash" });
+const restart = await ack(host, "game:start", { gameType: "quiplash", phaseId: st.phaseId });
 await wait(300);
 const restarted = restart.ok && st.phase === "answering";
 log("✓ yeni oyun başladı:", restarted, "| faz:", st.phase);

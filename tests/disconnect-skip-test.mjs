@@ -5,8 +5,10 @@
 import { io } from "socket.io-client";
 
 const URL = process.env.TEST_URL ?? "http://localhost:3001";
-const conn = () => io(URL, { transports: ["websocket"], forceNew: true });
-const ack = (s, e, ...a) => new Promise((r) => s.emit(e, ...a, (x) => r(x)));
+const conn = () => io(URL, { transports: ["websocket"], forceNew: true, extraHeaders: { Origin: URL } });
+const ack = (s, e, ...a) => new Promise((resolve, reject) =>
+  s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))
+);
 
 function until(getState, pred, ms = 10000, label = "condition") {
   return new Promise((resolve, reject) => {
@@ -51,7 +53,7 @@ async function main() {
   await until(() => st, (s) => s.players.length === 3, 8000, "3 players");
   console.log("✓ Oda kuruldu, 3 oyuncu katıldı:", code);
 
-  await ack(host, "game:start", { gameType: "quiplash" });
+  await ack(host, "game:start", { gameType: "quiplash", phaseId: st.phaseId });
   await until(() => st, (s) => s.phase === "answering", 8000, "answering");
   await until(() => st, () => ids.every((id) => assignments[id]), 8000, "assignments");
   console.log("✓ Oyun başladı, atamalar geldi");

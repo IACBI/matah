@@ -5,8 +5,10 @@ import { io } from "socket.io-client";
 
 const URL = process.env.TEST_URL ?? "http://localhost:3001";
 const log = (...a) => console.log(...a);
-const conn = () => io(URL, { transports: ["websocket"], forceNew: true });
-const ack = (s, e, ...a) => new Promise((r) => s.emit(e, ...a, (x) => r(x)));
+const conn = () => io(URL, { transports: ["websocket"], forceNew: true, extraHeaders: { Origin: URL } });
+const ack = (s, e, ...a) => new Promise((resolve, reject) =>
+  s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))
+);
 
 function until(getState, pred, ms = 30000, label = "condition") {
   return new Promise((resolve, reject) => {
@@ -60,7 +62,7 @@ async function testAudienceAndSafety() {
   assert(get().players.every((p) => p.avatar === "fox"), "avatars stored");
   assert(get().hostConnected === true, "hostConnected broadcast");
 
-  await ack(host, "game:start", { gameType: "quiplash" });
+  await ack(host, "game:start", { gameType: "quiplash", phaseId: get().phaseId });
   await until(get, (s) => s.phase === "answering", 8000, "answering");
 
   // Late joiner becomes audience.
@@ -96,23 +98,19 @@ async function testAudienceAndSafety() {
   assert(m && m.answers.length === 2, "safety answer filled missing slot");
 
   // Audience can vote.
-  const target = m.answers.find((a) => a.playerId !== ids[0]) ?? m.answers[0];
+  const target = m.answers[0];
   const vRes = await ack(aud, "vote:submit", {
     matchupId: m.id,
-    answerPlayerId: target.playerId,
+    answerId: target.answerId,
   });
   assert(vRes.ok, "audience vote accepted");
 
   // Host takeover: host disconnects → p0 may control.
   host.disconnect();
-  const nextRes = await until(
-    () => null,
-    () => false,
-    1
-  ).catch(() => null); // just a tick
   let st2 = null;
   ps[0].on("room:state", (s) => (st2 = s));
-  const ctl = await ack(ps[0], "game:restart");
+  await until(() => st2, (s) => s.controllerPlayerId === ids[0], 15_000, "controller failover");
+  const ctl = await ack(ps[0], "game:restart", { phaseId: st2.phaseId });
   assert(ctl.ok, "player takeover when host gone (restart)");
   await until(() => st2, (s) => s.phase === "lobby", 5000, "back to lobby");
   assert(st2.players.length === 4, "audience promoted to player in lobby");
@@ -123,15 +121,21 @@ async function testAudienceAndSafety() {
 
 async function testTriviaFinalDouble() {
   log("\n=== TRIVIA FINAL x2 ===");
-  const { host, ps, ids, get } = await setup();
-  await ack(host, "game:start", { gameType: "trivia" });
+  const { host, ps, code, get } = await setup();
+  const fourth = conn();
+  await new Promise((resolve) => fourth.connected ? resolve() : fourth.once("connect", resolve));
+  const fourthJoin = await ack(fourth, "room:join", { code, name: "Deniz", avatar: "cat" });
+  assert(fourthJoin.ok && !fourthJoin.data.isAudience, "fourth trivia player joined");
+  ps.push(fourth);
+  await until(get, (s) => s.players.length === 4, 5_000, "four trivia players");
+  await ack(host, "game:start", { gameType: "trivia", phaseId: get().phaseId });
 
   const pointsByQuestion = [];
   while (true) {
     await until(get, (s) => s.phase === "answering" || s.phase === "scoreboard" || s.phase === "gameover", 30000, "answering");
     if (get().phase !== "answering") break;
     const q = get().trivia.question;
-    // Spread answers over options 0..2 so someone is usually correct.
+    // Cover every option so the final multiplier is always observable.
     for (const [i, p] of ps.entries())
       await ack(p, "trivia:answer", {
         questionId: q.id,
@@ -140,16 +144,11 @@ async function testTriviaFinalDouble() {
     await until(get, (s) => s.phase === "results", 25000, "results");
     const best = get().trivia.reveal.pointsThisRound[0];
     pointsByQuestion.push({ points: best?.points ?? 0 });
-    await ack(host, "game:next");
+    await ack(host, "game:next", { phaseId: get().phaseId });
   }
   log("  en yüksek puanlar:", pointsByQuestion.map((p) => p.points).join(", "));
   const last = pointsByQuestion[pointsByQuestion.length - 1];
-  if (last.points > 0) {
-    // Base is 500 (+speed/streak); doubled final must be at least 1000.
-    assert(last.points >= 1000, `final question doubled (got ${last.points})`);
-  } else {
-    log("  (son soruda kimse doğru cevaplamadı, çarpan kıyaslanamadı)");
-  }
+  assert(last.points >= 1000, `final question doubled (got ${last.points})`);
   [host, ...ps].forEach((s) => s.disconnect());
   log("✅ TRIVIA FINAL x2 GEÇTİ");
 }

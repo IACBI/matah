@@ -4,8 +4,10 @@ import { io } from "socket.io-client";
 
 const URL = process.env.TEST_URL ?? "http://localhost:3001";
 const log = (...a) => console.log(...a);
-const conn = () => io(URL, { transports: ["websocket"], forceNew: true });
-const ack = (s, e, ...a) => new Promise((r) => s.emit(e, ...a, (x) => r(x)));
+const conn = () => io(URL, { transports: ["websocket"], forceNew: true, extraHeaders: { Origin: URL } });
+const ack = (s, e, ...a) => new Promise((resolve, reject) =>
+  s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))
+);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const host = conn();
@@ -27,15 +29,16 @@ await Promise.all(
 
 const code = (await ack(host, "room:create", { language: "tr" })).data.code;
 const ids = [];
+const sessions = [];
 for (const [i, p] of [p1, p2, p3].entries()) {
-  ids[i] = (await ack(p, "room:join", { code, name: ["Ada", "Bora", "Can"][i] }))
-    .data.playerId;
+  sessions[i] = (await ack(p, "room:join", { code, name: ["Ada", "Bora", "Can"][i] })).data;
+  ids[i] = sessions[i].playerId;
 }
 const p1pid = ids[0];
 await wait(200);
 log("✓ Oda kuruldu, 3 oyuncu katıldı:", code);
 
-await ack(host, "game:start", { gameType: "quiplash" });
+await ack(host, "game:start", { gameType: "quiplash", phaseId: st.phaseId });
 await wait(400);
 log("✓ Oyun başladı, faz:", st.phase);
 log("  p1 ilk atama prompt sayısı:", p1Assignment?.prompts.length);
@@ -51,7 +54,7 @@ p1Assignment = null;
 p1 = conn();
 bindAssign(p1);
 await new Promise((r) => (p1.connected ? r() : p1.once("connect", r)));
-const rj = await ack(p1, "room:rejoin", { code, playerId: p1pid });
+const rj = await ack(p1, "room:rejoin", { code, resumeToken: sessions[0].resumeToken });
 log(rj.ok ? "✓ rejoin başarılı" : "✗ rejoin BAŞARISIZ: " + rj.error);
 await wait(400);
 log("  rejoin sonrası yeniden gelen atama prompt sayısı:", p1Assignment?.prompts.length);
