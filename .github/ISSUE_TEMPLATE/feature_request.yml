@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a focused improvement to the player or contributor experience.
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What player or contributor need would this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: Describe the desired behavior without prescribing unnecessary implementation detail.
+    validations:
+      required: true
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Primary audience
+      options:
+        - Players
+        - Host
+        - Audience members
+        - Self-hosters
+        - Contributors
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Mention workarounds or simpler options you considered.
+  - type: textarea
+    id: accessibility
+    attributes:
+      label: Accessibility and localization
+      description: Note any keyboard, motion, contrast, screen-size, RTL, or translation implications.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for a similar request.
+          required: true

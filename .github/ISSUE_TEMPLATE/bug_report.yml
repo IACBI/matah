@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible problem in Matah.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Matah. Do not include resume tokens, private data, or security vulnerabilities here.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a room...
+        2. Join from...
+        3. Start...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Host screen
+        - Player screen
+        - Quiplash
+        - Trivia
+        - Reconnect or networking
+        - Deployment or development tooling
+        - Translations or content
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Deployment or commit, browser and version, operating system, and device.
+      placeholder: Live demo; Chrome (current); Android phone
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Add sanitized evidence if it helps. Remove tokens and personal data first.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: This report does not disclose a security vulnerability.
+          required: true

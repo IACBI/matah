@@ -88,8 +88,13 @@ matah/
 
 ## 🚀 Getting started
 
+### Requirements
+
+- [Node.js 24](https://nodejs.org/) or newer
+- npm 11 (the version declared in `package.json` is recommended)
+
 ```bash
-npm install      # install all workspaces
+npm ci           # install the exact dependency graph from package-lock.json
 npm run dev      # server on :3001, client on :5173
 ```
 
@@ -101,10 +106,16 @@ in the terminal on your phones to join.
 | Command | What it does |
 |---------|--------------|
 | `npm run dev` | Run server + client in watch mode |
-| `npm run build` | Build the production client bundle |
-| `npm start` | Production server (also serves the built client) |
+| `npm run build` | Compile the server and build the production client bundle |
+| `npm start` | Run the compiled production server and serve the client |
+| `npm test` | Run server unit/integration and client component suites |
+| `npm run test:coverage:server` | Enforce 90% line / 85% branch coverage on core server logic |
+| `npm run test:coverage:client` | Enforce 80% line / branch coverage on client state helpers |
+| `npm run test:smoke` | Run the full multiplayer Socket.IO smoke suite |
+| `npm run test:browser` | Run real-Chromium multiplayer, responsive, RTL, rematch, and axe checks |
+| `npm run test:load` | Run the 60-second, 25-room/100-socket bounded load and leak check |
 | `npm run typecheck` | Type-check every workspace |
-| `npm run test:e2e` | Play through both modes end-to-end |
+| `npm run lint` | Check the repository with ESLint |
 
 ---
 
@@ -113,9 +124,47 @@ in the terminal on your phones to join.
 One service deploys the whole app — in production the Node server serves the
 built client from the same origin.
 
-- **Render (free, one click):** push to GitHub, then **New → Blueprint** and pick the repo. `render.yaml` does the rest.
-- **Docker:** `docker build -t matah . && docker run -p 3001:3001 matah`
-- **Manual:** `npm install && npm run build && NODE_ENV=production npm start`
+- **Render:** push to GitHub, then choose **New → Blueprint** and select the
+  repository. `render.yaml` installs from the lockfile, builds both workspaces,
+  configures the public origin, and starts the compiled server.
+- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 matah`
+- **Manual:** run `npm ci`, `npm run build`, then start with
+  `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
+
+### Production configuration
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `PUBLIC_ORIGIN` | Production | Exact public origin allowed to open Socket.IO connections, for example `https://game.example.com`. Do not use a wildcard. |
+| `ALLOWED_ORIGINS` | No | Comma-separated additional exact origins, useful for controlled staging domains. |
+| `PORT` | No | HTTP port; defaults to `3001`. Hosting platforms normally provide it. |
+| `NODE_ENV` | Production | Set to `production` to enable production security headers and static serving. |
+
+Matah keeps rooms and scores in process memory. Run one application instance:
+deploys, restarts, and crashes end active rooms, and horizontal replicas do not
+share room state. Supporting multiple instances requires shared room/session
+storage plus a compatible Socket.IO adapter and routing strategy.
+
+### Reconnect and session security
+
+The server is authoritative for membership, timers, answers, votes, and scores.
+A successful create or join returns a private resume token; the browser keeps it
+in session storage and presents it after a temporary disconnect. Player IDs are
+public display identifiers and are never accepted as reconnect credentials. A
+successful resume replaces the previous socket for that session.
+
+Treat a resume token like a short-lived session credential: never log, publish,
+or send it to another player. See [SECURITY.md](SECURITY.md) for reporting and
+operational guidance, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
+room lifecycle, trust boundaries, timers, and recovery design.
+
+### Rollback
+
+Deploys do not migrate persistent data because the application has no database.
+To roll back a merged release, revert its merge commit and deploy the resulting
+new `main` commit; do not rewrite shared history. Then verify `/health` and
+complete a short host-plus-three-players smoke game. A rollback or restart ends
+active in-memory rooms, so announce it before a planned production change.
 
 ---
 
@@ -129,7 +178,7 @@ matah/
 │  ├─ room.ts                 # room: membership, phase/timer machine, scoring
 │  ├─ engine.ts               # GameEngine interface
 │  ├─ engines/                # quiplash.ts · trivia.ts
-│  ├─ content/                # prompts.ts · trivia.ts (content in 4 languages)
+│  ├─ content/                # prompts.ts · trivia.ts (content in 14 languages)
 │  └─ rateLimiter.ts          # per-socket token bucket
 └─ client/src/
    ├─ views/                  # Home · HostScreen · PlayerScreen
@@ -143,6 +192,8 @@ matah/
 <div align="center">
 
 Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
+
+[Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
