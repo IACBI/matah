@@ -101,6 +101,21 @@ export function playSfx(name: SfxName): void {
   }
 }
 
+/**
+ * A short buzz to confirm a tap on the phone screen.
+ *
+ * Rides the same mute switch as sound: someone who silenced the game does not
+ * want their pocket buzzing either. No-op where the API is unsupported.
+ */
+export function haptic(durationMs = 10): void {
+  if (muted || typeof navigator === "undefined" || !navigator.vibrate) return;
+  try {
+    navigator.vibrate(durationMs);
+  } catch {
+    /* vibration can be blocked by permissions policy */
+  }
+}
+
 export function setMuted(value: boolean): void {
   muted = value;
   try {

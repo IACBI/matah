@@ -6,9 +6,10 @@ import { useI18n } from "../i18n";
 import { errorKey } from "../i18n/translations";
 import { TopBar } from "../components/Controls";
 import { ReactionBar } from "../components/Reactions";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Avatar } from "../components/Avatar";
 import { IconBack, IconTimer, VerdictRight, VerdictWrong } from "../components/icons";
-import { playSfx } from "../sound";
+import { haptic, playSfx } from "../sound";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
 const DRAFT_PREFIX = "matah.drafts.";
@@ -66,6 +67,7 @@ export function PlayerScreen({
   const { t } = useI18n();
   const [controlPending, setControlPending] = useState(false);
   const [controlError, setControlError] = useState("");
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
   const me = state?.players.find((p) => p.id === myPlayerId);
   const audienceMe = state?.audience.find((a) => a.id === myPlayerId);
   const isAudience = !me && !!audienceMe;
@@ -99,13 +101,16 @@ export function PlayerScreen({
     (state.phase === "voting" && isAudience);
 
   const leaveGame = () => {
+    playSfx("click");
+    void onLeave();
+  };
+  const askLeave = () => {
     const inProgress =
       state.phase !== "lobby" &&
       state.phase !== "gameover" &&
       state.phase !== "scoreboard";
-    if (inProgress && !window.confirm(t("leaveConfirm"))) return;
-    playSfx("click");
-    void onLeave();
+    if (inProgress) setConfirmingLeave(true);
+    else leaveGame();
   };
 
   const rematch = async () => {
@@ -128,10 +133,20 @@ export function PlayerScreen({
           <div className="badge warn">{t("reconnecting")}</div>
         </div>
       )}
+      {confirmingLeave && (
+        <ConfirmDialog
+          message={t("leaveConfirm")}
+          onCancel={() => setConfirmingLeave(false)}
+          onConfirm={() => {
+            setConfirmingLeave(false);
+            leaveGame();
+          }}
+        />
+      )}
       <header className="player-header">
         <button
           className="player-leave"
-          onClick={leaveGame}
+          onClick={askLeave}
           aria-label={t("leaveRoom")}
           title={t("leaveRoom")}
         >
@@ -154,8 +169,8 @@ export function PlayerScreen({
           {secondsLeft !== null && (
             <span
               className={`player-timer ${secondsLeft <= 5 ? "danger" : ""}`}
-              aria-live="off"
               role="timer"
+              aria-label={t("secondsLeft", { n: secondsLeft })}
             >
               <IconTimer /> {secondsLeft}
             </span>
@@ -295,6 +310,7 @@ function AnsweringView({
       setSending((s) => ({ ...s, [matchupId]: false }));
       if (res.ok) {
         playSfx("submit");
+        haptic();
         setSent((s) => ({ ...s, [matchupId]: true }));
         setAnswers((current) => {
           const next = { ...current };
@@ -408,6 +424,7 @@ function VotingView({
   const { t } = useI18n();
   const matchup = state.quiplash?.activeMatchup ?? null;
   const [voted, setVoted] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // The server already knows whether this vote landed. Without reading it, a
@@ -421,6 +438,7 @@ function VotingView({
 
   useEffect(() => {
     setVoted(null);
+    setChosen(null);
     setBusy(false);
     setError("");
   }, [matchup?.id]);
@@ -458,17 +476,22 @@ function VotingView({
 
   const vote = async (answerId: string) => {
     if (busy) return;
+    // Mark the tapped answer immediately: waiting on the round trip before
+    // showing anything made the tap feel like it had not registered.
+    setChosen(answerId);
     setBusy(true);
     setError("");
+    playSfx("vote");
+    haptic();
     const res = await emitAck("vote:submit", {
       matchupId: matchup.id,
       answerId,
     });
     setBusy(false);
     if (res.ok) {
-      playSfx("vote");
       setVoted(answerId);
     } else {
+      setChosen(null);
       setError(t(errorKey(res.error ?? "vote_failed")));
     }
   };
@@ -481,7 +504,9 @@ function VotingView({
         {matchup.answers.map((a, i) => (
           <button
             key={a.answerId}
-            className={`vote-btn c${i}`}
+            className={`vote-btn c${i} ${
+              chosen === a.answerId ? "chosen" : chosen ? "dimmed" : ""
+            }`}
             onClick={() => vote(a.answerId)}
             disabled={busy}
             aria-label={t("ariaVote", { text: a.text })}

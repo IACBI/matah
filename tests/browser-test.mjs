@@ -195,7 +195,7 @@ async function playTrivia(host, players) {
   await host.getByRole('button', { name: /trivia/i }).click();
   const questions = host.getByRole('group', { name: /questions/i });
   for (let index = 0; index < 3; index += 1) {
-    await questions.getByRole('button', { name: '−' }).click();
+    await questions.getByRole('button', { name: /one fewer/i }).click();
   }
   await host.getByRole('button', { name: /start game/i }).click();
 
@@ -219,7 +219,7 @@ async function playQuiplash(host, players) {
   await waitForState(host, (state) => state.phase === 'lobby', 'settings lobby');
   const rounds = host.getByRole('group', { name: /rounds/i });
   for (let index = 0; index < 2; index += 1) {
-    await rounds.getByRole('button', { name: '−' }).click();
+    await rounds.getByRole('button', { name: /one fewer/i }).click();
   }
   await host.getByRole('button', { name: /start game/i }).click();
   await waitForState(host, (state) => state.phase === 'answering' && state.gameType === 'quiplash', 'quiplash answering');

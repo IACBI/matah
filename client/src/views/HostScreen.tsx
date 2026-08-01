@@ -21,6 +21,7 @@ import { errorKey, LANGUAGE_LABELS } from "../i18n/translations";
 import { TopBar } from "../components/Controls";
 import { Confetti } from "../components/Confetti";
 import { ReactionOverlay } from "../components/Reactions";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { QuiplashIcon, TriviaIcon } from "../components/GameIcons";
 import { Avatar } from "../components/Avatar";
 import { IconCheck, IconClose, IconCopy, Medal, PartyIcon } from "../components/icons";
@@ -92,23 +93,28 @@ export function HostScreen({
       emitAck<null>("room:setLanguage", { language, phaseId: state.phaseId })
     );
   };
+  // Confirmations run through a styled dialog; `confirming` holds which one.
+  const [confirming, setConfirming] = useState<"end" | "leave" | null>(null);
+
   const endGame = async () => {
     if (!state) return;
-    if (!window.confirm(t("endGameConfirm"))) return;
     const ok = await runCommand("end", () =>
       emitAck<null>("game:end", { phaseId: state.phaseId })
     );
     if (ok) playSfx("click");
   };
   const leaveGame = () => {
+    playSfx("click");
+    void onLeave();
+  };
+  const askLeave = () => {
     const inProgress =
       !!state &&
       state.phase !== "lobby" &&
       state.phase !== "gameover" &&
       state.phase !== "scoreboard";
-    if (inProgress && !window.confirm(t("leaveConfirm"))) return;
-    playSfx("click");
-    void onLeave();
+    if (inProgress) setConfirming("leave");
+    else leaveGame();
   };
 
   // Sound cues on phase transitions.
@@ -134,7 +140,7 @@ export function HostScreen({
         <div className="badge warn">
           {connected ? t("preparingRoom") : t("connecting")}
         </div>
-        <button className="btn link host-leave-center" onClick={() => void onLeave()} disabled={leaving}>
+        <button className="btn link host-leave-center" onClick={askLeave} disabled={leaving}>
           {t("leaveRoom")}
         </button>
       </div>
@@ -158,6 +164,17 @@ export function HostScreen({
           <div className="badge warn">{t("reconnecting")}</div>
         </div>
       )}
+      {confirming && (
+        <ConfirmDialog
+          message={t(confirming === "end" ? "endGameConfirm" : "leaveConfirm")}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            setConfirming(null);
+            if (confirming === "end") void endGame();
+            else leaveGame();
+          }}
+        />
+      )}
       <header className="host-header">
         <div className="logo small">
           <span className="logo-q">M</span>atah
@@ -176,19 +193,24 @@ export function HostScreen({
             {t("audienceCount", { n: state.audience.length })}
           </div>
         )}
+        <div className="host-header-spacer" />
         {secondsLeft !== null && (
-          <div className={`timer ${secondsLeft <= 5 ? "danger" : ""}`} role="timer" aria-label={`${secondsLeft}`}>
+          <div
+            className={`timer ${secondsLeft <= 5 ? "danger" : ""}`}
+            role="timer"
+            aria-label={t("secondsLeft", { n: secondsLeft })}
+          >
             {secondsLeft}
           </div>
         )}
         {(state.phase === "answering" ||
           state.phase === "voting" ||
           state.phase === "results") && (
-          <button className="btn ghost end-game-btn" onClick={() => void endGame()} disabled={pending !== null}>
+          <button className="btn ghost end-game-btn" onClick={() => setConfirming("end")} disabled={pending !== null}>
             {t("endGame")}
           </button>
         )}
-        <button className="btn link host-leave" onClick={leaveGame} disabled={leaving || pending !== null}>
+        <button className="btn link host-leave" onClick={askLeave} disabled={leaving || pending !== null}>
           {t("leaveRoom")}
         </button>
       </header>
@@ -277,7 +299,8 @@ function CopyCodeButton({ code }: { code: string }) {
 /** QR code that deep-links phones straight into the join form. */
 function JoinQr({ code }: { code: string }) {
   const { t } = useI18n();
-  const [src, setSrc] = useState<string>("");
+  // "" is still loading, null is a failure, a data URL is the code.
+  const [src, setSrc] = useState<string | null>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -294,14 +317,25 @@ function JoinQr({ code }: { code: string }) {
         if (!cancelled) setSrc(dataUrl);
       })
       .catch(() => {
-        if (!cancelled) setSrc("");
+        if (!cancelled) setSrc(null);
       });
     return () => {
       cancelled = true;
     };
   }, [code]);
 
-  if (!src) return null;
+  // Reserve the space immediately: the lobby used to reflow when the lazily
+  // imported encoder landed, and a failure was indistinguishable from loading.
+  if (src === null) {
+    return (
+      <div className="qr-box qr-failed">
+        <span className="qr-hint">{t("qrUnavailable")}</span>
+      </div>
+    );
+  }
+  if (src === "") {
+    return <div className="qr-box qr-skeleton" aria-hidden="true" />;
+  }
   return (
     <div className="qr-box pop-in">
       <img src={src} alt={t("scanToJoin")} />
@@ -370,7 +404,7 @@ function LobbyView({
       <JoinQr code={state.code} />
 
       <label className="content-language">
-        <span>{t("language")}</span>
+        <span>{t("gameLanguage")}</span>
         <select
           className="input"
           value={state.language}
@@ -433,7 +467,7 @@ function LobbyView({
           className="length-step"
           onClick={() => setLength((n) => Math.max(bounds.min, n - 1))}
           disabled={clampedLength <= bounds.min}
-          aria-label="−"
+          aria-label={t("stepRoundsDown")}
         >
           −
         </button>
@@ -442,7 +476,7 @@ function LobbyView({
           className="length-step"
           onClick={() => setLength((n) => Math.min(bounds.max, n + 1))}
           disabled={clampedLength >= bounds.max}
-          aria-label="+"
+          aria-label={t("stepRoundsUp")}
         >
           +
         </button>
@@ -570,12 +604,23 @@ function QuiplashResultsView({
       <h2 className="phase-title center">
         {t("roundResults", { n: state.round })}
       </h2>
+      {state.round > 1 && (
+        <p className="round-multiplier center">
+          {t("roundMultiplier", { n: state.round })}
+        </p>
+      )}
       <div className="results-list">
         {(state.quiplash?.lastResults ?? []).map((r, i) => {
           // On a tie every top answer gets the winner highlight.
           const maxVotes = Math.max(...r.answers.map((a) => a.votes));
           return (
-            <div key={i} className="result-row pop-in">
+            <div
+              key={i}
+              className="result-row pop-in"
+              // Reveal one row at a time: the whole board landing at once gave
+              // the room nothing to react to.
+              style={{ animationDelay: `${i * 0.12}s` }}
+            >
               <div className="result-prompt">{r.prompt}</div>
               <div className="result-answers">
                 {r.answers.map((a) => (
@@ -589,6 +634,14 @@ function QuiplashResultsView({
                     <span className="ra-meta">
                       {a.playerName} · {a.votes} {t("voteUnit")} · +
                       {a.pointsAwarded}
+                      {a.submitBonus > 0 && (
+                        // Show the participation reward separately, or the
+                        // scoreboard looks arbitrary.
+                        <span className="ra-bonus">
+                          {" "}
+                          +{a.submitBonus} {t("bonusLabel")}
+                        </span>
+                      )}
                     </span>
                   </div>
                 ))}

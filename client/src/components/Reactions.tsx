@@ -6,7 +6,7 @@ import { useI18n } from "../i18n";
 import type { TKey } from "../i18n/translations";
 import { Avatar } from "./Avatar";
 import { ReactionIcon } from "./icons";
-import { playSfx } from "../sound";
+import { haptic, playSfx } from "../sound";
 
 interface FloatingReaction extends Reaction {
   key: number;
@@ -87,7 +87,7 @@ export function ReactionBar() {
     setCooling(true);
     coolTimer.current = window.setTimeout(() => setCooling(false), SEND_COOLDOWN_MS);
     playSfx("click");
-    if (navigator.vibrate) navigator.vibrate(8);
+    haptic(8);
     void emitAck("reaction:send", { emoji });
   };
 

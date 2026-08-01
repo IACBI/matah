@@ -95,7 +95,7 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
           <button
             className="notice-close"
             onClick={onDismissNotice}
-            aria-label={t("back")}
+            aria-label={t("dismiss")}
           >
             <IconClose />
           </button>
