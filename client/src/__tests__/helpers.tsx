@@ -43,5 +43,12 @@ export function roomState(overrides: Partial<RoomState> = {}): RoomState {
 /** Render inside the i18n provider, pinned to English. */
 export function renderApp(ui: ReactElement) {
   localStorage.setItem('matah.lang', 'en');
-  return render(<I18nProvider>{ui}</I18nProvider>);
+  const result = render(<I18nProvider>{ui}</I18nProvider>);
+  return {
+    ...result,
+    // Testing Library's own rerender replaces the whole tree, which would drop
+    // the provider and leave useI18n throwing. Re-wrap so prop changes can be
+    // driven the same way the app drives them.
+    rerender: (next: ReactElement) => result.rerender(<I18nProvider>{next}</I18nProvider>),
+  };
 }
