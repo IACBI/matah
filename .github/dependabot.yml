@@ -31,3 +31,13 @@ updates:
       actions:
         patterns:
           - "*"
+
+  # The repository ships a Dockerfile, so its base image needs update coverage
+  # too — otherwise node:24-alpine silently ages.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Istanbul

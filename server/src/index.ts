@@ -46,6 +46,26 @@ if (isProd && allowedOrigins.length === 0) {
   throw new Error("PUBLIC_ORIGIN must contain an explicit production origin");
 }
 
+// Fail at boot rather than at the first handshake: an origin with a trailing
+// slash, a missing scheme, or a stray path silently rejects every client,
+// which looks like a networking fault rather than a typo.
+for (const origin of allowedOrigins) {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    throw new Error(`Not a valid origin: ${origin}`);
+  }
+  if (parsed.origin !== origin) {
+    throw new Error(
+      `Origins must have no path, query, or trailing slash: ${origin} (expected ${parsed.origin})`
+    );
+  }
+  if (isProd && parsed.protocol !== "https:" && parsed.hostname !== "127.0.0.1") {
+    throw new Error(`Production origins must use https: ${origin}`);
+  }
+}
+
 /** Read a rate-limit tunable from the environment, falling back to the default. */
 function limit(name: string, fallback: number): number {
   const raw = Number(process.env[`MATAH_RL_${name}`]);

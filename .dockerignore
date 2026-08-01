@@ -2,17 +2,19 @@
 .github
 .env
 .env.*
-!.env.example
 .DS_Store
 *.log
 
 node_modules
 **/node_modules
 **/dist
-coverage
+# Root-anchored patterns miss client/coverage/.
+**/coverage
 playwright-report
 test-results
 
 docs/screenshots
+# Playwright screenshots and axe reports; several megabytes locally.
+browser-output
 tests
 progress.md

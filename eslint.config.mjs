@@ -10,9 +10,10 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       'client/public/**',
-      'coverage/**',
-      'playwright-report/**',
-      'test-results/**',
+      // Root-anchored patterns missed client/coverage/, which exists on disk.
+      '**/coverage/**',
+      '**/playwright-report/**',
+      '**/test-results/**',
     ],
   },
   js.configs.recommended,
@@ -38,6 +39,19 @@ export default tseslint.config(
     rules: {
       ...jsxA11y.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
+      // Player names and answers are rendered verbatim. React escapes them by
+      // construction, which is the whole defence — the server deliberately
+      // does not HTML-escape, because that would corrupt legitimate input like
+      // "Ben & Jerry". This rule keeps that assumption from being broken by
+      // accident. See sanitizeUserText in server/src/util.ts.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'JSXAttribute[name.name="dangerouslySetInnerHTML"]',
+          message:
+            'User text is only safe because React escapes it. Render it as a child instead.',
+        },
+      ],
     },
   },
   {
