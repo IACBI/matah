@@ -9,10 +9,14 @@ updates:
       timezone: Europe/Istanbul
     open-pull-requests-limit: 5
     ignore:
-      # @eslint/js 10 declares a peer of eslint ^10, but eslint-plugin-jsx-a11y
-      # tops out at eslint ^9 (6.10.2 is its newest release). Taking the major
-      # alone breaks `npm prune --omit=dev` in the Docker build with ERESOLVE.
-      # Drop this entry once jsx-a11y ships eslint 10 support.
+      # eslint-plugin-jsx-a11y tops out at a peer of eslint ^9 and 6.10.2 is its
+      # newest release, so nothing in the tree can move to eslint 10 yet: the
+      # bump fails `npm ci` outright with ERESOLVE. Both halves need naming —
+      # ignoring only @eslint/js (#17) just brought the same break back as
+      # eslint itself (#27). Drop both once jsx-a11y ships eslint 10 support.
+      - dependency-name: "eslint"
+        update-types:
+          - version-update:semver-major
       - dependency-name: "@eslint/js"
         update-types:
           - version-update:semver-major
