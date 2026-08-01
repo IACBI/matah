@@ -133,19 +133,21 @@ const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use(
+  // Applied in every environment: outside production this app serves only
+  // /health, because the UI comes from Vite's own dev server on a separate
+  // origin that this middleware never sees. Disabling the policy in dev
+  // therefore protects nothing and leaves the header untested until release.
   helmet({
-    contentSecurityPolicy: isProd
-      ? {
-          directives: {
-            defaultSrc: ["'self'"],
-            scriptSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", "data:"],
-            connectSrc: ["'self'"],
-            fontSrc: ["'self'", "data:"],
-          },
-        }
-      : false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", "data:"],
+      },
+    },
   })
 );
 app.use(compression());
