@@ -19,7 +19,6 @@ import {
   clampLength,
   DEFAULT_AVATAR,
   DEFAULT_TOTAL_ROUNDS,
-  HOST_AVATAR,
   MAX_AUDIENCE,
   MAX_NAME_LEN,
   MAX_PLAYERS,
@@ -125,7 +124,9 @@ export class Room {
   // ---- membership and private resume credentials ----
 
   addHost(socketId: string): SessionResult {
-    const result = this.addMember(socketId, "TV", HOST_AVATAR, {
+    // The host is never in `players` or `audience`, so its avatar is never
+    // rendered — but the field is required, so use the shared default.
+    const result = this.addMember(socketId, "TV", DEFAULT_AVATAR, {
       isHost: true,
     });
     this.onHostConnected();
@@ -682,6 +683,7 @@ export class Room {
         name: player.name,
         avatar: player.avatar,
         connected: player.connected,
+        hasVoted: player.hasVoted,
       })),
       hostConnected: this.hostConnected(),
       phaseId: this.phaseId,

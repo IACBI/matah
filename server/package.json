@@ -10,7 +10,6 @@
     "start": "cross-env NODE_ENV=production node dist/server/src/index.js"
   },
   "dependencies": {
-    "@matah/shared": "*",
     "compression": "^1.7.5",
     "cross-env": "^7.0.3",
     "express": "^4.21.2",

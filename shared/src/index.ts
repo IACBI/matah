@@ -95,7 +95,9 @@ export interface RoomState {
   round: number;
   totalRounds: number;
   players: Player[]; // active (non-host, non-audience) players
-  audience: Pick<Player, "id" | "name" | "avatar" | "connected">[];
+  // Audience members vote in quiplash, so `hasVoted` is part of their public
+  // shape; nothing else about them is broadcast.
+  audience: Pick<Player, "id" | "name" | "avatar" | "connected" | "hasVoted">[];
   hostConnected: boolean; // false → players may take over host controls
   /** Monotonically increasing guard for control commands. */
   phaseId: number;
@@ -206,7 +208,6 @@ export type ApiErrorCode =
   | "invalid_language"
   | "invalid_phase"
   | "invalid_reaction"
-  | "invalid_request"
   | "invalid_target"
   | "name_required"
   | "no_room"
@@ -225,6 +226,23 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: ApiErrorCode };
 
+/**
+ * What a control command needs permission to do.
+ *
+ * The connected host holds every capability. When the host drops, the room
+ * elects a player controller so the game can continue — but `kick` stays
+ * host-only, because it is the one irreversible action aimed at another
+ * person. Everything else is game flow the room can recover from.
+ */
+export type Capability =
+  | "start"
+  | "advance"
+  | "end"
+  | "restart"
+  | "rematch"
+  | "language"
+  | "kick";
+
 // ---- Tunables ----
 
 export const ROOM_CODE_LENGTH = 4;
@@ -235,6 +253,22 @@ export const DEFAULT_TOTAL_ROUNDS = 3;
 export const TRIVIA_QUESTIONS = 6;
 /** The last trivia question is worth double points. */
 export const TRIVIA_FINAL_MULTIPLIER = 2;
+
+// ---- Quiplash scoring ----
+//
+// Each matchup pays out a pool split by vote share, scaled by the round
+// number. Two rules keep it fair:
+//
+//  - The pool scales with how many of the answers are real. A matchup with one
+//    human and one canned safety quip pays half, so being paired with someone
+//    who timed out is no longer the highest-scoring event in the game.
+//  - Votes for a safety quip count in the denominator, so vote share means
+//    "share of the room" rather than "share of the humans".
+//
+// On top of that every submitted answer earns a flat bonus, so writing
+// something always beats letting the clock run out.
+export const MATCHUP_POINT_POOL = 1_000;
+export const SUBMIT_BONUS = 100;
 
 // Host-configurable game length, clamped per mode (see Room.start).
 export const MIN_ROUNDS = 1; // quiplash rounds
@@ -266,8 +300,6 @@ export const AVATARS = [
   "octopus", "lion", "pizza", "rocket", "cactus", "cupcake", "dragon", "ninja",
 ] as const;
 export const DEFAULT_AVATAR = "smiley";
-/** The host (TV) screen's avatar id. */
-export const HOST_AVATAR = "tv";
 
 // Reaction ids anyone can fire at the host screen during a game (rendered as
 // animated SVGs client-side).

@@ -1473,7 +1473,6 @@ const ERROR_CODE_TO_KEY: Record<string, TKey> = {
   invalid_target: "errServer",
   invalid_language: "errServer",
   invalid_phase: "errServer",
-  invalid_request: "errServer",
   request_timeout: "errServer",
   disconnected: "errServer",
 };
