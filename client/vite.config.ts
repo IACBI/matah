@@ -19,12 +19,24 @@ export default defineConfig({
   build: {
     target: "es2020",
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // Split rarely-changing vendor code so it caches independently.
-        manualChunks: {
-          react: ["react", "react-dom"],
-          socket: ["socket.io-client"],
+        // Vite 8 bundles with Rolldown, which dropped the object form of
+        // manualChunks; groups match module paths instead of package entry
+        // points, so each pattern has to name the transitive runtime too
+        // (scheduler for react, the engine.io layer for socket.io-client).
+        codeSplitting: {
+          groups: [
+            {
+              name: "react",
+              test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/,
+            },
+            {
+              name: "socket",
+              test: /[\\/]node_modules[\\/](socket\.io-client|socket\.io-parser|engine\.io-client|engine\.io-parser)[\\/]/,
+            },
+          ],
         },
       },
     },

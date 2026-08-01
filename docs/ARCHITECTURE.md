@@ -105,6 +105,15 @@ reconnects at once and must fit inside the same per-IP budget.
 | `MATAH_RL_JOIN_ROOM` | 40 | per room code / 60 s | `room:join`, scoped to the target room so flooding one room costs the attacker rather than every other player behind the same router |
 | `MATAH_RL_REJOIN` | 20 | per IP / 60 s | `room:rejoin`, which has its own ceiling because every successful rejoin fans a full room state out to up to 29 members |
 
+In front of all of those sits one HTTP limiter of 120 requests per IP per
+minute, covering the health endpoint and the SPA shell. It deliberately does
+not count `/assets/`: those bundles are fingerprinted and served
+`immutable` for a year, so a client fetches each exactly once, and charging a
+dozen of them to every page load would let a household spend the whole budget
+just by opening the app. So that the exemption cannot become an unmetered
+source of HTML, a miss under `/assets/` returns 404 rather than falling
+through to the shell.
+
 Reactions have a separate, fixed (non-configurable) limit: 3 tokens refilling
 at 3/s per socket, plus a 20/20 per-room bucket, since a reaction storm is a
 cosmetic annoyance rather than a resource risk and does not need the same
