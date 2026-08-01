@@ -151,6 +151,13 @@ export function HostScreen({
     <main className="screen host">
       <TopBar />
       <ReactionOverlay />
+      {/* Players already get this; without it the TV froze mid-game with no
+          explanation while everyone stared at it. */}
+      {!connected && (
+        <div className="reconnect-overlay" role="alert">
+          <div className="badge warn">{t("reconnecting")}</div>
+        </div>
+      )}
       <header className="host-header">
         <div className="logo small">
           <span className="logo-q">M</span>atah
@@ -248,12 +255,14 @@ export function HostScreen({
 function CopyCodeButton({ code }: { code: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
+  const resetTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(resetTimer.current), []);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
       playSfx("click");
-      setTimeout(() => setCopied(false), 1800);
+      resetTimer.current = window.setTimeout(() => setCopied(false), 1800);
     } catch {
       /* clipboard unavailable (http / old browser) — button is best-effort */
     }
@@ -480,13 +489,24 @@ function GameCard({
 
 function QuiplashVoteView({ state }: { state: RoomState }) {
   const { t } = useI18n();
-  const m = state.quiplash!.activeMatchup!;
+  const view = state.quiplash;
+  const m = view?.activeMatchup;
+  if (!m) {
+    // Between matchups the server has no active pair; the room used to stare
+    // at a blank screen here.
+    return (
+      <div className="host-body center">
+        <h2 className="phase-title">{t("nextMatchup")}</h2>
+        <div className="pulse-dot" />
+      </div>
+    );
+  }
   return (
     <div className="host-body center" key={m.id}>
       <div className="vs-badge">
         {t("matchup", {
-          n: state.quiplash!.currentMatchupIndex + 1,
-          total: state.quiplash!.totalMatchups,
+          n: view.currentMatchupIndex + 1,
+          total: view.totalMatchups,
         })}
       </div>
       <h2 className="prompt-big">{m.prompt}</h2>
@@ -498,6 +518,39 @@ function QuiplashVoteView({ state }: { state: RoomState }) {
           </div>
         ))}
       </div>
+      <VoteProgress state={state} authorCount={m.answers.length} />
+    </div>
+  );
+}
+
+/**
+ * Live vote tally for the host screen.
+ *
+ * The room used to sit through twenty silent seconds with nothing changing.
+ * Authorship stays hidden during voting, so the eligible total is derived:
+ * every connected participant except the matchup's authors, of whom there are
+ * exactly as many as there are answers.
+ */
+function VoteProgress({
+  state,
+  authorCount,
+}: {
+  state: RoomState;
+  authorCount: number;
+}) {
+  const { t } = useI18n();
+  const participants = [...state.players, ...state.audience].filter((p) => p.connected);
+  const voted = participants.filter((p) => p.hasVoted).length;
+  const eligible = Math.max(voted, participants.length - authorCount);
+  if (eligible === 0) return null;
+  return (
+    <div className="vote-progress" role="status" aria-live="polite">
+      <div className="vote-progress-bar">
+        <span style={{ width: `${(voted / eligible) * 100}%` }} />
+      </div>
+      <span className="vote-progress-label">
+        {t("votingProgress", { n: voted, total: eligible })}
+      </span>
     </div>
   );
 }
@@ -518,7 +571,7 @@ function QuiplashResultsView({
         {t("roundResults", { n: state.round })}
       </h2>
       <div className="results-list">
-        {state.quiplash!.lastResults!.map((r, i) => {
+        {(state.quiplash?.lastResults ?? []).map((r, i) => {
           // On a tie every top answer gets the winner highlight.
           const maxVotes = Math.max(...r.answers.map((a) => a.votes));
           return (
@@ -561,8 +614,8 @@ function TriviaQuestionView({ state }: { state: RoomState }) {
     <div className="host-body center" key={q.id}>
       <div className="vs-badge">
         {t("triviaQuestion", {
-          n: state.trivia!.questionIndex + 1,
-          total: state.trivia!.totalQuestions,
+          n: (state.trivia?.questionIndex ?? 0) + 1,
+          total: state.trivia?.totalQuestions ?? 0,
         })}
       </div>
       <h2 className="prompt-big">{q.text}</h2>

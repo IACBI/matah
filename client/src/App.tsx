@@ -7,7 +7,10 @@ import type {
 import { Home } from "./views/Home";
 import { emitAck, socket } from "./socket";
 import { errorKey, type TKey } from "./i18n/translations";
+import { useI18n } from "./i18n";
 import { useCountdown } from "./useCountdown";
+import { RestoreScreen, RoomNotice } from "./components/Connection";
+import { RoomErrorBoundary } from "./components/RoomErrorBoundary";
 
 const HostScreen = lazy(() =>
   import("./views/HostScreen").then((module) => ({ default: module.HostScreen }))
@@ -21,7 +24,18 @@ const PlayerScreen = lazy(() =>
 export type Role = "home" | "host" | "player";
 type RoomRole = Exclude<Role, "home">;
 
+/**
+ * How the client currently stands with the server.
+ *
+ * `restoring` and `connecting` are transient; `unreachable` is terminal until
+ * the player retries. Screens stay mounted for all of them — only a cold start
+ * with nothing to show falls back to a full-screen state.
+ */
+export type Link = "connecting" | "restoring" | "live" | "unreachable";
+
 const SESSION_KEY = "matah.session";
+/** How long a restore may run before we admit the server is not answering. */
+const RESTORE_TIMEOUT_MS = 8_000;
 
 interface StoredSession extends SessionResult {
   role: RoomRole;
@@ -85,18 +99,23 @@ function clearJoinCode(): void {
 }
 
 export function App() {
+  const { t } = useI18n();
   const initialSession = useRef(readSession());
   const [role, setRole] = useState<Role>("home");
   const [code, setCode] = useState("");
   const [myPlayerId, setMyPlayerId] = useState("");
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [assignment, setAssignment] = useState<PlayerAssignment | null>(null);
-  const [connected, setConnected] = useState(socket.connected);
-  const [restoring, setRestoring] = useState(initialSession.current !== null);
+  const [link, setLink] = useState<Link>(
+    socket.connected ? "live" : "connecting"
+  );
   const [leaving, setLeaving] = useState(false);
   const [notice, setNotice] = useState<TKey | undefined>();
   const restoredSocketId = useRef<string | null>(null);
+  const rejoinRef = useRef<() => void>(() => {});
+  const [retryToken, setRetryToken] = useState(0);
   const secondsLeft = useCountdown(roomState);
+  const connected = link === "live";
 
   const resetToHome = useCallback((nextNotice?: TKey) => {
     clearSession();
@@ -107,7 +126,7 @@ export function App() {
     setAssignment(null);
     setCode("");
     setMyPlayerId("");
-    setRestoring(false);
+    setLink(socket.connected ? "live" : "connecting");
     setLeaving(false);
     setNotice(nextNotice);
   }, []);
@@ -115,12 +134,17 @@ export function App() {
   useEffect(() => {
     const tryRejoin = async () => {
       const session = initialSession.current ?? readSession();
-      if (!session || !socket.id || restoredSocketId.current === socket.id) {
-        if (!session) setRestoring(false);
+      if (!socket.connected) return;
+      if (!session) {
+        setLink("live");
         return;
       }
-      restoredSocketId.current = socket.id;
-      setRestoring(true);
+      if (restoredSocketId.current === socket.id) {
+        setLink("live");
+        return;
+      }
+      restoredSocketId.current = socket.id ?? null;
+      setLink("restoring");
       const response = await emitAck<SessionResult>("room:rejoin", {
         code: session.code,
         resumeToken: session.resumeToken,
@@ -129,8 +153,10 @@ export function App() {
         if (response.error === "session_not_found") {
           resetToHome("errSessionExpired");
         } else {
+          // Allow another attempt on the same socket, and say so — an in-room
+          // role would otherwise sit on pre-disconnect state with no clue.
           restoredSocketId.current = null;
-          setRestoring(false);
+          setLink("unreachable");
           setNotice(errorKey(response.error));
         }
         return;
@@ -141,17 +167,19 @@ export function App() {
       setRole(restored.role);
       setCode(restored.code);
       setMyPlayerId(restored.playerId);
-      setRestoring(false);
+      setNotice(undefined);
+      setLink("live");
     };
+    rejoinRef.current = () => void tryRejoin();
 
     const onState = (state: RoomState) => setRoomState(state);
     const onAssignment = (nextAssignment: PlayerAssignment) =>
       setAssignment(nextAssignment);
-    const onConnect = () => {
-      setConnected(true);
-      void tryRejoin();
-    };
-    const onDisconnect = () => setConnected(false);
+    const onConnect = () => void tryRejoin();
+    const onDisconnect = () =>
+      setLink((current) => (current === "unreachable" ? current : "connecting"));
+    // socket.io has exhausted its retries; nothing more will arrive on its own.
+    const onGaveUp = () => setLink("unreachable");
     const onKicked = () => resetToHome("kickedNotice");
     const onSessionReplaced = () => resetToHome("sessionReplacedNotice");
 
@@ -159,6 +187,7 @@ export function App() {
     socket.on("player:assignment", onAssignment);
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
+    socket.io.on("reconnect_failed", onGaveUp);
     socket.on("room:kicked", onKicked);
     socket.on("room:session-replaced", onSessionReplaced);
     if (socket.connected) void tryRejoin();
@@ -168,10 +197,31 @@ export function App() {
       socket.off("player:assignment", onAssignment);
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
+      socket.io.off("reconnect_failed", onGaveUp);
       socket.off("room:kicked", onKicked);
       socket.off("room:session-replaced", onSessionReplaced);
     };
-  }, [resetToHome]);
+  }, [resetToHome, retryToken]);
+
+  // Without this, a stored session plus an unreachable server left the app on
+  // a bare spinner forever: no timeout, no error, no way back.
+  useEffect(() => {
+    if (link === "live" || link === "unreachable") return undefined;
+    const timer = window.setTimeout(
+      () => setLink("unreachable"),
+      RESTORE_TIMEOUT_MS
+    );
+    return () => window.clearTimeout(timer);
+  }, [link]);
+
+  const retry = useCallback(() => {
+    restoredSocketId.current = null;
+    setNotice(undefined);
+    setLink(socket.connected ? "restoring" : "connecting");
+    if (!socket.connected) socket.connect();
+    else rejoinRef.current();
+    setRetryToken((value) => value + 1);
+  }, []);
 
   const enterRoom = (nextRole: RoomRole, result: SessionResult) => {
     const session: StoredSession = { ...result, role: nextRole };
@@ -191,50 +241,45 @@ export function App() {
     resetToHome();
   };
 
+  // Kept fresh per render, but installed once: rebuilding the hook on every
+  // render churned a global for no benefit.
+  const snapshotRef = useRef<() => string>(() => "{}");
+  snapshotRef.current = () =>
+    JSON.stringify({
+      role,
+      connected,
+      link,
+      leaving,
+      code: code || null,
+      playerId: myPlayerId || null,
+      phase: roomState?.phase ?? null,
+      phaseId: roomState?.phaseId ?? null,
+      secondsLeft,
+      gameType: roomState?.gameType ?? null,
+      round: roomState?.round ?? 0,
+      totalRounds: roomState?.totalRounds ?? 0,
+      controllerPlayerId: roomState?.controllerPlayerId ?? null,
+      players: roomState?.players.map((player) => ({
+        id: player.id,
+        name: player.name,
+        score: player.score,
+        connected: player.connected,
+        submitted: player.hasSubmitted,
+        voted: player.hasVoted,
+      })) ?? [],
+      audienceCount: roomState?.audience.length ?? 0,
+      prompts: assignment?.prompts ?? [],
+      activeMatchup: roomState?.quiplash?.activeMatchup ?? null,
+      triviaQuestion: roomState?.trivia?.question ?? null,
+      triviaReveal: roomState?.trivia?.reveal ?? null,
+    });
+
   useEffect(() => {
-    window.render_game_to_text = () =>
-      JSON.stringify({
-        role,
-        connected,
-        restoring,
-        leaving,
-        code: code || null,
-        playerId: myPlayerId || null,
-        phase: roomState?.phase ?? null,
-        phaseId: roomState?.phaseId ?? null,
-        secondsLeft,
-        gameType: roomState?.gameType ?? null,
-        round: roomState?.round ?? 0,
-        totalRounds: roomState?.totalRounds ?? 0,
-        controllerPlayerId: roomState?.controllerPlayerId ?? null,
-        players: roomState?.players.map((player) => ({
-          id: player.id,
-          name: player.name,
-          score: player.score,
-          connected: player.connected,
-          submitted: player.hasSubmitted,
-          voted: player.hasVoted,
-        })) ?? [],
-        audienceCount: roomState?.audience.length ?? 0,
-        prompts: assignment?.prompts ?? [],
-        activeMatchup: roomState?.quiplash?.activeMatchup ?? null,
-        triviaQuestion: roomState?.trivia?.question ?? null,
-        triviaReveal: roomState?.trivia?.reveal ?? null,
-      });
+    window.render_game_to_text = () => snapshotRef.current();
     return () => {
       delete window.render_game_to_text;
     };
-  }, [assignment, code, connected, leaving, myPlayerId, restoring, role, roomState, secondsLeft]);
-
-  if (restoring) {
-    return (
-      <main className="screen center" aria-busy="true">
-        <div className="badge warn" role="status">
-          …
-        </div>
-      </main>
-    );
-  }
+  }, []);
 
   if (role === "home") {
     return (
@@ -247,35 +292,52 @@ export function App() {
     );
   }
 
+  // Only a cold start has nothing to show. Once a room has rendered, a
+  // reconnect layers an overlay over the live tree instead of unmounting it —
+  // otherwise a brief blip discarded the pending vote, the picked option, and
+  // the host's game selection.
+  if (roomState === null) {
+    return (
+      <RestoreScreen link={link} notice={notice} onRetry={retry} onLeave={leave} />
+    );
+  }
+
   const loading = (
     <main className="screen center" aria-busy="true">
-      <div className="badge warn" role="status">…</div>
+      <div className="badge warn" role="status">
+        {t("loading")}
+      </div>
     </main>
   );
 
   return (
     <Suspense fallback={loading}>
-      {role === "host" ? (
-        <HostScreen
-          code={code}
-          state={roomState}
-          secondsLeft={secondsLeft}
-          connected={connected}
-          leaving={leaving}
-          onLeave={leave}
-        />
-      ) : (
-        <PlayerScreen
-          code={code}
-          myPlayerId={myPlayerId}
-          state={roomState}
-          assignment={assignment}
-          secondsLeft={secondsLeft}
-          connected={connected}
-          leaving={leaving}
-          onLeave={leave}
-        />
-      )}
+      <RoomErrorBoundary code={code} onLeave={leave}>
+        {notice && link !== "live" ? (
+          <RoomNotice notice={notice} onRetry={retry} onDismiss={() => setNotice(undefined)} />
+        ) : null}
+        {role === "host" ? (
+          <HostScreen
+            code={code}
+            state={roomState}
+            secondsLeft={secondsLeft}
+            connected={connected}
+            leaving={leaving}
+            onLeave={leave}
+          />
+        ) : (
+          <PlayerScreen
+            code={code}
+            myPlayerId={myPlayerId}
+            state={roomState}
+            assignment={assignment}
+            secondsLeft={secondsLeft}
+            connected={connected}
+            leaving={leaving}
+            onLeave={leave}
+          />
+        )}
+      </RoomErrorBoundary>
     </Suspense>
   );
 }

@@ -8,13 +8,21 @@ import type {
 
 export type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+/** Give up after this many retries so "unreachable" is a reachable state. */
+const RECONNECTION_ATTEMPTS = 12;
+
 // Same-origin: Vite proxies /socket.io to the game server in dev.
 export const socket: GameSocket = io({
   autoConnect: true,
   transports: ["websocket", "polling"],
+  reconnectionAttempts: RECONNECTION_ATTEMPTS,
 });
 
-export type ClientErrorCode = ApiErrorCode | "request_timeout" | "disconnected";
+export type ClientErrorCode =
+  | ApiErrorCode
+  | "request_timeout"
+  | "disconnected"
+  | "reconnecting";
 export type ClientResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: ClientErrorCode };
@@ -27,7 +35,12 @@ export function emitAck<T>(
   ...args: unknown[]
 ): Promise<ClientResult<T>> {
   if (!socket.connected) {
-    return Promise.resolve({ ok: false, error: "disconnected" });
+    // Distinguish "the link is coming back" from "the link is gone": the
+    // former deserves "reconnecting…", not "server error, try again".
+    return Promise.resolve({
+      ok: false,
+      error: socket.active ? "reconnecting" : "disconnected",
+    });
   }
 
   return new Promise((resolve) => {

@@ -1766,3 +1766,86 @@ button.trivia-opt:active {
     animation: none;
   }
 }
+
+/* ---------- Connection states ---------- */
+/* A cold start with nothing to show yet, and the crash fallback. */
+.restore-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 22rem;
+  text-align: center;
+}
+.restore-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.restore-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+/* An in-room problem, layered over the live screen rather than replacing it. */
+.room-notice {
+  position: fixed;
+  inset-block-start: 8px;
+  inset-inline: 8px;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--ink);
+  font-size: 14px;
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
+}
+.room-notice > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.btn.tiny {
+  padding: 6px 12px;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+/* ---------- Live vote tally (host, quiplash voting) ---------- */
+.vote-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  width: min(420px, 70%);
+}
+.vote-progress-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  border: 1.5px solid var(--line-strong);
+  overflow: hidden;
+}
+.vote-progress-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold), #ffce5e);
+  transition: width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.vote-progress-label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vote-progress-bar span { transition: none; }
+}

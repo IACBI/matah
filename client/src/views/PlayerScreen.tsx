@@ -70,11 +70,15 @@ export function PlayerScreen({
   const audienceMe = state?.audience.find((a) => a.id === myPlayerId);
   const isAudience = !me && !!audienceMe;
 
+  const phase = state?.phase;
+  const gameType = state?.gameType;
   useEffect(() => {
-    if (state && (state.phase !== "answering" || state.gameType !== "quiplash")) {
+    // Depend on the fields, not the whole state object: a fresh object arrives
+    // on every broadcast, which made this clear storage dozens of times a round.
+    if (phase && (phase !== "answering" || gameType !== "quiplash")) {
       writeDrafts(code, myPlayerId, {});
     }
-  }, [code, myPlayerId, state]);
+  }, [code, myPlayerId, phase, gameType]);
 
   if (!state) {
     return (
@@ -183,7 +187,7 @@ export function PlayerScreen({
         ))}
 
       {state.phase === "voting" && (
-        <VotingView state={state} assignment={assignment} />
+        <VotingView state={state} assignment={assignment} myPlayerId={myPlayerId} />
       )}
 
       {state.phase === "results" &&
@@ -295,14 +299,13 @@ function AnsweringView({
         setAnswers((current) => {
           const next = { ...current };
           delete next[matchupId];
-          writeDrafts(code, playerId, next);
           return next;
         });
       } else {
         setError(t(errorKey(res.error ?? "submit_failed")));
       }
     },
-    [code, playerId, t]
+    [t]
   );
 
   useEffect(() => {
@@ -311,14 +314,19 @@ function AnsweringView({
     setSent(Object.fromEntries(
       assignment.prompts.map((prompt) => [prompt.matchupId, prompt.submitted]),
     ));
-    setAnswers((current) => {
-      const next = Object.fromEntries(
+    setAnswers((current) =>
+      Object.fromEntries(
         Object.entries(current).filter(([matchupId]) => activeIds.has(matchupId))
-      );
-      writeDrafts(code, playerId, next);
-      return next;
-    });
-  }, [assignment, code, playerId]);
+      )
+    );
+  }, [assignment]);
+
+  // Persist drafts as a side effect of the state settling. Writing inside the
+  // setAnswers updater made the updater impure, so StrictMode wrote twice per
+  // keystroke.
+  useEffect(() => {
+    writeDrafts(code, playerId, answers);
+  }, [answers, code, playerId]);
 
   // When the answering clock is almost out, auto-submit any typed-but-unsent
   // drafts so the player's words aren't replaced by a canned safety quip.
@@ -369,11 +377,7 @@ function AnsweringView({
                 value={answers[p.matchupId] ?? ""}
                 onChange={(e) => {
                   const value = e.target.value;
-                  setAnswers((current) => {
-                    const next = { ...current, [p.matchupId]: value };
-                    writeDrafts(code, playerId, next);
-                    return next;
-                  });
+                  setAnswers((current) => ({ ...current, [p.matchupId]: value }));
                 }}
               />
               <button
@@ -395,15 +399,25 @@ function AnsweringView({
 function VotingView({
   state,
   assignment,
+  myPlayerId,
 }: {
   state: RoomState;
   assignment: PlayerAssignment | null;
+  myPlayerId: string;
 }) {
   const { t } = useI18n();
   const matchup = state.quiplash?.activeMatchup ?? null;
   const [voted, setVoted] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The server already knows whether this vote landed. Without reading it, a
+  // reconnect re-rendered the buttons and every tap came back "vote failed"
+  // until the matchup moved on. Local state stays for instant feedback; this
+  // is the recovery path. resetFlags() runs per matchup, so the two agree.
+  const alreadyVoted =
+    state.players.find((p) => p.id === myPlayerId)?.hasVoted ??
+    state.audience.find((a) => a.id === myPlayerId)?.hasVoted ??
+    false;
 
   useEffect(() => {
     setVoted(null);
@@ -413,8 +427,9 @@ function VotingView({
 
   if (!matchup) {
     return (
-      <div className="player-body center">
-        <div className="badge warn">…</div>
+      <div className="player-body center fade-in">
+        <h2>{t("tallyingVotes")}</h2>
+        <div className="pulse-dot" />
       </div>
     );
   }
@@ -432,7 +447,7 @@ function VotingView({
     );
   }
 
-  if (voted) {
+  if (voted || alreadyVoted) {
     return (
       <div className="player-body center fade-in">
         <h2>{t("voteSaved")}</h2>

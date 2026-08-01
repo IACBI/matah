@@ -170,7 +170,7 @@ async function checkAccessibilityPreferences(browser, url) {
   await expiredPage.goto(url, { waitUntil: 'networkidle' });
   await expiredPage.getByRole('status').filter({ hasText: /session expired/i }).waitFor();
   const expiredState = await waitForState(expiredPage, (state) => state.role === 'home', 'expired session home');
-  assert.equal(expiredState.restoring, false);
+  assert.equal(expiredState.link, 'live', 'a rejected session must not leave the app restoring');
   await expiredContext.close();
 }
 
