@@ -157,6 +157,13 @@ app.use(
     max: 120,
     standardHeaders: true,
     legacyHeaders: false,
+    // Fingerprinted bundles are immutable and cached for a year, and one page
+    // load pulls a dozen of them. Counting them against the API budget means a
+    // handful of clients sharing an address — a room full of phones behind one
+    // NAT, which is the whole premise of this game — spend it on files they
+    // will never request again. Unknown /assets/ paths still 404 below, so the
+    // exemption cannot be turned into an unmetered source of anything.
+    skip: (request) => request.path.startsWith("/assets/"),
   })
 );
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -602,7 +609,14 @@ if (isProd) {
         },
       })
     );
-    app.get("*", (_req, res) => {
+    app.get("*", (request, res) => {
+      // A missing bundle must 404 rather than fall through to the shell: the
+      // browser reports the HTML it gets back as a MIME type error, which
+      // buries the real cause.
+      if (request.path.startsWith("/assets/")) {
+        res.status(404).type("txt").send("Not found");
+        return;
+      }
       res.setHeader("Cache-Control", "no-cache");
       res.type("html").send(indexHtml);
     });

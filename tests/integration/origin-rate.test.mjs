@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
@@ -75,6 +75,34 @@ test('production metadata is derived from the handshake origin configuration', {
   const html = await response.text();
   assert.match(html, new RegExp(`<link rel="canonical" href="${url.replaceAll('.', '\\.')}/"`));
   assert.doesNotMatch(html, /__PUBLIC_ORIGIN__/);
+});
+
+test('a missing bundle 404s instead of falling through to the shell', {
+  skip: clientBuilt ? false : 'run `npm run build` to exercise static serving',
+}, async () => {
+  const response = await fetch(`${url}/assets/does-not-exist-${Date.now()}.js`);
+  assert.equal(response.status, 404);
+  // Returning the HTML shell here surfaces in the browser as a MIME type
+  // error, which hides the real cause.
+  assert.doesNotMatch(response.headers.get('content-type') ?? '', /html/);
+});
+
+test('fingerprinted bundles do not spend the API rate-limit budget', {
+  skip: clientBuilt ? false : 'run `npm run build` to exercise static serving',
+}, async () => {
+  const assets = readdirSync(path.join(repoRoot, 'client/dist/assets'));
+  const asset = assets.find((name) => name.endsWith('.js'));
+  assert.ok(asset, 'the build should emit at least one script');
+  // Comfortably past the 120/minute API budget: a room of phones behind one
+  // NAT reaches this just by opening the app, and every one of these files is
+  // immutable and cached for a year.
+  const statuses = new Set();
+  for (let index = 0; index < 150; index += 1) {
+    const response = await fetch(`${url}/assets/${asset}`);
+    statuses.add(response.status);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual([...statuses], [200]);
 });
 
 test('create limit uses the trusted right-most forwarded address', async () => {
