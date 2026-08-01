@@ -46,10 +46,47 @@ if (isProd && allowedOrigins.length === 0) {
   throw new Error("PUBLIC_ORIGIN must contain an explicit production origin");
 }
 
-const connectionLimiter = new BoundedRateLimiter(30, 0.5, 10_000, 10 * 60_000);
+/** Read a rate-limit tunable from the environment, falling back to the default. */
+function limit(name: string, fallback: number): number {
+  const raw = Number(process.env[`MATAH_RL_${name}`]);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+// These are sized for a party, not a botnet. Every phone at the table shares
+// one NAT'd address, so per-IP ceilings that look generous for a single user
+// are the whole household's budget: after a Wi-Fi blip, eight clients running
+// socket.io's retry ladder must all get back in.
+const connectionLimiter = new BoundedRateLimiter(
+  limit("CONN_BURST", 60),
+  limit("CONN_REFILL", 2),
+  10_000,
+  10 * 60_000
+);
 const actionLimiter = new BoundedRateLimiter(80, 20, 10_000, 10 * 60_000);
-const roomCreateLimiter = new BoundedWindowRateLimiter(5, 10 * 60_000, 10_000);
-const roomJoinLimiter = new BoundedWindowRateLimiter(30, 60_000, 10_000);
+const roomCreateLimiter = new BoundedWindowRateLimiter(
+  limit("CREATE", 10),
+  10 * 60_000,
+  10_000
+);
+const roomJoinLimiter = new BoundedWindowRateLimiter(
+  limit("JOIN", 60),
+  60_000,
+  10_000
+);
+// Abuse means flooding one room, not one address — scoping these per room
+// punishes the attacker instead of everyone behind the same router.
+const roomJoinRoomLimiter = new BoundedWindowRateLimiter(
+  limit("JOIN_ROOM", 40),
+  60_000,
+  10_000
+);
+// Every successful rejoin fans a full room state out to up to 29 members, so
+// it needs its own ceiling rather than only the generic per-socket bucket.
+const rejoinLimiter = new BoundedWindowRateLimiter(
+  limit("REJOIN", 20),
+  60_000,
+  10_000
+);
 const reactionRoomLimiter = new BoundedRateLimiter(20, 20, 1_000, 10 * 60_000);
 
 function clientAddress(request: IncomingMessage): string {
@@ -122,6 +159,8 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 const rooms = new Map<string, Room>();
 const MAX_ROOMS = 500;
 const IDLE_MS = 30 * 60_000;
+/** Everyone has dropped and nothing has happened since — reclaim sooner. */
+const ABANDONED_IDLE_MS = 5 * 60_000;
 const SWEEP_MS = 5 * 60_000;
 const VACANT_RECHECK_MS = 125_000;
 
@@ -130,15 +169,24 @@ export function activeRoomCount(): number {
   return rooms.size;
 }
 
-const sweepHandle = setInterval(() => {
+function sweepIdleRooms(): void {
   for (const [code, room] of rooms) {
-    if (room.isStale(IDLE_MS)) {
+    if (room.isStale(IDLE_MS, ABANDONED_IDLE_MS)) {
       room.dispose();
       rooms.delete(code);
     }
   }
-}, SWEEP_MS);
-sweepHandle.unref();
+}
+
+/** Drop a room the moment its last member is gone. */
+function deleteIfVacant(room: Room): void {
+  if (rooms.get(room.code) === room && room.isVacant()) {
+    room.dispose();
+    rooms.delete(room.code);
+  }
+}
+
+let sweepHandle: NodeJS.Timeout | null = null;
 
 function makeRoomCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -195,6 +243,9 @@ io.on("connection", (socket) => {
       console.error("socket event failed", { eventName, socketId: socket.id, error });
       result = { ok: false, error: "server_error" };
     }
+    // Deliver the coalesced broadcast before the acknowledgement, so a client
+    // never acts on an ack that its own room state has not caught up to.
+    if (joinedCode) rooms.get(joinedCode)?.flush();
     try {
       callback(result);
     } catch (error) {
@@ -211,13 +262,6 @@ io.on("connection", (socket) => {
     const room = rooms.get(joinedCode);
     const playerId = room?.pidForSocket(socket.id);
     return room && playerId ? { room, playerId } : null;
-  };
-
-  const deleteIfVacant = (room: Room): void => {
-    if (rooms.get(room.code) === room && room.isVacant()) {
-      room.dispose();
-      rooms.delete(room.code);
-    }
   };
 
   const leaveCurrentRoom = (): void => {
@@ -259,18 +303,26 @@ io.on("connection", (socket) => {
   socket.on("room:join", (payload, callback) => {
     guard(callback, "room:join", () => {
       if (!roomJoinLimiter.take(ip)) return { ok: false, error: "rate_limited" };
-      const room = rooms.get(normalizeCode(payload?.code));
-      if (!room) return { ok: false, error: "room_not_found" };
+      const code = normalizeCode(payload?.code);
+      if (!rooms.has(code)) return { ok: false, error: "room_not_found" };
+      if (!roomJoinRoomLimiter.take(code)) {
+        return { ok: false, error: "rate_limited" };
+      }
       const name = sanitizeUserText(payload?.name, MAX_NAME_LEN);
       if (!name) return { ok: false, error: "name_required" };
       const avatar = (AVATARS as readonly string[]).includes(payload?.avatar ?? "")
         ? (payload.avatar as string)
         : DEFAULT_AVATAR;
+      // Release any seat this socket already holds *before* deciding whether
+      // the room is full — otherwise re-joining your own full room counts your
+      // own seat and demotes you to the audience.
+      leaveCurrentRoom();
+      const room = rooms.get(code);
+      if (!room) return { ok: false, error: "room_not_found" };
       const asAudience = !room.inLobby() || room.isFull();
       if (asAudience && room.isAudienceFull()) {
         return { ok: false, error: "room_full" };
       }
-      leaveCurrentRoom();
       const session = room.addPlayer(socket.id, name, avatar, asAudience);
       socket.join(room.code);
       joinedCode = room.code;
@@ -281,6 +333,7 @@ io.on("connection", (socket) => {
 
   socket.on("room:rejoin", (payload, callback) => {
     guard(callback, "room:rejoin", () => {
+      if (!rejoinLimiter.take(ip)) return { ok: false, error: "rate_limited" };
       const room = rooms.get(normalizeCode(payload?.code));
       if (!room) return { ok: false, error: "session_not_found" };
       const resumeToken =
@@ -319,7 +372,8 @@ io.on("connection", (socket) => {
       if (!current) return { ok: false, error: "no_room" };
       const controlError = current.room.controlError(
         current.playerId,
-        payload?.phaseId
+        payload?.phaseId,
+        "language"
       );
       if (controlError) return { ok: false, error: controlError };
       if (!LANGUAGES.includes(payload?.language as Language)) {
@@ -338,7 +392,8 @@ io.on("connection", (socket) => {
       if (!current) return { ok: false, error: "no_room" };
       const controlError = current.room.controlError(
         current.playerId,
-        payload?.phaseId
+        payload?.phaseId,
+        "start"
       );
       if (controlError) return { ok: false, error: controlError };
       const gameType = payload?.gameType as GameType;
@@ -352,7 +407,7 @@ io.on("connection", (socket) => {
     guard(callback, "game:end", () => {
       const current = currentSession();
       if (!current) return { ok: false, error: "no_room" };
-      const controlError = current.room.controlError(current.playerId, payload?.phaseId);
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "end");
       if (controlError) return { ok: false, error: controlError };
       const error = current.room.endGame();
       return error ? { ok: false, error } : { ok: true, data: null };
@@ -363,7 +418,7 @@ io.on("connection", (socket) => {
     guard(callback, "game:next", () => {
       const current = currentSession();
       if (!current) return { ok: false, error: "no_room" };
-      const controlError = current.room.controlError(current.playerId, payload?.phaseId);
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "advance");
       if (controlError) return { ok: false, error: controlError };
       const error = current.room.next();
       return error ? { ok: false, error } : { ok: true, data: null };
@@ -374,7 +429,7 @@ io.on("connection", (socket) => {
     guard(callback, "game:restart", () => {
       const current = currentSession();
       if (!current) return { ok: false, error: "no_room" };
-      const controlError = current.room.controlError(current.playerId, payload?.phaseId);
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "restart");
       if (controlError) return { ok: false, error: controlError };
       const error = current.room.returnToLobby();
       return error ? { ok: false, error } : { ok: true, data: null };
@@ -385,7 +440,7 @@ io.on("connection", (socket) => {
     guard(callback, "game:rematch", () => {
       const current = currentSession();
       if (!current) return { ok: false, error: "no_room" };
-      const controlError = current.room.controlError(current.playerId, payload?.phaseId);
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "rematch");
       if (controlError) return { ok: false, error: controlError };
       const error = current.room.rematch();
       return error ? { ok: false, error } : { ok: true, data: null };
@@ -396,7 +451,7 @@ io.on("connection", (socket) => {
     guard(callback, "player:kick", () => {
       const current = currentSession();
       if (!current) return { ok: false, error: "no_room" };
-      const controlError = current.room.controlError(current.playerId, payload?.phaseId);
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "kick");
       if (controlError) return { ok: false, error: controlError };
       const targetPlayerId = safeIdentifier(payload?.playerId, 64);
       if (!targetPlayerId || targetPlayerId === current.playerId) {
@@ -408,6 +463,7 @@ io.on("connection", (socket) => {
         io.to(result.socketId).emit("room:kicked");
         io.in(result.socketId).socketsLeave(current.room.code);
       }
+      deleteIfVacant(current.room);
       return { ok: true, data: null };
     });
   });
@@ -528,6 +584,11 @@ if (isProd) {
 
 let shuttingDown = false;
 export function startServer(port = PORT): Promise<number> {
+  if (!sweepHandle) {
+    sweepIdleRooms();
+    sweepHandle = setInterval(sweepIdleRooms, SWEEP_MS);
+    sweepHandle.unref();
+  }
   if (httpServer.listening) {
     const address = httpServer.address();
     return Promise.resolve(typeof address === "object" && address ? address.port : port);
@@ -546,7 +607,8 @@ export function startServer(port = PORT): Promise<number> {
 }
 
 export function stopServer(): Promise<void> {
-  clearInterval(sweepHandle);
+  if (sweepHandle) clearInterval(sweepHandle);
+  sweepHandle = null;
   for (const room of rooms.values()) room.dispose();
   rooms.clear();
   if (!httpServer.listening) return Promise.resolve();

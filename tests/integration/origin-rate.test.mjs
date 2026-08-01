@@ -18,6 +18,10 @@ const port = await probePort();
 const url = `http://127.0.0.1:${port}`;
 process.env.NODE_ENV = 'production';
 process.env.PUBLIC_ORIGIN = url;
+// Pin the create limit so the assertion below tests the limiter rather than
+// whatever the shipped default happens to be.
+const CREATE_LIMIT = 5;
+process.env.MATAH_RL_CREATE = String(CREATE_LIMIT);
 const { startServer, stopServer } = await import('../../server/src/index.ts');
 const sockets = [];
 
@@ -75,12 +79,14 @@ test('production metadata is derived from the handshake origin configuration', {
 
 test('create limit uses the trusted right-most forwarded address', async () => {
   const results = [];
-  for (let index = 0; index < 6; index += 1) {
+  for (let index = 0; index <= CREATE_LIMIT; index += 1) {
+    // Rotating the left-most hop must not rotate the rate-limit identity: the
+    // trusted right-most address is the same throughout.
     const socket = await connect(url, `203.0.113.${index + 1}, 198.51.100.20`);
     results.push(await ack(socket, 'room:create', { language: 'en' }));
   }
-  assert.equal(results.slice(0, 5).every((result) => result.ok), true);
-  assert.deepEqual(results[5], { ok: false, error: 'rate_limited' });
+  assert.equal(results.slice(0, CREATE_LIMIT).every((result) => result.ok), true);
+  assert.deepEqual(results[CREATE_LIMIT], { ok: false, error: 'rate_limited' });
 });
 
 test('one socket cannot remain authorized as two room identities', async () => {

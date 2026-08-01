@@ -20,54 +20,55 @@ test('safeIdentifier rejects punctuation instead of partially accepting it', () 
   assert.equal(safeIdentifier(null, 32), '');
 });
 
+/** A controllable stand-in for the limiters' monotonic clock. */
+function fakeClock(start = 1_000) {
+  let now = start;
+  const clock = () => now;
+  clock.advance = (ms) => { now += ms; };
+  return clock;
+}
+
 test('TokenBucket enforces capacity and refills over time', () => {
-  const originalNow = Date.now;
-  let now = 1_000;
-  Date.now = () => now;
-  try {
-    const bucket = new TokenBucket(2, 1);
-    assert.equal(bucket.take(), true);
-    assert.equal(bucket.take(), true);
-    assert.equal(bucket.take(), false);
-    now += 1_000;
-    assert.equal(bucket.take(), true);
-  } finally {
-    Date.now = originalNow;
-  }
+  const clock = fakeClock();
+  const bucket = new TokenBucket(2, 1, clock);
+  assert.equal(bucket.take(), true);
+  assert.equal(bucket.take(), true);
+  assert.equal(bucket.take(), false);
+  clock.advance(1_000);
+  assert.equal(bucket.take(), true);
+});
+
+test('TokenBucket survives a backwards clock step without locking out', () => {
+  const clock = fakeClock();
+  const bucket = new TokenBucket(2, 1, clock);
+  assert.equal(bucket.take(), true);
+  // A monotonic source never goes backwards, but assert the arithmetic is safe
+  // anyway: elapsed time must never subtract from the bucket.
+  clock.advance(-5_000);
+  assert.equal(bucket.take(), true);
+  assert.equal(bucket.take(), false);
 });
 
 test('BoundedRateLimiter evicts old keys without growing unbounded', () => {
-  const originalNow = Date.now;
-  let now = 1_000;
-  Date.now = () => now;
-  try {
-    const limiter = new BoundedRateLimiter(1, 0, 2, 500);
-    assert.equal(limiter.take('a'), true);
-    assert.equal(limiter.take('a'), false);
-    assert.equal(limiter.take('b'), true);
-    assert.equal(limiter.take('c'), true);
-    assert.equal(limiter.take('a'), true, 'oldest key should have been evicted');
-    now += 1_000;
-    assert.equal(limiter.take('fresh'), true);
-  } finally {
-    Date.now = originalNow;
-  }
+  const clock = fakeClock();
+  const limiter = new BoundedRateLimiter(1, 0, 2, 500, clock);
+  assert.equal(limiter.take('a'), true);
+  assert.equal(limiter.take('a'), false);
+  assert.equal(limiter.take('b'), true);
+  assert.equal(limiter.take('c'), true);
+  assert.equal(limiter.take('a'), true, 'oldest key should have been evicted');
+  clock.advance(1_000);
+  assert.equal(limiter.take('fresh'), true);
 });
 
 test('BoundedWindowRateLimiter enforces an exact limit and resets at the window', () => {
-  const originalNow = Date.now;
-  let now = 1_000;
-  Date.now = () => now;
-  try {
-    const limiter = new BoundedWindowRateLimiter(2, 10_000, 10);
-    assert.equal(limiter.take('ip'), true);
-    assert.equal(limiter.take('ip'), true);
-    assert.equal(limiter.take('ip'), false);
-    now += 9_999;
-    assert.equal(limiter.take('ip'), false);
-    now += 1;
-    assert.equal(limiter.take('ip'), true);
-  } finally {
-    Date.now = originalNow;
-  }
+  const clock = fakeClock();
+  const limiter = new BoundedWindowRateLimiter(2, 10_000, 10, 20_000, clock);
+  assert.equal(limiter.take('ip'), true);
+  assert.equal(limiter.take('ip'), true);
+  assert.equal(limiter.take('ip'), false);
+  clock.advance(9_999);
+  assert.equal(limiter.take('ip'), false);
+  clock.advance(1);
+  assert.equal(limiter.take('ip'), true);
 });

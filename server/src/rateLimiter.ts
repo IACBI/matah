@@ -1,3 +1,15 @@
+import { performance } from "node:perf_hooks";
+
+/**
+ * Monotonic milliseconds. Wall-clock time can step backwards (NTP correction,
+ * VM resume), which would make elapsed time negative and permanently *drain*
+ * a bucket instead of refilling it, locking clients out until the step is
+ * caught up. Injectable so tests can drive it.
+ */
+export type Clock = () => number;
+
+const monotonicNow: Clock = () => performance.now();
+
 /**
  * Tiny per-socket token bucket. Prevents a single connection from flooding
  * the server with events. Refills continuously up to `capacity`.
@@ -8,18 +20,21 @@ export class TokenBucket {
 
   constructor(
     private capacity: number,
-    private refillPerSec: number
+    private refillPerSec: number,
+    private now: Clock = monotonicNow
   ) {
     this.tokens = capacity;
-    this.last = Date.now();
+    this.last = this.now();
   }
 
   /** Returns true if an action is allowed (and consumes a token). */
   take(cost = 1): boolean {
-    const now = Date.now();
+    const now = this.now();
+    // Clamp elapsed time: a negative delta must never drain the bucket.
+    const elapsedMs = Math.max(0, now - this.last);
     this.tokens = Math.min(
       this.capacity,
-      this.tokens + ((now - this.last) / 1000) * this.refillPerSec
+      this.tokens + (elapsedMs / 1000) * this.refillPerSec
     );
     this.last = now;
     if (this.tokens >= cost) {
@@ -41,11 +56,12 @@ export class BoundedRateLimiter {
     private capacity: number,
     private refillPerSec: number,
     private maxEntries: number,
-    private ttlMs: number
+    private ttlMs: number,
+    private now: Clock = monotonicNow
   ) {}
 
   take(key: string, cost = 1): boolean {
-    const now = Date.now();
+    const now = this.now();
     let entry = this.entries.get(key);
     if (!entry) {
       this.prune(now);
@@ -54,7 +70,7 @@ export class BoundedRateLimiter {
         if (oldest !== undefined) this.entries.delete(oldest);
       }
       entry = {
-        bucket: new TokenBucket(this.capacity, this.refillPerSec),
+        bucket: new TokenBucket(this.capacity, this.refillPerSec, this.now),
         lastSeen: now,
       };
       this.entries.set(key, entry);
@@ -87,10 +103,11 @@ export class BoundedWindowRateLimiter {
     private windowMs: number,
     private maxEntries: number,
     private ttlMs = windowMs * 2,
+    private now: Clock = monotonicNow
   ) {}
 
   take(key: string): boolean {
-    const now = Date.now();
+    const now = this.now();
     let entry = this.entries.get(key);
     if (!entry || now - entry.windowStartedAt >= this.windowMs) {
       if (entry) this.entries.delete(key);

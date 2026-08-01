@@ -7,6 +7,7 @@ import {
 import { performance } from "node:perf_hooks";
 import type {
   ApiErrorCode,
+  Capability,
   GamePhase,
   GameType,
   Language,
@@ -47,6 +48,9 @@ export interface RoomLifecycleOptions {
   monotonicNow?: () => number;
 }
 
+/** Capabilities the elected stand-in controller does *not* inherit. */
+const HOST_ONLY_CAPABILITIES = new Set<Capability>(["kick"]);
+
 const FALLBACK_NAMES: Record<Language, string> = {
   tr: "Oyuncu",
   en: "Player",
@@ -78,12 +82,21 @@ export class Room {
   readonly code: string;
   private players = new Map<string, Player>();
   private sockets = new Map<string, string>(); // playerId -> current socket
-  private sessionHashes = new Map<string, Buffer>();
+  private socketToPlayer = new Map<string, string>(); // the reverse index
+  private sessionSecrets = new Map<string, Buffer>();
   private memberExpiry = new Map<string, NodeJS.Timeout>();
 
   private phase: GamePhase = "lobby";
   private phaseId = 0;
   private phaseEndsAt: number | null = null;
+  /** Snapshot kept so the scoreboard survives `endGame` dropping the engine. */
+  private finalView: { round: number; totalRounds: number } | null = null;
+
+  // Broadcasts are coalesced onto a microtask: one user action can mutate the
+  // room several times (kick -> engine purge -> phase change), and clients
+  // should see one consistent state, with at most one phaseId increment.
+  private broadcastPending = false;
+  private phaseBumpPending = false;
   private language: Language;
   private gameType: GameType | null = null;
   private lastGameConfig: LastGameConfig | null = null;
@@ -154,7 +167,7 @@ export class Room {
     const resumeToken = this.rotateResumeToken(playerId);
     const player = this.newPlayer(playerId, name, avatar, flags);
     this.players.set(playerId, player);
-    this.sockets.set(playerId, socketId);
+    this.bindSocket(playerId, socketId);
     this.touch();
     return {
       code: this.code,
@@ -177,7 +190,7 @@ export class Room {
     }
 
     const replacedSocketId = this.sockets.get(playerId);
-    this.sockets.set(playerId, socketId);
+    this.bindSocket(playerId, socketId);
     player.connected = true;
     this.clearMemberExpiry(playerId);
     if (player.isHost) this.onHostConnected();
@@ -208,16 +221,27 @@ export class Room {
     return playerId;
   }
 
+  /**
+   * Issue a fresh token, invalidating the old one immediately.
+   *
+   * Rotation happens before the acknowledgement carrying the new token reaches
+   * the client, so a dropped ack does strand that session. Keeping the old
+   * token alive for a grace period would fix that, but it would also make a
+   * resume token replayable — the exact property SECURITY.md promises and
+   * socket-security.test.mjs guards. A stranded session costs the player their
+   * score for one game; a replayable credential costs them the session. The
+   * client surfaces the failure with a retry instead (see App.tsx).
+   */
   private rotateResumeToken(playerId: string): string {
     const token = randomBytes(32).toString("base64url");
-    this.sessionHashes.set(playerId, this.hashToken(token));
+    this.sessionSecrets.set(playerId, this.hashToken(token));
     return token;
   }
 
   private playerIdForToken(token: string): string | null {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
     const candidate = this.hashToken(token);
-    for (const [playerId, expected] of this.sessionHashes) {
+    for (const [playerId, expected] of this.sessionSecrets) {
       if (timingSafeEqual(candidate, expected)) return playerId;
     }
     return null;
@@ -279,34 +303,50 @@ export class Room {
     return this.audiencePlayers.length >= MAX_AUDIENCE;
   }
 
-  isAudience(playerId: string): boolean {
-    return this.players.get(playerId)?.isAudience === true;
-  }
-
   hostConnected(): boolean {
-    return [...this.players.values()].some((p) => p.isHost && p.connected);
+    for (const player of this.players.values()) {
+      if (player.isHost && player.connected) return true;
+    }
+    return false;
   }
 
-  canControl(playerId: string): boolean {
+  /**
+   * Whether a member may run a given control command.
+   *
+   * The connected host may do anything. When the host is gone the room elects
+   * a stand-in so play can continue, but the stand-in never inherits `kick`:
+   * the election is deterministic (first player to join), so granting it would
+   * hand a predictable player the power to remove everyone else.
+   */
+  can(playerId: string, capability: Capability): boolean {
     const player = this.players.get(playerId);
     if (!player?.connected) return false;
     if (player.isHost) return this.hostConnected();
-    return !player.isAudience && playerId === this.controllerPlayerId;
+    if (player.isAudience || playerId !== this.controllerPlayerId) return false;
+    return !HOST_ONLY_CAPABILITIES.has(capability);
   }
 
-  controlError(playerId: string, expectedPhaseId: unknown): ApiErrorCode | null {
+  /** Back-compat alias for "may drive the game at all". */
+  canControl(playerId: string): boolean {
+    return this.can(playerId, "advance");
+  }
+
+  controlError(
+    playerId: string,
+    expectedPhaseId: unknown,
+    capability: Capability
+  ): ApiErrorCode | null {
     if (!Number.isInteger(expectedPhaseId) || expectedPhaseId !== this.phaseId) {
       return "stale_phase";
     }
-    return this.canControl(playerId) ? null : "host_only";
-  }
-
-  get currentPhaseId(): number {
-    return this.phaseId;
+    return this.can(playerId, capability) ? null : "host_only";
   }
 
   isEmpty(): boolean {
-    return [...this.players.values()].every((p) => !p.connected);
+    for (const player of this.players.values()) {
+      if (player.connected) return false;
+    }
+    return true;
   }
 
   isVacant(): boolean {
@@ -329,7 +369,7 @@ export class Room {
     if (player.isHost) {
       this.beginControllerFailover();
     } else {
-      this.engine?.handlePlayerDisconnect?.(playerId);
+      this.engine?.handlePlayerDisconnect?.();
       if (this.controllerPlayerId === playerId) {
         this.controllerPlayerId = null;
         this.electController();
@@ -366,8 +406,8 @@ export class Room {
     if (!player) return;
     this.clearMemberExpiry(playerId);
     this.players.delete(playerId);
-    this.sockets.delete(playerId);
-    this.sessionHashes.delete(playerId);
+    this.unbindPlayer(playerId);
+    this.sessionSecrets.delete(playerId);
     if (!player.isHost) this.engine?.handlePlayerRemoved?.(playerId);
     if (player.isHost) {
       this.beginControllerFailover();
@@ -375,15 +415,43 @@ export class Room {
       this.controllerPlayerId = null;
       this.electController();
     }
+    this.enforcePlayerFloor();
     this.touch();
     this.emit();
   }
 
+  /**
+   * A game needs MIN_PLAYERS to be playable. `start` checks that once, but
+   * people leave: quiplash pairs author i with author i+1, so a two-player
+   * room makes both of them an author of every matchup and nothing is ever
+   * votable. End to the scoreboard rather than grinding out empty rounds.
+   */
+  private enforcePlayerFloor(): void {
+    const inPlay =
+      this.phase === "answering" ||
+      this.phase === "voting" ||
+      this.phase === "results";
+    if (inPlay && this.realPlayers.length < MIN_PLAYERS) this.endGame();
+  }
+
+  private bindSocket(playerId: string, socketId: string): void {
+    const previous = this.sockets.get(playerId);
+    if (previous) this.socketToPlayer.delete(previous);
+    this.sockets.set(playerId, socketId);
+    this.socketToPlayer.set(socketId, playerId);
+  }
+
+  private unbindPlayer(playerId: string): void {
+    const socketId = this.sockets.get(playerId);
+    if (socketId) this.socketToPlayer.delete(socketId);
+    this.sockets.delete(playerId);
+  }
+
+  /** O(1); `currentSession()` calls this on every socket event. */
   pidForSocket(socketId: string): string | null {
-    for (const [playerId, boundSocketId] of this.sockets) {
-      if (boundSocketId === socketId) return playerId;
-    }
-    return null;
+    const playerId = this.socketToPlayer.get(socketId);
+    // Guard against a stale reverse entry if the forward map moved on.
+    return playerId && this.sockets.get(playerId) === socketId ? playerId : null;
   }
 
   private onHostConnected(): void {
@@ -441,6 +509,7 @@ export class Room {
 
   start(gameType: GameType, rounds?: number): ApiErrorCode | null {
     if (this.phase !== "lobby") return "already_started";
+    this.promoteAudienceToSeats();
     if (this.connectedRealPlayers.length < MIN_PLAYERS) {
       return "not_enough_players";
     }
@@ -455,6 +524,7 @@ export class Room {
     this.clearTimer();
     this.engine?.dispose();
     this.gameType = gameType;
+    this.finalView = null;
     this.lastGameConfig = { gameType, rounds };
     for (const player of this.players.values()) {
       player.score = 0;
@@ -482,6 +552,7 @@ export class Room {
       return "invalid_phase";
     }
     if (!this.lastGameConfig) return "invalid_game";
+    this.promoteAudienceToSeats();
     if (this.connectedRealPlayers.length < MIN_PLAYERS) {
       return "not_enough_players";
     }
@@ -510,11 +581,28 @@ export class Room {
     ) {
       return "invalid_phase";
     }
+    // Keep the round counters for the scoreboard header, then drop the engine
+    // so its abandoned mid-round results stop being serialized.
+    const view = this.engine?.serialize();
+    this.finalView = view
+      ? { round: view.round, totalRounds: view.totalRounds }
+      : null;
     this.engine?.dispose();
+    this.engine = null;
     this.setPhase("scoreboard", 15, () => this.gameOver());
     return null;
   }
 
+  /**
+   * Skip the current phase's timer.
+   *
+   * Deliberately unthrottled. Skipping quickly is legitimate — a host clicking
+   * through results screens, or a group racing to the scoreboard — and every
+   * throttle tried here (a minimum dwell time, a higher token cost) broke that
+   * before it inconvenienced anyone abusing it. What bounds the damage is
+   * authority, not rate: only the connected host or the elected stand-in can
+   * call this, and the worst case is ending a game the room can restart.
+   */
   next(): ApiErrorCode | null {
     if (this.phase === "lobby" || this.phase === "gameover" || !this.onTimeout) {
       return "invalid_phase";
@@ -532,15 +620,8 @@ export class Room {
     this.engine?.dispose();
     this.engine = null;
     this.gameType = null;
-    for (const player of this.players.values()) {
-      if (
-        player.connected &&
-        player.isAudience &&
-        this.realPlayers.length < MAX_PLAYERS
-      ) {
-        player.isAudience = false;
-      }
-    }
+    this.finalView = null;
+    this.promoteAudienceToSeats();
     for (const player of this.players.values()) {
       player.score = 0;
       player.streak = 0;
@@ -552,8 +633,20 @@ export class Room {
     return null;
   }
 
-  isHost(playerId: string): boolean {
-    return this.players.get(playerId)?.isHost === true;
+  /**
+   * Give connected spectators a seat when one is free. Someone who joined
+   * while a game was running expects to play the next one.
+   */
+  private promoteAudienceToSeats(): void {
+    let seated = this.realPlayers.length;
+    if (seated >= MAX_PLAYERS) return;
+    for (const player of this.players.values()) {
+      if (seated >= MAX_PLAYERS) break;
+      if (player.connected && player.isAudience) {
+        player.isAudience = false;
+        seated += 1;
+      }
+    }
   }
 
   getReactionSender(
@@ -598,6 +691,7 @@ export class Room {
     return {
       language: this.language,
       players: () => this.realPlayers,
+      connectedPlayers: () => this.connectedRealPlayers,
       audience: () => this.audiencePlayers,
       getPlayer: (id) => {
         const player = this.players.get(id);
@@ -640,6 +734,7 @@ export class Room {
     this.clearTimer();
     this.phase = phase;
     this.phaseId += 1;
+    this.phaseBumpPending = false;
     this.phaseEndsAt = seconds === null ? null : this.wallNow() + seconds * 1000;
     this.onTimeout = onTimeout;
     this.emit();
@@ -654,8 +749,15 @@ export class Room {
     }
   }
 
+  /**
+   * Invalidate in-flight control commands without changing phase.
+   *
+   * The increment is deferred to the flush so a single user action that both
+   * mutates the room and bumps the revision produces exactly one increment —
+   * two would invalidate the caller's own next command.
+   */
   private bumpRevision(): void {
-    this.phaseId += 1;
+    this.phaseBumpPending = true;
     this.touch();
     this.emit();
   }
@@ -669,33 +771,64 @@ export class Room {
 
   private buildState(): RoomState {
     const view = this.engine?.serialize();
-    const serverNow = this.wallNow();
+    const players: Player[] = [];
+    const audience: RoomState["audience"] = [];
+    let hostConnected = false;
+    // One pass instead of the four separate filters this used to run.
+    for (const player of this.players.values()) {
+      if (player.isHost) {
+        hostConnected ||= player.connected;
+      } else if (player.isAudience) {
+        audience.push({
+          id: player.id,
+          name: player.name,
+          avatar: player.avatar,
+          connected: player.connected,
+          hasVoted: player.hasVoted,
+        });
+      } else {
+        players.push({ ...player });
+      }
+    }
     return {
       code: this.code,
       phase: this.phase,
       gameType: this.gameType,
       language: this.language,
-      round: view?.round ?? 0,
-      totalRounds: view?.totalRounds ?? 0,
-      players: this.realPlayers.map((player) => ({ ...player })),
-      audience: this.audiencePlayers.map((player) => ({
-        id: player.id,
-        name: player.name,
-        avatar: player.avatar,
-        connected: player.connected,
-        hasVoted: player.hasVoted,
-      })),
-      hostConnected: this.hostConnected(),
+      round: view?.round ?? this.finalView?.round ?? 0,
+      totalRounds: view?.totalRounds ?? this.finalView?.totalRounds ?? 0,
+      players,
+      audience,
+      hostConnected,
       phaseId: this.phaseId,
       phaseEndsAt: this.phaseEndsAt,
-      serverNow,
+      serverNow: this.wallNow(),
       controllerPlayerId: this.controllerPlayerId,
       quiplash: view?.quiplash,
       trivia: view?.trivia,
     };
   }
 
+  /** Queue a broadcast; several mutations in one turn collapse into one. */
   emit(): void {
+    if (this.broadcastPending) return;
+    this.broadcastPending = true;
+    queueMicrotask(() => this.flush());
+  }
+
+  /**
+   * Send the queued broadcast now.
+   *
+   * The socket layer calls this at the end of each handler so clients see the
+   * new state before the acknowledgement that caused it.
+   */
+  flush(): void {
+    if (!this.broadcastPending) return;
+    this.broadcastPending = false;
+    if (this.phaseBumpPending) {
+      this.phaseBumpPending = false;
+      this.phaseId += 1;
+    }
     this.broadcast(this.buildState());
   }
 
@@ -703,13 +836,22 @@ export class Room {
     this.lastActivity = this.wallNow();
   }
 
-  isStale(maxIdleMs: number): boolean {
-    return this.isEmpty() && this.wallNow() - this.lastActivity > maxIdleMs;
+  /**
+   * Reclaimable when everyone has dropped and gone quiet, or when the room has
+   * been silent for the hard limit regardless of connections — otherwise a
+   * single forgotten browser tab pins a room slot forever.
+   */
+  isStale(maxIdleMs: number, abandonedIdleMs = maxIdleMs / 6): boolean {
+    const idleMs = this.wallNow() - this.lastActivity;
+    if (idleMs > maxIdleMs) return true;
+    return this.isEmpty() && idleMs > abandonedIdleMs;
   }
 
   dispose(): void {
     this.clearTimer();
     this.engine?.dispose();
+    this.broadcastPending = false;
+    this.phaseBumpPending = false;
     for (const handle of this.memberExpiry.values()) clearTimeout(handle);
     this.memberExpiry.clear();
     if (this.controllerTimer) clearTimeout(this.controllerTimer);

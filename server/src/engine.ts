@@ -14,8 +14,14 @@ import type {
  */
 export interface EngineContext {
   readonly language: Language;
-  /** Active (non-host, non-audience) players. */
+  /** Active (non-host, non-audience) players, including offline ones. */
   players(): Player[];
+  /**
+   * Players who are online right now. Use this to size a round: a player
+   * holding a disconnect lease cannot answer, and handing them prompts only
+   * publishes a canned safety quip under their name.
+   */
+  connectedPlayers(): Player[];
   /** Audience members (may vote in quiplash, never answer). */
   audience(): Player[];
   getPlayer(id: string): Player | undefined;
@@ -60,7 +66,7 @@ export interface GameEngine {
    * A player went offline mid-game. Lets the engine re-check its
    * "everyone done?" conditions so a dropped player doesn't stall the round.
    */
-  handlePlayerDisconnect?(playerId: string): void;
+  handlePlayerDisconnect?(): void;
   /**
    * A player was removed from the room entirely (kicked). Unlike a disconnect,
    * they are never coming back, so the engine must purge any state they left
