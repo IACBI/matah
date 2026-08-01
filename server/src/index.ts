@@ -215,7 +215,7 @@ let sweepHandle: NodeJS.Timeout | null = null;
 
 function makeRoomCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-  let code = "";
+  let code: string;
   do {
     code = Array.from(
       { length: ROOM_CODE_LENGTH },
