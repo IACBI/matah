@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { io as createClient } from 'socket.io-client';
 
-import { startServer, stopServer } from '../../server/src/index.ts';
+import { clients } from '../helpers/socket.mjs';
+
+// See room-flows.test.mjs: every socket shares one address, so the per-address
+// budget would throttle setup. origin-rate.test.mjs covers the limits.
+process.env.MATAH_RL_CREATE = '500';
+process.env.MATAH_RL_ACTION_BURST = '5000';
+const { startServer, stopServer } = await import('../../server/src/index.ts');
 
 let baseUrl;
-const liveSockets = new Set();
+const { connect, ack, once, until, createRoomWithPlayers, disconnectAll } =
+  clients(() => baseUrl);
 
 before(async () => {
   const port = await startServer(0);
@@ -13,75 +19,9 @@ before(async () => {
 });
 
 after(async () => {
-  for (const socket of liveSockets) socket.disconnect();
+  disconnectAll();
   await stopServer();
 });
-
-async function connect() {
-  const socket = createClient(baseUrl, {
-    transports: ['websocket'],
-    forceNew: true,
-    reconnection: false,
-  });
-  liveSockets.add(socket);
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('connect timeout')), 5_000);
-    socket.once('connect', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    socket.once('connect_error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-  });
-  return socket;
-}
-
-function ack(socket, event, payload) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${event} acknowledgement timeout`)), 5_000);
-    const callback = (result) => {
-      clearTimeout(timer);
-      resolve(result);
-    };
-    if (payload === undefined) socket.emit(event, callback);
-    else socket.emit(event, payload, callback);
-  });
-}
-
-function once(socket, event, timeoutMs = 5_000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${event} event timeout`)), timeoutMs);
-    socket.once(event, (value) => {
-      clearTimeout(timer);
-      resolve(value);
-    });
-  });
-}
-
-async function createRoomWithPlayers(count = 3) {
-  const host = await connect();
-  let state;
-  host.on('room:state', (next) => { state = next; });
-  const created = await ack(host, 'room:create', { language: 'en' });
-  assert.equal(created.ok, true);
-
-  const members = [];
-  for (let index = 0; index < count; index += 1) {
-    const socket = await connect();
-    const joined = await ack(socket, 'room:join', {
-      code: created.data.code,
-      name: `Player ${index + 1}`,
-      avatar: 'fox',
-    });
-    assert.equal(joined.ok, true);
-    members.push({ socket, session: joined.data });
-  }
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(state.players.length, count);
-  return { host, hostSession: created.data, members, get state() { return state; } };
-}
 
 test('public player IDs cannot resume sessions and tokens rotate once', async () => {
   const room = await createRoomWithPlayers();
@@ -181,5 +121,52 @@ test('phase guards reject duplicate controls and trivia payload coercion', async
     room.state.trivia.question.text,
     question.text,
     'rematch should avoid recently used questions while the pool allows it',
+  );
+});
+
+test('a stand-in controller may run the game but never remove anyone', async () => {
+  const room = await createRoomWithPlayers(3);
+  const [first, second] = room.members;
+  const watcher = first.socket;
+  // The host socket is about to drop, so follow the room from a player.
+  let live;
+  watcher.on('room:state', (state) => { live = state; });
+
+  // Losing the host hands control to the first player who joined, but only
+  // after the failover delay, and never the ability to kick.
+  const elected = until(
+    watcher,
+    (s) => s.controllerPlayerId === first.session.playerId,
+    'controller election',
+    20_000,
+  );
+  room.host.disconnect();
+  assert.equal((await elected).hostConnected, false);
+
+  assert.deepEqual(
+    await ack(watcher, 'player:kick', {
+      playerId: second.session.playerId,
+      phaseId: live.phaseId,
+    }),
+    { ok: false, error: 'host_only' },
+    'the first player to join must not be able to clear the room',
+  );
+
+  const playing = until(watcher, (s) => s.phase === 'answering', 'stand-in start');
+  assert.deepEqual(
+    await ack(watcher, 'game:start', {
+      gameType: 'trivia',
+      rounds: 3,
+      phaseId: live.phaseId,
+    }),
+    { ok: true, data: null },
+    'someone has to be able to keep the party going',
+  );
+  await playing;
+
+  // A player who was not elected gains nothing from the failover.
+  assert.deepEqual(
+    await ack(second.socket, 'game:end', { phaseId: live.phaseId }),
+    { ok: false, error: 'host_only' },
   );
 });

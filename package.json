@@ -33,7 +33,7 @@
     "test": "npm run test:unit && npm run test:integration && npm run test:client",
     "test:unit": "node --import tsx --test tests/unit/*.test.mjs",
     "test:integration": "node --import tsx --test tests/integration/*.test.mjs",
-    "test:coverage:server": "node --import tsx --experimental-test-coverage --test --test-coverage-include=server/src/engines/*.ts --test-coverage-include=server/src/rateLimiter.ts --test-coverage-include=server/src/util.ts --test-coverage-lines=90 --test-coverage-branches=85 tests/unit/*.test.mjs tests/integration/*.test.mjs",
+    "test:coverage:server": "node --import tsx --experimental-test-coverage --test --test-coverage-include=server/src/engines/*.ts --test-coverage-include=server/src/rateLimiter.ts --test-coverage-include=server/src/util.ts --test-coverage-include=server/src/room.ts --test-coverage-include=server/src/index.ts --test-coverage-lines=93 --test-coverage-branches=80 tests/unit/*.test.mjs tests/integration/*.test.mjs",
     "test:client": "npm --workspace client run test",
     "test:coverage:client": "npm --workspace client run test:coverage",
     "test:browser": "node tests/browser-test.mjs",

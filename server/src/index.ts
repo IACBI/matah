@@ -62,7 +62,12 @@ const connectionLimiter = new BoundedRateLimiter(
   10_000,
   10 * 60_000
 );
-const actionLimiter = new BoundedRateLimiter(80, 20, 10_000, 10 * 60_000);
+const actionLimiter = new BoundedRateLimiter(
+  limit("ACTION_BURST", 80),
+  limit("ACTION_REFILL", 20),
+  10_000,
+  10 * 60_000
+);
 const roomCreateLimiter = new BoundedWindowRateLimiter(
   limit("CREATE", 10),
   10 * 60_000,
