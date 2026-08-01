@@ -425,17 +425,62 @@ const PROMPTS: Record<Language, string[]> = {
   ],
 };
 
-export function pickPrompts(
+/** Every prompt in a language, for structural tests. */
+export function promptPool(language: Language): readonly string[] {
+  return PROMPTS[language] ?? [];
+}
+
+/** The two players who will write for one matchup. */
+export interface PromptSlot {
+  authors: readonly string[];
+}
+
+/**
+ * Choose one prompt per matchup slot.
+ *
+ * Each pool holds fewer prompts than a long game consumes — eight players over
+ * five rounds need forty, and no language has that many — so prompts have to
+ * come round again. What actually stings is being asked to write for a prompt
+ * you already answered, so the rule is per author, not per room: a prompt may
+ * reappear as long as neither of its new authors has written for it before.
+ * A familiar prompt with fresh answers is fine, and often funnier.
+ *
+ * Preference order per slot:
+ *   1. unused this game and unseen by both authors
+ *   2. unseen by both authors
+ *   3. unseen by one author
+ *   4. anything left
+ */
+export function pickPromptsForSlots(
   language: Language,
-  count: number,
-  excluded: ReadonlySet<string> = new Set(),
+  slots: readonly PromptSlot[],
+  usedThisGame: ReadonlySet<string>,
+  seenBy: ReadonlyMap<string, ReadonlySet<string>>,
 ): string[] {
   const pool = PROMPTS[language] ?? PROMPTS.en;
-  const fresh = pool.filter((prompt) => !excluded.has(prompt));
-  const candidates = fresh.length >= count
-    ? fresh
-    : [...fresh, ...pool.filter((prompt) => excluded.has(prompt))];
-  return sample(candidates, count);
+  const takenNow = new Set<string>();
+  const chosen: string[] = [];
+
+  const unseenCount = (prompt: string, authors: readonly string[]): number =>
+    authors.filter((id) => !seenBy.get(prompt)?.has(id)).length;
+
+  for (const slot of slots) {
+    const available = pool.filter((prompt) => !takenNow.has(prompt));
+    // Rank rather than filter, so a tier is never empty and no slot goes unfilled.
+    const ranked = available
+      .map((prompt) => {
+        const unseen = unseenCount(prompt, slot.authors);
+        const fresh = !usedThisGame.has(prompt);
+        return { prompt, tier: unseen * 2 + (fresh && unseen === slot.authors.length ? 1 : 0) };
+      })
+      .sort((a, b) => b.tier - a.tier);
+    const best = ranked.length > 0 ? ranked[0].tier : 0;
+    const bestTier = ranked.filter((entry) => entry.tier === best);
+    const pick = bestTier.length > 0 ? sample(bestTier, 1)[0].prompt : pool[0];
+    takenNow.add(pick);
+    chosen.push(pick);
+  }
+  return chosen;
 }
 
 // Canned "safety quips" used when a player runs out of time, so their

@@ -27,6 +27,7 @@ function harness() {
   const ctx = {
     language: 'en',
     players: () => players,
+    connectedPlayers: () => players.filter((player) => player.connected),
     audience: () => audience,
     getPlayer: (id) => players.find((player) => player.id === id),
     getParticipant: (id) => [...players, ...audience].find((player) => player.id === id),
@@ -70,7 +71,7 @@ test('assignments survive voting rejoin and mark previously submitted prompts', 
   );
 });
 
-test('votes for a safety answer do not dilute the human point pool', () => {
+test('a removed voter takes their vote with them, and a lone human halves the pool', () => {
   const h = harness();
   h.engine.start();
   const p1Assignment = h.assignments.get('p1');
@@ -91,9 +92,14 @@ test('votes for a safety answer do not dilute the human point pool', () => {
   h.fireTimeout();
   const result = h.engine.serialize().quiplash.lastResults
     .find((matchup) => matchup.prompt === active.prompt);
-  assert.equal(result.answers.find((answer) => answer.text === 'human answer').pointsAwarded, 1_000);
+  const humanResult = result.answers.find((answer) => answer.text === 'human answer');
+  // Round 1: pool is 1000 * 1 * (1 human / 2 answers) = 500, and the lone
+  // surviving vote is 100% of the votes cast.
+  assert.equal(humanResult.pointsAwarded, 500);
+  assert.equal(humanResult.submitBonus, 100);
   const safetyResult = result.answers.find((answer) => answer.isSafety);
   assert.equal(safetyResult.pointsAwarded, 0);
+  assert.equal(safetyResult.submitBonus, 0);
   assert.equal(safetyResult.votes, 0, 'removed audience votes must not survive into results');
 });
 
@@ -108,7 +114,12 @@ test('invalid answers and votes are rejected and a complete vote advances after 
   const matchupId = assignment.prompts[0].matchupId;
   assert.equal(h.engine.handleAnswer('ghost', matchupId, 'answer'), false);
   assert.equal(h.engine.handleAnswer('p3', matchupId, 'answer'), false);
-  assert.equal(h.engine.handleAnswer('p1', matchupId, '   '), true);
+  assert.equal(
+    h.engine.handleAnswer('p1', matchupId, '   '),
+    false,
+    'blank answers used to become a votable "…" for free',
+  );
+  assert.equal(h.engine.handleAnswer('p1', matchupId, 'real'), true);
   assert.equal(h.engine.handleAnswer('p1', matchupId, 'duplicate'), false);
   h.fireTimeout();
 

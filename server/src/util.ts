@@ -10,6 +10,26 @@ export function sample<T>(pool: readonly T[], count: number): T[] {
   return arr.slice(0, count);
 }
 
+/**
+ * Pick `count` items, preferring ones not in `excluded`.
+ *
+ * Content pools are finite, so once the fresh items run out this falls back to
+ * the whole pool rather than returning fewer items than asked for.
+ */
+export function sampleAvoiding<T>(
+  pool: readonly T[],
+  count: number,
+  excluded: ReadonlySet<string>,
+  keyOf: (item: T) => string
+): T[] {
+  const fresh = pool.filter((item) => !excluded.has(keyOf(item)));
+  const candidates =
+    fresh.length >= count
+      ? fresh
+      : [...fresh, ...pool.filter((item) => excluded.has(keyOf(item)))];
+  return sample(candidates, count);
+}
+
 /** Normalizes one-line user text and limits Unicode code points, not UTF-16 units. */
 export function sanitizeUserText(raw: unknown, maxCodePoints: number): string {
   if (typeof raw !== "string") return "";

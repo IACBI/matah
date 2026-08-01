@@ -1,5 +1,5 @@
 import type { Language } from "../../../shared/src/index.js";
-import { sample } from "../util.js";
+import { sampleAvoiding } from "../util.js";
 
 export interface TriviaQuestion {
   text: string;
@@ -325,9 +325,10 @@ export function pickTrivia(
   excluded: ReadonlySet<string> = new Set(),
 ): TriviaQuestion[] {
   const pool = TRIVIA[language] ?? TRIVIA.en;
-  const fresh = pool.filter((question) => !excluded.has(question.text));
-  const candidates = fresh.length >= count
-    ? fresh
-    : [...fresh, ...pool.filter((question) => excluded.has(question.text))];
-  return sample(candidates, count);
+  return sampleAvoiding(pool, count, excluded, (question) => question.text);
+}
+
+/** Every question in a language, for structural tests. */
+export function triviaPool(language: Language): readonly TriviaQuestion[] {
+  return TRIVIA[language] ?? [];
 }

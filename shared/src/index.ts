@@ -50,7 +50,10 @@ export interface MatchupResult {
     text: string;
     isSafety: boolean;
     votes: number;
+    /** Points from vote share alone. */
     pointsAwarded: number;
+    /** Flat reward for having written anything; 0 for safety quips. */
+    submitBonus: number;
   }[];
 }
 

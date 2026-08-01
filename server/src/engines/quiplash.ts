@@ -4,15 +4,18 @@ import type {
   MatchupResult,
   PlayerAssignment,
 } from "../../../shared/src/index.js";
-import { DEFAULT_TOTAL_ROUNDS, MAX_ANSWER_LEN } from "../../../shared/src/index.js";
+import {
+  DEFAULT_TOTAL_ROUNDS,
+  MATCHUP_POINT_POOL,
+  SUBMIT_BONUS,
+} from "../../../shared/src/index.js";
 import type { EngineContext, EngineView, GameEngine } from "../engine.js";
-import { pickPrompts, pickSafetyAnswer } from "../content/prompts.js";
+import { pickPromptsForSlots, pickSafetyAnswer } from "../content/prompts.js";
 
 const ANSWER_SECONDS = 60;
 const VOTE_SECONDS = 20;
 const MIN_VOTE_DISPLAY_SECONDS = 3;
 const RESULTS_SECONDS = 9;
-const MATCHUP_POINT_POOL = 1_000;
 
 export class QuiplashEngine implements GameEngine {
   readonly type = "quiplash" as const;
@@ -27,8 +30,19 @@ export class QuiplashEngine implements GameEngine {
   private answeringActive = false;
   private voteMinHandle: NodeJS.Timeout | null = null;
   private votingStartedAt = 0;
+  /**
+   * Who may gate the early advance for the active matchup, captured when it
+   * opens. Someone who joins or reconnects mid-vote may still vote, but must
+   * not hold the room on a 20-second timer they were never part of.
+   */
+  private eligibleVoterIds = new Set<string>();
+  /** How many matchups each player authors this round (see handleAnswer). */
+  private assignedCount = new Map<string, number>();
+  private answeredCount = new Map<string, number>();
 
   private usedPrompts = new Set<string>();
+  /** prompt -> players who have already written for it, across the game. */
+  private promptSeenBy = new Map<string, Set<string>>();
 
   constructor(
     private ctx: EngineContext,
@@ -47,29 +61,42 @@ export class QuiplashEngine implements GameEngine {
   private beginRound(): void {
     this.round += 1;
     this.lastResults = null;
-    const players = this.ctx.players();
+    this.currentMatchupIndex = 0;
+    // Size the round by who is actually online. Handing prompts to a player
+    // who is holding a disconnect lease only publishes a canned safety quip
+    // under their name.
+    const players = this.ctx.connectedPlayers();
     const n = players.length;
-    const prompts = pickPrompts(
-      this.ctx.language,
-      n,
-      new Set([...this.avoidPrompts, ...this.usedPrompts]),
-    );
-    for (const prompt of prompts) {
-      this.usedPrompts.add(prompt);
-      this.recordPrompt(prompt);
-    }
 
-    this.matchups = prompts.map((prompt) => ({
-      id: randomUUID(),
-      prompt,
-      answers: [],
-      votes: {},
-    }));
-    // Cyclic pairing: matchup i is answered by player i and player i+1.
-    this.matchupAuthors = this.matchups.map((_, i) => [
+    // Pair first, then choose prompts, so selection can see who will author
+    // each one. Cyclic pairing: matchup i is written by player i and i+1.
+    this.matchupAuthors = players.map((_, i) => [
       players[i].id,
       players[(i + 1) % n].id,
     ]);
+    const prompts = pickPromptsForSlots(
+      this.ctx.language,
+      this.matchupAuthors.map((authors) => ({ authors })),
+      new Set([...this.avoidPrompts, ...this.usedPrompts]),
+      this.promptSeenBy,
+    );
+
+    this.matchups = prompts.map((prompt, i) => {
+      this.usedPrompts.add(prompt);
+      this.recordPrompt(prompt);
+      const seen = this.promptSeenBy.get(prompt) ?? new Set<string>();
+      for (const authorId of this.matchupAuthors[i]) seen.add(authorId);
+      this.promptSeenBy.set(prompt, seen);
+      return { id: randomUUID(), prompt, answers: [], votes: {} };
+    });
+
+    this.assignedCount.clear();
+    this.answeredCount.clear();
+    for (const authors of this.matchupAuthors) {
+      for (const id of authors) {
+        this.assignedCount.set(id, (this.assignedCount.get(id) ?? 0) + 1);
+      }
+    }
 
     this.ctx.resetFlags();
     this.answeringActive = true;
@@ -108,6 +135,7 @@ export class QuiplashEngine implements GameEngine {
   }
 
   handleAnswer(playerId: string, matchupId: string, text: string): boolean {
+    if (!this.answeringActive) return false;
     const mi = this.matchups.findIndex((m) => m.id === matchupId);
     if (mi === -1) return false;
     const player = this.ctx.getPlayer(playerId);
@@ -115,22 +143,22 @@ export class QuiplashEngine implements GameEngine {
     if (!this.matchupAuthors[mi].includes(playerId)) return false;
     const matchup = this.matchups[mi];
     if (matchup.answers.some((a) => a.playerId === playerId)) return false;
+    // The socket layer already sanitized and bounded this by code point, so
+    // truncating again here would only risk splitting a surrogate pair. An
+    // empty answer is a rejection, not a scoreable "…" that can win votes.
+    if (!text.trim()) return false;
 
     matchup.answers.push({
       answerId: randomUUID(),
       playerId,
       playerName: player.name,
-      text: text.trim().slice(0, MAX_ANSWER_LEN) || "…",
+      text,
       isSafety: false,
     });
 
-    const assignedCount = this.matchupAuthors.filter((a) =>
-      a.includes(playerId)
-    ).length;
-    const answeredCount = this.matchups.filter((m) =>
-      m.answers.some((a) => a.playerId === playerId)
-    ).length;
-    player.hasSubmitted = answeredCount >= assignedCount;
+    const answered = (this.answeredCount.get(playerId) ?? 0) + 1;
+    this.answeredCount.set(playerId, answered);
+    player.hasSubmitted = answered >= (this.assignedCount.get(playerId) ?? 0);
 
     this.ctx.emit();
     // A disconnected player can't act, so don't let them stall the round:
@@ -173,16 +201,14 @@ export class QuiplashEngine implements GameEngine {
     this.clearVoteMinTimer();
     this.votingActive = false;
     this.currentMatchupIndex += 1;
-    // Skip matchups that can't be voted on: not enough answers, or nobody
-    // connected who is allowed to vote.
-    const hasVoterFor = (mi: number) =>
-      this.eligibleVoters(this.matchupAuthors[mi]).length > 0 ||
-      this.ctx.audience().some((p) => p.connected);
+    // Skip matchups that can't be voted on: not enough answers, all canned,
+    // or nobody connected who is allowed to vote. (eligibleVoters already
+    // includes the audience.)
     while (
       this.currentMatchupIndex < this.matchups.length &&
       (this.matchups[this.currentMatchupIndex].answers.length < 2 ||
         this.matchups[this.currentMatchupIndex].answers.every((a) => a.isSafety) ||
-        !hasVoterFor(this.currentMatchupIndex))
+        this.eligibleVoters(this.matchupAuthors[this.currentMatchupIndex]).length === 0)
     ) {
       this.currentMatchupIndex += 1;
     }
@@ -193,6 +219,9 @@ export class QuiplashEngine implements GameEngine {
     this.ctx.resetFlags();
     this.votingActive = true;
     this.votingStartedAt = this.ctx.now();
+    this.eligibleVoterIds = new Set(
+      this.eligibleVoters(this.matchupAuthors[this.currentMatchupIndex]).map((p) => p.id)
+    );
     this.ctx.setPhase("voting", VOTE_SECONDS, () => this.advanceMatchup());
   }
 
@@ -225,7 +254,11 @@ export class QuiplashEngine implements GameEngine {
   }
 
   private advanceWhenVotingComplete(authors: string[]): void {
-    const eligible = this.eligibleVoters(authors);
+    // Only the voters present when this matchup opened gate the early advance;
+    // a late arrival who has not voted must not extend the timer for everyone.
+    const eligible = this.eligibleVoters(authors).filter((p) =>
+      this.eligibleVoterIds.has(p.id)
+    );
     if (eligible.length === 0 || !eligible.every((p) => p.hasVoted)) return;
     const remainingMs =
       MIN_VOTE_DISPLAY_SECONDS * 1000 - (this.ctx.now() - this.votingStartedAt);
@@ -288,29 +321,54 @@ export class QuiplashEngine implements GameEngine {
     }
   }
 
+  /**
+   * Score the round.
+   *
+   * Every answer a player actually wrote earns a flat bonus, including in
+   * matchups that were skipped for lack of voters — writing something must
+   * always beat letting the clock run out, and nothing in a party game feels
+   * worse than filling in three prompts for zero points.
+   *
+   * Vote share then splits a pool that scales with how many of the answers
+   * were real. One human against a canned safety quip halves the pool, so
+   * being paired with someone who timed out stops being the highest-scoring
+   * event in the game, and votes cast for the quip count in the denominator
+   * so share means "share of the room".
+   */
   private beginResults(): void {
+    const bonus = SUBMIT_BONUS * this.round;
+    const bonusFor = new Map<string, number>();
+    for (const matchup of this.matchups) {
+      for (const answer of matchup.answers) {
+        if (answer.isSafety) continue;
+        bonusFor.set(answer.playerId, (bonusFor.get(answer.playerId) ?? 0) + bonus);
+      }
+    }
+
     const results: MatchupResult[] = [];
     for (const matchup of this.matchups) {
       if (matchup.answers.length < 2) continue;
       const counts: Record<string, number> = {};
       for (const a of matchup.answers) counts[a.answerId] = 0;
+      let totalVotes = 0;
       for (const voted of Object.values(matchup.votes)) {
-        if (counts[voted] !== undefined) counts[voted] += 1;
+        if (counts[voted] !== undefined) {
+          counts[voted] += 1;
+          totalVotes += 1;
+        }
       }
-      const humanAnswerIds = new Set(
-        matchup.answers.filter((answer) => !answer.isSafety).map((answer) => answer.answerId),
-      );
-      const totalHumanVotes = Object.entries(counts).reduce(
-        (sum, [answerId, count]) => sum + (humanAnswerIds.has(answerId) ? count : 0),
-        0,
-      );
+      const humanCount = matchup.answers.filter((a) => !a.isSafety).length;
+      const pool =
+        (MATCHUP_POINT_POOL * this.round * humanCount) / matchup.answers.length;
+
       results.push({
         prompt: matchup.prompt,
         answers: matchup.answers.map((a) => {
           const votes = counts[a.answerId] ?? 0;
-          const pointsAwarded = a.isSafety || totalHumanVotes === 0
-            ? 0
-            : Math.round((votes / totalHumanVotes) * MATCHUP_POINT_POOL * this.round);
+          const pointsAwarded =
+            a.isSafety || totalVotes === 0
+              ? 0
+              : Math.round((votes / totalVotes) * pool);
           this.ctx.award(a.playerId, pointsAwarded);
           return {
             playerId: a.playerId,
@@ -319,10 +377,13 @@ export class QuiplashEngine implements GameEngine {
             isSafety: a.isSafety,
             votes,
             pointsAwarded,
+            submitBonus: a.isSafety ? 0 : bonus,
           };
         }),
       });
     }
+    for (const [playerId, points] of bonusFor) this.ctx.award(playerId, points);
+
     this.lastResults = results;
     this.votingActive = false;
 
