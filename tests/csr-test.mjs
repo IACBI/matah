@@ -5,9 +5,13 @@
 //  3. the server re-binds its identity so it can still submit answers.
 import { io } from "socket.io-client";
 
-const URL = process.env.TEST_URL ?? "http://localhost:3001";
-const conn = () => io(URL, { transports: ["websocket"] }); // reconnection on by default
-const ack = (s, e, ...a) => new Promise((r) => s.emit(e, ...a, (x) => r(x)));
+import { testUrl } from "./helpers/target.mjs";
+
+const URL = await testUrl();
+const conn = () => io(URL, { transports: ["websocket"], extraHeaders: { Origin: URL } }); // reconnection on by default
+const ack = (s, e, ...a) => new Promise((resolve, reject) =>
+  s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))
+);
 
 function until(getState, pred, ms = 10000, label = "condition") {
   return new Promise((resolve, reject) => {
@@ -48,7 +52,7 @@ async function main() {
   await until(() => hostState, (s) => s.players.length === 3, 8000, "3 players");
   console.log("✓ Oda kuruldu, 3 oyuncu katıldı:", code);
 
-  await ack(host, "game:start", { gameType: "quiplash" });
+  await ack(host, "game:start", { gameType: "quiplash", phaseId: hostState.phaseId });
   await until(() => hostState, (s) => s.phase === "answering", 8000, "answering");
   console.log("✓ Oyun başladı, faz: answering");
 
@@ -74,7 +78,7 @@ async function main() {
   // Still in the room: a host-driven phase change must reach the recovered
   // socket WITHOUT any manual rejoin.
   pState = null;
-  await ack(host, "game:next"); // answering -> voting (or results)
+  await ack(host, "game:next", { phaseId: hostState.phaseId }); // answering -> voting (or results)
   await until(() => pState, (s) => s && s.phase !== "answering", 8000, "broadcast after recovery");
   console.log("✓ Kurtarma sonrası yayınları almaya devam ediyor (oda üyeliği korundu)");
 

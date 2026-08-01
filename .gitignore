@@ -4,3 +4,8 @@ dist/
 .DS_Store
 .env
 .vite/
+browser-output/
+coverage/
+playwright-report/
+test-results/
+progress.md

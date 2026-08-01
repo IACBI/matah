@@ -2,12 +2,14 @@
 // small interface glyphs (copy, sound, back, close, timer, …). Reaction icons
 // carry their own lively animation; UI glyphs inherit `currentColor` so they
 // match surrounding text. Animations live in index.css (reduced-motion aware).
-import type { JSX } from "react";
+import { memo, type JSX } from "react";
+import { REACTIONS } from "../../../shared/src/index";
 
 /* ---------------- Reactions ---------------- */
 
-export const REACTION_IDS = ["laugh", "heart", "fire", "clap", "wow", "skull"] as const;
-export type ReactionId = (typeof REACTION_IDS)[number];
+// The ids come from the shared contract; a second copy here could drift from
+// what the server accepts.
+type ReactionId = (typeof REACTIONS)[number];
 
 const REACTION_ART: Record<ReactionId, () => JSX.Element> = {
   laugh: () => (
@@ -49,14 +51,21 @@ const REACTION_ART: Record<ReactionId, () => JSX.Element> = {
   ),
 };
 
-export function ReactionIcon({ id, className = "" }: { id: string; className?: string }) {
+/** Memoized: the host overlay can hold up to 31 of these at once. */
+export const ReactionIcon = memo(function ReactionIcon({
+  id,
+  className = "",
+}: {
+  id: string;
+  className?: string;
+}) {
   const art = REACTION_ART[id as ReactionId] ?? REACTION_ART.laugh;
   return (
     <span className={`rx-icon rx-${id} ${className}`} aria-hidden="true">
       <svg viewBox="0 0 24 24">{art()}</svg>
     </span>
   );
-}
+});
 
 /* ---------------- Medals ---------------- */
 
@@ -92,10 +101,7 @@ export const IconCopy = ({ className }: IconProps) => wrap(<><rect x="9" y="9" w
 export const IconCheck = ({ className }: IconProps) => wrap(<path d="M5 13l4 4L19 7" />, className);
 export const IconBack = ({ className }: IconProps) => wrap(<><path d="M15 5l-7 7 7 7" /><path d="M8 12h11" /></>, className);
 export const IconClose = ({ className }: IconProps) => wrap(<><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>, className);
-export const IconArrowRight = ({ className }: IconProps) => wrap(<><path d="M5 12h13" /><path d="M12 5l7 7-7 7" /></>, className);
 export const IconTimer = ({ className }: IconProps) => wrap(<><circle cx="12" cy="13" r="8" /><path d="M12 13V8" /><path d="M9 2h6" /></>, className);
-export const IconTrophy = ({ className }: IconProps) => wrap(<><path d="M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3" /><path d="M12 14v4M8 21h8M10 21v-3h4v3" /></>, className);
-export const IconAudience = ({ className }: IconProps) => wrap(<><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" /><circle cx="12" cy="12" r="3" /></>, className);
 
 export const IconSound = ({ on, className }: IconProps & { on: boolean }) =>
   wrap(

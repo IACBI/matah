@@ -4,7 +4,17 @@
    Display: Bricolage Grotesque · Body: Hanken Grotesk · Mono: Space Mono
    ============================================================ */
 
+/* Room codes only use ASCII; ship one modern Space Mono file and weight. */
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("@fontsource/space-mono/files/space-mono-latin-700-normal.woff2") format("woff2");
+}
+
 :root {
+  color-scheme: dark;
   /* surfaces */
   --bg: #14110c;
   --bg-elev: #1e1810;
@@ -62,9 +72,17 @@
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible,
 [role="radio"]:focus-visible,
 [role="menuitemradio"]:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+/* The language <select> is transparent by design, so the ring has to land on
+   the visible label instead. Without this, keyboard users tab into nothing. */
+.lang-switcher:focus-within .lang-current {
   outline: 3px solid var(--gold);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
@@ -73,7 +91,7 @@ textarea:focus-visible,
 html,
 body,
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
@@ -121,10 +139,29 @@ body::after {
 /* ---------- Layout ---------- */
 .screen {
   position: relative;
-  min-height: 100%;
-  padding: clamp(18px, 4vw, 52px);
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-block: max(clamp(18px, 4vw, 52px), env(safe-area-inset-top))
+    max(clamp(18px, 4vw, 52px), env(safe-area-inset-bottom));
+  padding-inline: max(clamp(18px, 4vw, 52px), env(safe-area-inset-left))
+    max(clamp(18px, 4vw, 52px), env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
+}
+.screen.host,
+.screen.player {
+  padding-block-start: max(64px, calc(env(safe-area-inset-top) + 54px));
+}
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
 }
 .center {
   display: flex;
@@ -226,6 +263,12 @@ body::after {
   color: var(--muted);
   letter-spacing: 0;
 }
+/* --muted on the gold fill measures about 1.9:1. This is the subtitle on the
+   very first button a new user reads, so it has to inherit the dark ink. */
+.btn.primary small {
+  color: var(--on-gold);
+  opacity: 0.78;
+}
 .btn:hover:not(:disabled) {
   filter: brightness(1.08);
 }
@@ -287,6 +330,12 @@ body::after {
   border-color: var(--gold);
   box-shadow: 0 0 0 3px rgba(246, 189, 69, 0.22);
 }
+.field-label {
+  margin-bottom: -8px;
+  color: var(--ink-dim);
+  font-size: 13px;
+  font-weight: 700;
+}
 .code-input {
   font-family: var(--font-mono);
   text-align: center;
@@ -325,8 +374,8 @@ body::after {
 /* ---------- Top bar: language + sound ---------- */
 .top-bar {
   position: fixed;
-  top: 14px;
-  right: 14px;
+  top: max(14px, env(safe-area-inset-top));
+  inset-inline-end: max(14px, env(safe-area-inset-right));
   display: flex;
   gap: 8px;
   z-index: 50;
@@ -358,48 +407,21 @@ body::after {
 .lang-switcher {
   position: relative;
 }
+.lang-current {
+  position: relative;
+}
+.lang-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
 .lang-caret {
   font-size: 10px;
   opacity: 0.6;
 }
-.lang-menu {
-  position: absolute;
-  top: 116%;
-  right: 0;
-  background: var(--bg-elev);
-  border: 1.5px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 158px;
-  box-shadow: var(--shadow-lg);
-  animation: popIn 0.16s ease;
-}
-.lang-opt {
-  font-family: var(--font-body);
-  font-size: 15px;
-  font-weight: 600;
-  text-align: left;
-  color: var(--ink);
-  background: none;
-  border: none;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 12px;
-  cursor: pointer;
-}
-.lang-opt:hover {
-  background: rgba(248, 241, 226, 0.07);
-}
-.lang-opt.active {
-  background: var(--gold);
-  color: var(--on-gold);
-}
-
 /* ---------- Waving flags ---------- */
 .flag {
   display: inline-block;
@@ -421,19 +443,6 @@ body::after {
    overall flutter, anchored at the pole (left) like a flag in a breeze. */
 .flag-anim .flag-wave {
   animation: flag-wave 3.2s ease-in-out infinite;
-}
-/* stagger so a menu full of flags doesn't flutter in lockstep */
-.lang-opt:nth-child(2n) .flag-anim .flag-wave,
-.lang-opt:nth-child(2n) .flag-wave {
-  animation-delay: -0.7s;
-}
-.lang-opt:nth-child(3n) .flag-anim .flag-wave,
-.lang-opt:nth-child(3n) .flag-wave {
-  animation-delay: -1.4s;
-}
-.lang-opt:nth-child(4n) .flag-anim .flag-wave,
-.lang-opt:nth-child(4n) .flag-wave {
-  animation-delay: -2.1s;
 }
 @keyframes flag-wave {
   0%,
@@ -480,9 +489,10 @@ body::after {
   align-items: center;
   gap: 10px;
 }
-.room-code-pill b {
+.room-code-pill bdi {
   font-family: var(--font-mono);
   font-size: 24px;
+  font-weight: 700;
   letter-spacing: 0.18em;
   color: var(--gold);
 }
@@ -496,9 +506,14 @@ body::after {
   font-weight: 700;
   font-size: 14px;
 }
+/* An always-present spacer, so the trailing controls do not jump across the
+   header every time the timer appears or disappears. */
+.host-header-spacer {
+  flex: 1 1 auto;
+}
 .timer {
-  margin-left: auto;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 34px;
   font-weight: 700;
   width: 72px;
@@ -918,7 +933,7 @@ body::after {
   margin-bottom: 6px;
 }
 .ra-meta {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 12.5px;
   color: var(--muted);
 }
@@ -949,7 +964,7 @@ body::after {
   font-weight: 600;
   font-family: var(--font-body);
   color: var(--ink);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   box-shadow: var(--shadow-card);
   transition: transform 0.1s ease, border-color 0.2s ease, filter 0.2s ease;
@@ -1051,7 +1066,7 @@ button.trivia-opt:active {
 .score-name {
   font-family: var(--font-display);
   font-weight: 700;
-  text-align: left;
+  text-align: start;
   letter-spacing: -0.01em;
 }
 .score-pts {
@@ -1272,9 +1287,23 @@ button.trivia-opt:active {
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
+    animation: none !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
+}
+.content-language {
+  width: min(320px, 100%);
+  display: grid;
+  gap: 7px;
+  color: var(--ink-dim);
+  font-weight: 700;
+  text-align: start;
+  margin-bottom: 18px;
+}
+.command-error {
+  align-self: center;
+  margin-bottom: 14px;
 }
 
 /* ---------- Player timer + reconnect overlay ---------- */
@@ -1310,6 +1339,8 @@ button.trivia-opt:active {
   font-size: 1.1em;
 }
 .avatar-picker {
+  min-width: 0;
+  border: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1321,9 +1352,12 @@ button.trivia-opt:active {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+/* Eight fixed columns overflowed a 360px phone and made each swatch a 25px
+   tap target. auto-fit at the 44px minimum fixes the layout and the target
+   in one rule. */
 .avatar-grid {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
   gap: 6px;
 }
 .avatar-opt {
@@ -1334,7 +1368,13 @@ button.trivia-opt:active {
   border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  display: grid;
+  place-items: center;
   transition: transform 0.08s ease, border-color 0.1s ease;
+}
+.avatar-opt:has(input:focus-visible) {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
 }
 .avatar-opt:hover {
   transform: translateY(-2px);
@@ -1372,7 +1412,7 @@ button.trivia-opt:active {
 
 /* ---------- Copy button + header pills ---------- */
 .copy-btn {
-  margin-left: 8px;
+  margin-inline-start: 8px;
   font-size: 13px;
   font-weight: 700;
   color: var(--ink-dim);
@@ -1387,7 +1427,7 @@ button.trivia-opt:active {
   border-color: var(--gold);
 }
 .audience-pill {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 13px;
   color: var(--teal);
   border: 1.5px solid var(--teal-deep);
@@ -1460,7 +1500,7 @@ button.trivia-opt:active {
 }
 .reaction-bar {
   position: sticky;
-  bottom: 10px;
+  bottom: max(10px, env(safe-area-inset-bottom));
   align-self: center;
   display: flex;
   gap: 8px;
@@ -1490,6 +1530,36 @@ button.trivia-opt:active {
 
 /* ---------- Responsive ---------- */
 @media (max-width: 600px) {
+  body {
+    background-attachment: scroll;
+  }
+  .screen {
+    padding-inline: max(14px, env(safe-area-inset-left))
+      max(14px, env(safe-area-inset-right));
+  }
+  .player-header {
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .player-name {
+    min-width: 0;
+    max-width: calc(100% - 48px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .player-stats {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .host-header {
+    gap: 9px;
+  }
+  .room-code-pill {
+    max-width: 100%;
+  }
   .vs-grid {
     grid-template-columns: 1fr;
   }
@@ -1568,9 +1638,17 @@ button.trivia-opt:active {
 
 /* ---------- Dismissible notice (home) ---------- */
 .badge.notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.notice-close {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
-  border: none;
-  font: inherit;
 }
 
 /* ---------- Leave / back controls ---------- */
@@ -1709,4 +1787,208 @@ button.trivia-opt:active {
   .medal-icon, .party-bits {
     animation: none;
   }
+}
+
+/* ---------- Connection states ---------- */
+/* A cold start with nothing to show yet, and the crash fallback. */
+.restore-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 22rem;
+  text-align: center;
+}
+.restore-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.restore-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+/* An in-room problem, layered over the live screen rather than replacing it. */
+.room-notice {
+  position: fixed;
+  inset-block-start: 8px;
+  inset-inline: 8px;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--ink);
+  font-size: 14px;
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
+}
+.room-notice > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.btn.tiny {
+  padding: 6px 12px;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+/* ---------- Live vote tally (host, quiplash voting) ---------- */
+.vote-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  width: min(420px, 70%);
+}
+.vote-progress-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  border: 1.5px solid var(--line-strong);
+  overflow: hidden;
+}
+.vote-progress-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold), #ffce5e);
+  transition: width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.vote-progress-label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vote-progress-bar span { transition: none; }
+}
+
+/* ---------- Touch targets ---------- */
+/* These controls are deliberately small — they sit inside chips, pills and
+   headers where a 44px box would dominate. Expanding the hit area with a
+   pseudo-element keeps the visual size while meeting the 44px guideline;
+   the phone screen is where most of them live. */
+.kick-btn,
+.player-leave,
+.copy-btn,
+.reaction-btn,
+.length-step,
+.notice-close {
+  position: relative;
+}
+.kick-btn::after,
+.player-leave::after,
+.copy-btn::after,
+.reaction-btn::after,
+.length-step::after,
+.notice-close::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  translate: -50% -50%;
+  min-width: 44px;
+  min-height: 44px;
+  width: 100%;
+  height: 100%;
+}
+/* The dismiss button had no width, height or padding at all — roughly 14px. */
+.notice-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+/* ---------- Confirmation dialog ---------- */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(16, 13, 8, 0.78);
+  backdrop-filter: blur(4px);
+}
+.confirm-panel {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.confirm-message {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.confirm-actions .btn {
+  flex: 1 1 auto;
+  min-width: 8rem;
+}
+
+/* ---------- QR placeholder / failure ---------- */
+.qr-skeleton,
+.qr-failed {
+  display: grid;
+  place-items: center;
+  min-width: 220px;
+  min-height: 220px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  padding: 16px;
+  text-align: center;
+}
+.qr-skeleton {
+  animation: qr-pulse 1.6s ease-in-out infinite;
+}
+@keyframes qr-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.85; } }
+
+/* ---------- Results readability ---------- */
+.round-multiplier {
+  margin: -8px 0 14px;
+  color: var(--gold);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 15px;
+}
+.ra-bonus {
+  color: var(--teal);
+}
+
+/* ---------- Optimistic vote choice ---------- */
+.vote-btn.chosen {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  transform: scale(1.02);
+}
+.vote-btn.dimmed {
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-skeleton { animation: none; }
+  .vote-btn.chosen { transform: none; }
 }

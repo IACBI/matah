@@ -3,10 +3,14 @@
 // conditions, which makes it deterministic and resilient to latency.
 import { io } from "socket.io-client";
 
-const URL = process.env.TEST_URL ?? "http://localhost:3001";
+import { testUrl } from "./helpers/target.mjs";
+
+const URL = await testUrl();
 const log = (...a) => console.log(...a);
-const conn = () => io(URL, { transports: ["websocket"], forceNew: true });
-const ack = (s, e, ...a) => new Promise((r) => s.emit(e, ...a, (x) => r(x)));
+const conn = () => io(URL, { transports: ["websocket"], forceNew: true, extraHeaders: { Origin: URL } });
+const ack = (s, e, ...a) => new Promise((resolve, reject) =>
+  s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))
+);
 
 /** Resolves once `pred(state)` is true, or rejects after `ms`. */
 function until(getState, pred, ms = 15000, label = "condition") {
@@ -52,7 +56,8 @@ async function playQuiplash() {
   log("\n=== QUIPLASH ===");
   const { host, ps, ids, code, get, assignments } = await setup("tr");
   log("✓ Oda:", code);
-  await ack(host, "game:start", { gameType: "quiplash" });
+  const start = await ack(host, "game:start", { gameType: "quiplash", phaseId: get().phaseId });
+  if (!start.ok) throw new Error(`quiplash start failed: ${start.error}`);
   await until(get, (s) => s.phase !== "lobby", 8000, "game start");
 
   // Dedup per (player, matchup): every matchup has two authors, and both must
@@ -73,13 +78,14 @@ async function playQuiplash() {
       await until(get, (s) => s.phase !== "answering", 70000, "leave answering");
     } else if (phase === "voting") {
       const m = get().quiplash.activeMatchup;
-      const authors = m.answers.map((a) => a.playerId);
-      for (const [i, p] of ps.entries())
-        if (!authors.includes(ids[i]))
-          await ack(p, "vote:submit", { matchupId: m.id, answerPlayerId: m.answers[0].playerId });
+      const attempts = await Promise.all(ps.map((p) =>
+        ack(p, "vote:submit", { matchupId: m.id, answerId: m.answers[0].answerId })
+      ));
+      if (!attempts.some((result) => result.ok)) throw new Error('no eligible vote was accepted');
       await until(get, (s) => s.phase !== "voting" || s.quiplash?.activeMatchup?.id !== m.id, 30000, "next matchup");
     } else if (phase === "results") {
-      await ack(host, "game:next");
+      const next = await ack(host, "game:next", { phaseId: get().phaseId });
+      if (!next.ok) throw new Error(`next failed: ${next.error}`);
       await until(get, (s) => s.phase !== "results", 15000, "leave results");
     } else {
       await new Promise((r) => setTimeout(r, 40)); // yield on transient phases
@@ -94,9 +100,10 @@ async function playQuiplash() {
 
 async function playTrivia() {
   log("\n=== TRIVIA ===");
-  const { host, ps, ids, code, get } = await setup("en");
+  const { host, ps, code, get } = await setup("en");
   log("✓ Oda:", code);
-  await ack(host, "game:start", { gameType: "trivia" });
+  const start = await ack(host, "game:start", { gameType: "trivia", phaseId: get().phaseId });
+  if (!start.ok) throw new Error(`trivia start failed: ${start.error}`);
   await until(get, (s) => s.phase !== "lobby", 8000, "game start");
 
   const answered = new Set();
@@ -111,7 +118,8 @@ async function playTrivia() {
       }
       await until(get, (s) => s.phase !== "answering", 25000, "leave question");
     } else if (phase === "results") {
-      await ack(host, "game:next");
+      const next = await ack(host, "game:next", { phaseId: get().phaseId });
+      if (!next.ok) throw new Error(`next failed: ${next.error}`);
       await until(get, (s) => s.phase !== "results", 15000, "leave results");
     } else {
       await new Promise((r) => setTimeout(r, 40)); // yield on transient phases

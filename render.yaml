@@ -1,17 +1,21 @@
-# Render.com blueprint — deploy with one click via "New > Blueprint".
-# https://render.com/docs/blueprint-spec
+# Render Blueprint: one Node service hosts both the Socket.IO server and the
+# compiled browser application.
 services:
   - type: web
     name: matah
     runtime: node
     plan: free
-    # NODE_ENV=production makes npm skip devDependencies, but the build needs
-    # them (vite, typescript). --include=dev forces them in for the build step.
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: npm start
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node server/dist/server/src/index.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
         value: "24"
+      - key: PUBLIC_ORIGIN
+        # No default: this is a public repository, so baking in the author's
+        # own deployment origin would make every other clone's Socket.IO
+        # handshake reject its own traffic. sync: false prompts the operator
+        # to set the real origin when the blueprint is created.
+        sync: false

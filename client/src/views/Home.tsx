@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { AVATARS, ROOM_CODE_LENGTH } from "../../../shared/src/index";
+import {
+  AVATARS,
+  MAX_NAME_LEN,
+  ROOM_CODE_LENGTH,
+  type SessionResult,
+} from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import type { Role } from "../App";
 import { useI18n } from "../i18n";
@@ -11,10 +16,12 @@ import { playSfx } from "../sound";
 
 interface Props {
   connected: boolean;
-  onEnter: (role: Role, code: string, playerId: string) => void;
+  onEnter: (role: Exclude<Role, "home">, session: SessionResult) => void;
   /** A translation key for a one-off notice (e.g. after being kicked). */
-  notice?: string;
+  notice?: TKey;
   onDismissNotice?: () => void;
+  /** Offered when the client has stopped reconnecting on its own. */
+  onRetryConnection?: () => void;
 }
 
 /** A ?code=XXXX in the URL (e.g. from the host-screen QR) prefills the join form. */
@@ -26,7 +33,13 @@ function codeFromUrl(): string {
     .slice(0, ROOM_CODE_LENGTH);
 }
 
-export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
+export function Home({
+  connected,
+  onEnter,
+  notice,
+  onDismissNotice,
+  onRetryConnection,
+}: Props) {
   const { t, lang } = useI18n();
   const initialCode = codeFromUrl();
   const [mode, setMode] = useState<"choose" | "join">(
@@ -44,12 +57,9 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
     setBusy(true);
     setError("");
     playSfx("click");
-    const res = await emitAck<{ code: string; playerId: string }>(
-      "room:create",
-      { language: lang }
-    );
+    const res = await emitAck<SessionResult>("room:create", { language: lang });
     setBusy(false);
-    if (res.ok && res.data) onEnter("host", res.data.code, res.data.playerId);
+    if (res.ok) onEnter("host", res.data);
     else setError(t(errorKey(res.error)));
   };
 
@@ -61,40 +71,48 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
     setBusy(true);
     setError("");
     playSfx("click");
-    const res = await emitAck<{
-      code: string;
-      playerId: string;
-      isAudience: boolean;
-    }>("room:join", {
+    const res = await emitAck<SessionResult>("room:join", {
       code: code.trim().toUpperCase(),
       name: name.trim(),
       avatar,
     });
     setBusy(false);
-    if (res.ok && res.data) {
+    if (res.ok) {
       playSfx("join");
-      onEnter("player", res.data.code, res.data.playerId);
+      onEnter("player", res.data);
     } else setError(t(errorKey(res.error)));
   };
 
   return (
-    <div className="screen home fade-in">
+    <main className="screen home fade-in">
       <TopBar />
       <div className="logo">
         <span className="logo-q">M</span>atah
       </div>
       <p className="tagline">{t("tagline")}</p>
 
-      {!connected && <div className="badge warn">{t("connecting")}</div>}
+      {!connected && (
+        <div className="badge warn" role="status">
+          {t("connecting")}
+        </div>
+      )}
 
       {notice && (
-        <button
-          className="badge warn notice"
-          role="status"
-          onClick={onDismissNotice}
-        >
-          {t(notice as TKey)} <IconClose />
-        </button>
+        <div className="badge warn notice" role="status">
+          <span>{t(notice)}</span>
+          {onRetryConnection && (
+            <button className="btn tiny" onClick={onRetryConnection}>
+              {t("retry")}
+            </button>
+          )}
+          <button
+            className="notice-close"
+            onClick={onDismissNotice}
+            aria-label={t("dismiss")}
+          >
+            <IconClose />
+          </button>
+        </div>
       )}
 
       {mode === "choose" ? (
@@ -120,21 +138,43 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
           </button>
         </div>
       ) : (
-        <div className="card stack pop-in">
+        <form
+          className="card stack pop-in"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void joinGame();
+          }}
+          aria-busy={busy}
+        >
+          <label className="field-label" htmlFor="player-name">
+            {t("yourName")}
+          </label>
           <input
+            id="player-name"
+            name="name"
             className="input"
             placeholder={t("yourName")}
             value={name}
-            maxLength={16}
+            maxLength={MAX_NAME_LEN}
+            autoComplete="nickname"
+            enterKeyHint="next"
             onChange={(e) => setName(e.target.value)}
           />
+          <label className="field-label" htmlFor="room-code">
+            {t("roomCode")}
+          </label>
           <input
+            id="room-code"
+            name="roomCode"
             className="input code-input"
             placeholder={t("roomCode")}
             value={code}
-            maxLength={4}
+            maxLength={ROOM_CODE_LENGTH}
             inputMode="text"
             autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            enterKeyHint="go"
             onChange={(e) =>
               setCode(
                 e.target.value
@@ -144,33 +184,40 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
               )
             }
           />
-          <div className="avatar-picker">
-            <span className="avatar-label">{t("chooseAvatar")}</span>
-            <div className="avatar-grid" role="radiogroup" aria-label={t("chooseAvatar")}>
-              {AVATARS.map((a) => (
-                <button
-                  key={a}
-                  role="radio"
-                  aria-checked={a === avatar}
-                  className={`avatar-opt ${a === avatar ? "active" : ""}`}
-                  onClick={() => {
-                    setAvatar(a);
-                    playSfx("click");
-                  }}
+          <fieldset className="avatar-picker">
+            <legend className="avatar-label">{t("chooseAvatar")}</legend>
+            <div className="avatar-grid">
+              {AVATARS.map((option, index) => (
+                <label
+                  key={option}
+                  className={`avatar-opt ${option === avatar ? "active" : ""}`}
                 >
-                  <Avatar id={a} />
-                </button>
+                  <input
+                    className="sr-only"
+                    type="radio"
+                    name="avatar"
+                    value={option}
+                    checked={option === avatar}
+                    aria-label={`${t("chooseAvatar")} ${index + 1}`}
+                    onChange={() => {
+                      setAvatar(option);
+                      playSfx("click");
+                    }}
+                  />
+                  <Avatar id={option} />
+                </label>
               ))}
             </div>
-          </div>
+          </fieldset>
           <button
+            type="submit"
             className="btn primary big"
-            onClick={joinGame}
             disabled={busy || !connected}
           >
-            {t("joinBtn")}
+            {t("joinBtn")}{busy ? "…" : ""}
           </button>
           <button
+            type="button"
             className="btn link"
             onClick={() => {
               setMode("choose");
@@ -179,10 +226,14 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
           >
             {t("back")}
           </button>
-        </div>
+        </form>
       )}
 
-      {error && <div className="badge error shake">{error}</div>}
-    </div>
+      {error && (
+        <div className="badge error shake" role="alert">
+          {error}
+        </div>
+      )}
+    </main>
   );
 }

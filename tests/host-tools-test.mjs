@@ -2,10 +2,18 @@
 // (rounds / questions, with clamping), end-game-early, and host-only guards.
 import { io } from "socket.io-client";
 
-const URL = process.env.TEST_URL ?? "http://localhost:3001";
+import { testUrl } from "./helpers/target.mjs";
+
+const URL = await testUrl();
 const log = (...a) => console.log(...a);
-const conn = () => io(URL, { transports: ["websocket"], forceNew: true });
-const ack = (s, e, ...a) => new Promise((r) => s.emit(e, ...a, (x) => r(x)));
+const conn = (testIp) => io(URL, {
+  transports: ["websocket"],
+  forceNew: true,
+  extraHeaders: { Origin: URL, "X-Forwarded-For": testIp },
+});
+const ack = (s, e, ...a) => new Promise((resolve, reject) =>
+  s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))
+);
 
 function until(getState, pred, ms = 15000, label = "condition") {
   return new Promise((resolve, reject) => {
@@ -29,8 +37,10 @@ const assert = (cond, msg) => {
 };
 
 async function setup() {
-  const host = conn();
-  const ps = [conn(), conn(), conn()];
+  setup.sequence = (setup.sequence ?? 0) + 1;
+  const testIp = `203.0.113.${setup.sequence}`;
+  const host = conn(testIp);
+  const ps = [conn(testIp), conn(testIp), conn(testIp)];
   const names = ["Ali", "Veli", "Ayşe"];
   const ids = [];
   let st = null;
@@ -47,20 +57,21 @@ async function setup() {
   await until(() => st, (s) => s.players.length === 3, 8000, "3 players");
   return { host, ps, ids, code, get: () => st };
 }
+setup.sequence = 0;
 
 async function testKick() {
   log("\n=== KICK ===");
   const { host, ps, ids, get } = await setup();
 
   // Non-host can't kick while the host screen is connected.
-  const denied = await ack(ps[0], "player:kick", { playerId: ids[1] });
+  const denied = await ack(ps[0], "player:kick", { playerId: ids[1], phaseId: get().phaseId });
   assert(!denied.ok && denied.error === "host_only", "non-host kick → host_only");
 
   // The kicked client receives room:kicked.
   let kicked = false;
   ps[1].on("room:kicked", () => (kicked = true));
 
-  const res = await ack(host, "player:kick", { playerId: ids[1] });
+  const res = await ack(host, "player:kick", { playerId: ids[1], phaseId: get().phaseId });
   assert(res.ok, "host kick accepted");
   await until(() => (kicked ? {} : null), () => true, 5000, "room:kicked event");
   log("✓ kicked client received room:kicked");
@@ -80,7 +91,7 @@ async function testConfigurableLength() {
   // Quiplash with rounds: 1.
   {
     const { host, ps, get } = await setup();
-    await ack(host, "game:start", { gameType: "quiplash", rounds: 1 });
+    await ack(host, "game:start", { gameType: "quiplash", rounds: 1, phaseId: get().phaseId });
     await until(get, (s) => s.phase === "answering", 8000, "answering");
     assert(get().totalRounds === 1, "quiplash honors rounds: 1");
     [host, ...ps].forEach((s) => s.disconnect());
@@ -89,7 +100,7 @@ async function testConfigurableLength() {
   // Quiplash with an out-of-range value clamps to the max (5).
   {
     const { host, ps, get } = await setup();
-    await ack(host, "game:start", { gameType: "quiplash", rounds: 999 });
+    await ack(host, "game:start", { gameType: "quiplash", rounds: 999, phaseId: get().phaseId });
     await until(get, (s) => s.phase === "answering", 8000, "answering");
     assert(get().totalRounds === 5, "quiplash rounds clamped to max (5)");
     [host, ...ps].forEach((s) => s.disconnect());
@@ -98,7 +109,7 @@ async function testConfigurableLength() {
   // Trivia with questions: 3.
   {
     const { host, ps, get } = await setup();
-    await ack(host, "game:start", { gameType: "trivia", rounds: 3 });
+    await ack(host, "game:start", { gameType: "trivia", rounds: 3, phaseId: get().phaseId });
     await until(get, (s) => s.phase === "answering", 8000, "answering");
     assert(get().trivia.totalQuestions === 3, "trivia honors questions: 3");
     [host, ...ps].forEach((s) => s.disconnect());
@@ -110,14 +121,14 @@ async function testConfigurableLength() {
 async function testEndGame() {
   log("\n=== END GAME EARLY ===");
   const { host, ps, get } = await setup();
-  await ack(host, "game:start", { gameType: "trivia", rounds: 5 });
+  await ack(host, "game:start", { gameType: "trivia", rounds: 5, phaseId: get().phaseId });
   await until(get, (s) => s.phase === "answering", 8000, "answering");
 
   // Non-host can't end while the host is connected.
-  const denied = await ack(ps[0], "game:end");
+  const denied = await ack(ps[0], "game:end", { phaseId: get().phaseId });
   assert(!denied.ok && denied.error === "host_only", "non-host end → host_only");
 
-  const res = await ack(host, "game:end");
+  const res = await ack(host, "game:end", { phaseId: get().phaseId });
   assert(res.ok, "host end accepted");
   await until(get, (s) => s.phase === "scoreboard", 8000, "jumped to scoreboard");
   log("✓ end-game jumped straight to the scoreboard");

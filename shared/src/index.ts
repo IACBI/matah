@@ -32,8 +32,14 @@ export interface Player {
 export interface Matchup {
   id: string;
   prompt: string;
-  answers: { playerId: string; playerName: string; text: string }[];
-  votes: Record<string, string>; // voterId -> answer playerId
+  answers: {
+    answerId: string;
+    playerId: string;
+    playerName: string;
+    text: string;
+    isSafety: boolean;
+  }[];
+  votes: Record<string, string>; // voterId -> answerId
 }
 
 export interface MatchupResult {
@@ -42,21 +48,29 @@ export interface MatchupResult {
     playerId: string;
     playerName: string;
     text: string;
+    isSafety: boolean;
     votes: number;
+    /** Points from vote share alone. */
     pointsAwarded: number;
+    /** Flat reward for having written anything; 0 for safety quips. */
+    submitBonus: number;
   }[];
 }
 
 export interface QuiplashView {
   currentMatchupIndex: number;
   totalMatchups: number;
-  activeMatchup: Pick<Matchup, "id" | "prompt" | "answers"> | null;
+  activeMatchup: {
+    id: string;
+    prompt: string;
+    answers: { answerId: string; text: string }[];
+  } | null;
   lastResults: MatchupResult[] | null;
 }
 
 /** Personalized prompts a player must answer (quiplash answering phase). */
 export interface PlayerAssignment {
-  prompts: { matchupId: string; prompt: string }[];
+  prompts: { matchupId: string; prompt: string; submitted: boolean }[];
 }
 
 // ---- Trivia ----
@@ -84,9 +98,18 @@ export interface RoomState {
   round: number;
   totalRounds: number;
   players: Player[]; // active (non-host, non-audience) players
-  audience: Pick<Player, "id" | "name" | "avatar" | "connected">[];
+  // Audience members vote in quiplash, so `hasVoted` is part of their public
+  // shape; nothing else about them is broadcast.
+  audience: Pick<Player, "id" | "name" | "avatar" | "connected" | "hasVoted">[];
   hostConnected: boolean; // false → players may take over host controls
-  timer: number | null;
+  /** Monotonically increasing guard for control commands. */
+  phaseId: number;
+  /** Unix epoch milliseconds when the current phase expires. */
+  phaseEndsAt: number | null;
+  /** Server clock sample paired with phaseEndsAt for client clock-offset handling. */
+  serverNow: number;
+  /** Elected player controller while the host is unavailable; null otherwise. */
+  controllerPlayerId: string | null;
   quiplash?: QuiplashView;
   trivia?: TriviaView;
 }
@@ -96,31 +119,47 @@ export interface RoomState {
 export interface ClientToServerEvents {
   "room:create": (
     payload: { language: Language },
-    cb: (res: ApiResult<{ code: string; playerId: string }>) => void
+    cb: (res: ApiResult<SessionResult>) => void
   ) => void;
   "room:join": (
     payload: { code: string; name: string; avatar?: string },
     cb: (
-      res: ApiResult<{ code: string; playerId: string; isAudience: boolean }>
+      res: ApiResult<SessionResult>
     ) => void
   ) => void;
   "room:rejoin": (
-    payload: { code: string; playerId: string },
-    cb: (
-      res: ApiResult<{ code: string; playerId: string; isAudience: boolean }>
-    ) => void
+    payload: { code: string; resumeToken: string },
+    cb: (res: ApiResult<SessionResult>) => void
+  ) => void;
+  "room:leave": (cb: (res: ApiResult<null>) => void) => void;
+  "room:setLanguage": (
+    payload: { language: Language; phaseId: number },
+    cb: (res: ApiResult<null>) => void
   ) => void;
   "game:start": (
     // `rounds` is the desired length (quiplash rounds / trivia questions);
     // the server clamps it to the mode's allowed range.
-    payload: { gameType: GameType; rounds?: number },
+    payload: { gameType: GameType; rounds?: number; phaseId: number },
     cb: (res: ApiResult<null>) => void
   ) => void;
-  "game:next": (cb: (res: ApiResult<null>) => void) => void;
-  "game:restart": (cb: (res: ApiResult<null>) => void) => void;
-  "game:end": (cb: (res: ApiResult<null>) => void) => void;
+  "game:next": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  "game:restart": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  "game:rematch": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  "game:end": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
   "player:kick": (
-    payload: { playerId: string },
+    payload: { playerId: string; phaseId: number },
     cb: (res: ApiResult<null>) => void
   ) => void;
   "answer:submit": (
@@ -128,7 +167,7 @@ export interface ClientToServerEvents {
     cb: (res: ApiResult<null>) => void
   ) => void;
   "vote:submit": (
-    payload: { matchupId: string; answerPlayerId: string },
+    payload: { matchupId: string; answerId: string },
     cb: (res: ApiResult<null>) => void
   ) => void;
   "trivia:answer": (
@@ -154,11 +193,58 @@ export interface ServerToClientEvents {
   "room:reaction": (reaction: Reaction) => void;
   /** The host removed this client from the room. */
   "room:kicked": () => void;
+  /** A newer connection resumed this session. */
+  "room:session-replaced": () => void;
 }
+
+export interface SessionResult {
+  code: string;
+  playerId: string;
+  resumeToken: string;
+  isAudience: boolean;
+}
+
+export type ApiErrorCode =
+  | "already_started"
+  | "host_only"
+  | "invalid_game"
+  | "invalid_language"
+  | "invalid_phase"
+  | "invalid_reaction"
+  | "invalid_target"
+  | "name_required"
+  | "no_room"
+  | "not_enough_players"
+  | "rate_limited"
+  | "room_full"
+  | "room_not_found"
+  | "server_busy"
+  | "server_error"
+  | "session_not_found"
+  | "stale_phase"
+  | "submit_failed"
+  | "vote_failed";
 
 export type ApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string };
+  | { ok: false; error: ApiErrorCode };
+
+/**
+ * What a control command needs permission to do.
+ *
+ * The connected host holds every capability. When the host drops, the room
+ * elects a player controller so the game can continue — but `kick` stays
+ * host-only, because it is the one irreversible action aimed at another
+ * person. Everything else is game flow the room can recover from.
+ */
+export type Capability =
+  | "start"
+  | "advance"
+  | "end"
+  | "restart"
+  | "rematch"
+  | "language"
+  | "kick";
 
 // ---- Tunables ----
 
@@ -170,6 +256,22 @@ export const DEFAULT_TOTAL_ROUNDS = 3;
 export const TRIVIA_QUESTIONS = 6;
 /** The last trivia question is worth double points. */
 export const TRIVIA_FINAL_MULTIPLIER = 2;
+
+// ---- Quiplash scoring ----
+//
+// Each matchup pays out a pool split by vote share, scaled by the round
+// number. Two rules keep it fair:
+//
+//  - The pool scales with how many of the answers are real. A matchup with one
+//    human and one canned safety quip pays half, so being paired with someone
+//    who timed out is no longer the highest-scoring event in the game.
+//  - Votes for a safety quip count in the denominator, so vote share means
+//    "share of the room" rather than "share of the humans".
+//
+// On top of that every submitted answer earns a flat bonus, so writing
+// something always beats letting the clock run out.
+export const MATCHUP_POINT_POOL = 1_000;
+export const SUBMIT_BONUS = 100;
 
 // Host-configurable game length, clamped per mode (see Room.start).
 export const MIN_ROUNDS = 1; // quiplash rounds
@@ -201,8 +303,6 @@ export const AVATARS = [
   "octopus", "lion", "pizza", "rocket", "cactus", "cupcake", "dragon", "ninja",
 ] as const;
 export const DEFAULT_AVATAR = "smiley";
-/** The host (TV) screen's avatar id. */
-export const HOST_AVATAR = "tv";
 
 // Reaction ids anyone can fire at the host screen during a game (rendered as
 // animated SVGs client-side).

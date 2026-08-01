@@ -1,10 +1,20 @@
+.git
+.github
+.env
+.env.*
+.DS_Store
+*.log
+
 node_modules
 **/node_modules
 **/dist
-.git
-*.log
-e2e-test.mjs
-reconnect-test.mjs
-playagain-test.mjs
-csr-test.mjs
-disconnect-skip-test.mjs
+# Root-anchored patterns miss client/coverage/.
+**/coverage
+playwright-report
+test-results
+
+docs/screenshots
+# Playwright screenshots and axe reports; several megabytes locally.
+browser-output
+tests
+progress.md

@@ -15,7 +15,12 @@ const STORAGE_KEY = "matah.lang";
 const RTL_LANGS = new Set<Language>(["ar"]);
 
 function detectLanguage(): Language {
-  const saved = localStorage.getItem(STORAGE_KEY) as Language | null;
+  let saved: Language | null = null;
+  try {
+    saved = localStorage.getItem(STORAGE_KEY) as Language | null;
+  } catch {
+    // Storage can be unavailable in hardened/private browser contexts.
+  }
   if (saved && LANGUAGES.includes(saved)) return saved;
   const nav = navigator.language.slice(0, 2) as Language;
   return LANGUAGES.includes(nav) ? nav : "tr";
@@ -32,15 +37,12 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Language>(detectLanguage);
 
-  // Keep <html lang> and text direction in sync (initial detect + switches)
-  // for a11y and SEO. Arabic is right-to-left.
-  useEffect(() => {
-    document.documentElement.lang = lang;
-    document.documentElement.dir = RTL_LANGS.has(lang) ? "rtl" : "ltr";
-  }, [lang]);
-
   const setLang = useCallback((next: Language) => {
-    localStorage.setItem(STORAGE_KEY, next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Keep the in-memory choice when persistence is unavailable.
+    }
     setLangState(next);
   }, []);
 
@@ -49,6 +51,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       translate(lang, key, params),
     [lang]
   );
+
+  // Keep document metadata in sync for assistive technology and browser UI.
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = RTL_LANGS.has(lang) ? "rtl" : "ltr";
+    document.title = `Matah · ${t("tagline")}`;
+  }, [lang, t]);
 
   const value = useMemo(() => ({ lang, setLang, t }), [lang, setLang, t]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

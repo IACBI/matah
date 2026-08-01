@@ -14,8 +14,14 @@ import type {
  */
 export interface EngineContext {
   readonly language: Language;
-  /** Active (non-host, non-audience) players. */
+  /** Active (non-host, non-audience) players, including offline ones. */
   players(): Player[];
+  /**
+   * Players who are online right now. Use this to size a round: a player
+   * holding a disconnect lease cannot answer, and handing them prompts only
+   * publishes a canned safety quip under their name.
+   */
+  connectedPlayers(): Player[];
   /** Audience members (may vote in quiplash, never answer). */
   audience(): Player[];
   getPlayer(id: string): Player | undefined;
@@ -32,6 +38,7 @@ export interface EngineContext {
   resetFlags(): void;
   /** Show the final scoreboard, then end the game. */
   toScoreboard(seconds: number): void;
+  /** Monotonic milliseconds for gameplay timing. */
   now(): number;
 }
 
@@ -47,7 +54,7 @@ export interface GameEngine {
   readonly type: GameType;
   start(): void;
   handleAnswer?(playerId: string, matchupId: string, text: string): boolean;
-  handleVote?(playerId: string, matchupId: string, answerPlayerId: string): boolean;
+  handleVote?(playerId: string, matchupId: string, answerId: string): boolean;
   handleTriviaAnswer?(
     playerId: string,
     questionId: string,
@@ -59,7 +66,7 @@ export interface GameEngine {
    * A player went offline mid-game. Lets the engine re-check its
    * "everyone done?" conditions so a dropped player doesn't stall the round.
    */
-  handlePlayerDisconnect?(playerId: string): void;
+  handlePlayerDisconnect?(): void;
   /**
    * A player was removed from the room entirely (kicked). Unlike a disconnect,
    * they are never coming back, so the engine must purge any state they left

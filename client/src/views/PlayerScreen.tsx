@@ -1,36 +1,86 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerAssignment, RoomState } from "../../../shared/src/index";
+import { MAX_ANSWER_LEN } from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import { useI18n } from "../i18n";
 import { errorKey } from "../i18n/translations";
 import { TopBar } from "../components/Controls";
 import { ReactionBar } from "../components/Reactions";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Avatar } from "../components/Avatar";
 import { IconBack, IconTimer, VerdictRight, VerdictWrong } from "../components/icons";
-import { playSfx } from "../sound";
+import { haptic, playSfx } from "../sound";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
+const DRAFT_PREFIX = "matah.drafts.";
+
+function draftKey(code: string, playerId: string): string {
+  return `${DRAFT_PREFIX}${code}.${playerId}`;
+}
+
+function readDrafts(code: string, playerId: string): Record<string, string> {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(draftKey(code, playerId)) ?? "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDrafts(
+  code: string,
+  playerId: string,
+  drafts: Record<string, string>,
+): void {
+  try {
+    if (Object.keys(drafts).length === 0) {
+      sessionStorage.removeItem(draftKey(code, playerId));
+    } else {
+      sessionStorage.setItem(draftKey(code, playerId), JSON.stringify(drafts));
+    }
+  } catch {
+    // Draft persistence is best-effort; in-memory typing remains available.
+  }
+}
 
 interface Props {
   code: string;
   myPlayerId: string;
   state: RoomState | null;
   assignment: PlayerAssignment | null;
+  secondsLeft: number | null;
   connected: boolean;
-  onLeave: () => void;
+  leaving: boolean;
+  onLeave: () => Promise<void>;
 }
 
 export function PlayerScreen({
+  code,
   myPlayerId,
   state,
   assignment,
+  secondsLeft,
   connected,
+  leaving,
   onLeave,
 }: Props) {
   const { t } = useI18n();
+  const [controlPending, setControlPending] = useState(false);
+  const [controlError, setControlError] = useState("");
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
   const me = state?.players.find((p) => p.id === myPlayerId);
   const audienceMe = state?.audience.find((a) => a.id === myPlayerId);
   const isAudience = !me && !!audienceMe;
+
+  const phase = state?.phase;
+  const gameType = state?.gameType;
+  useEffect(() => {
+    // Depend on the fields, not the whole state object: a fresh object arrives
+    // on every broadcast, which made this clear storage dozens of times a round.
+    if (phase && (phase !== "answering" || gameType !== "quiplash")) {
+      writeDrafts(code, myPlayerId, {});
+    }
+  }, [code, myPlayerId, phase, gameType]);
 
   if (!state) {
     return (
@@ -51,26 +101,52 @@ export function PlayerScreen({
     (state.phase === "voting" && isAudience);
 
   const leaveGame = () => {
+    playSfx("click");
+    void onLeave();
+  };
+  const askLeave = () => {
     const inProgress =
       state.phase !== "lobby" &&
       state.phase !== "gameover" &&
       state.phase !== "scoreboard";
-    if (inProgress && !window.confirm(t("leaveConfirm"))) return;
-    playSfx("click");
-    onLeave();
+    if (inProgress) setConfirmingLeave(true);
+    else leaveGame();
+  };
+
+  const rematch = async () => {
+    if (controlPending) return;
+    setControlPending(true);
+    setControlError("");
+    const result = await emitAck<null>("game:rematch", {
+      phaseId: state.phaseId,
+    });
+    setControlPending(false);
+    if (result.ok) playSfx("submit");
+    else setControlError(t(errorKey(result.error)));
   };
 
   return (
-    <div className="screen player">
+    <main className="screen player">
+      <TopBar />
       {!connected && (
         <div className="reconnect-overlay" role="alert">
           <div className="badge warn">{t("reconnecting")}</div>
         </div>
       )}
+      {confirmingLeave && (
+        <ConfirmDialog
+          message={t("leaveConfirm")}
+          onCancel={() => setConfirmingLeave(false)}
+          onConfirm={() => {
+            setConfirmingLeave(false);
+            leaveGame();
+          }}
+        />
+      )}
       <header className="player-header">
         <button
           className="player-leave"
-          onClick={leaveGame}
+          onClick={askLeave}
           aria-label={t("leaveRoom")}
           title={t("leaveRoom")}
         >
@@ -90,12 +166,13 @@ export function PlayerScreen({
               {me?.score ?? 0} {t("points")}
             </span>
           )}
-          {state.timer !== null && (
+          {secondsLeft !== null && (
             <span
-              className={`player-timer ${state.timer <= 5 ? "danger" : ""}`}
-              aria-live="off"
+              className={`player-timer ${secondsLeft <= 5 ? "danger" : ""}`}
+              role="timer"
+              aria-label={t("secondsLeft", { n: secondsLeft })}
             >
-              <IconTimer /> {state.timer}
+              <IconTimer /> {secondsLeft}
             </span>
           )}
         </span>
@@ -116,14 +193,16 @@ export function PlayerScreen({
           <AnsweringView
             assignment={assignment}
             submitted={me?.hasSubmitted}
-            timer={state.timer}
+            timer={secondsLeft}
+            code={code}
+            playerId={myPlayerId}
           />
         ) : (
           <TriviaAnswerView state={state} submitted={me?.hasSubmitted} />
         ))}
 
       {state.phase === "voting" && (
-        <VotingView state={state} myPlayerId={myPlayerId} />
+        <VotingView state={state} assignment={assignment} myPlayerId={myPlayerId} />
       )}
 
       {state.phase === "results" &&
@@ -150,28 +229,31 @@ export function PlayerScreen({
               <p className="hint">{t("youScored")}</p>
             </>
           )}
-          {state.phase === "gameover" && !state.hostConnected && !isAudience && (
+          {state.phase === "gameover" && state.controllerPlayerId === myPlayerId && !isAudience && (
             <>
               <p className="hint">{t("hostGone")}</p>
               <button
                 className="btn primary"
-                onClick={() => {
-                  playSfx("submit");
-                  void emitAck("game:restart");
-                }}
+                onClick={() => void rematch()}
+                disabled={controlPending}
               >
                 {t("playAgain")}
               </button>
             </>
           )}
-          <button className="btn ghost" onClick={onLeave}>
+          <button className="btn ghost" onClick={() => void onLeave()} disabled={leaving}>
             {t("exit")}
           </button>
+          {controlError && (
+            <div className="badge error" role="alert">
+              {controlError}
+            </div>
+          )}
         </div>
       )}
 
       {showReactions && <ReactionBar />}
-    </div>
+    </main>
   );
 }
 
@@ -190,13 +272,19 @@ function AnsweringView({
   assignment,
   submitted,
   timer,
+  code,
+  playerId,
 }: {
   assignment: PlayerAssignment | null;
   submitted?: boolean;
   timer?: number | null;
+  code: string;
+  playerId: string;
 }) {
   const { t } = useI18n();
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>(
+    () => readDrafts(code, playerId),
+  );
   const [sent, setSent] = useState<Record<string, boolean>>({});
   // Per-matchup in-flight flag so sending one prompt doesn't lock the other.
   const [sending, setSending] = useState<Record<string, boolean>>({});
@@ -222,13 +310,39 @@ function AnsweringView({
       setSending((s) => ({ ...s, [matchupId]: false }));
       if (res.ok) {
         playSfx("submit");
+        haptic();
         setSent((s) => ({ ...s, [matchupId]: true }));
+        setAnswers((current) => {
+          const next = { ...current };
+          delete next[matchupId];
+          return next;
+        });
       } else {
         setError(t(errorKey(res.error ?? "submit_failed")));
       }
     },
     [t]
   );
+
+  useEffect(() => {
+    if (!assignment) return;
+    const activeIds = new Set(assignment.prompts.map((prompt) => prompt.matchupId));
+    setSent(Object.fromEntries(
+      assignment.prompts.map((prompt) => [prompt.matchupId, prompt.submitted]),
+    ));
+    setAnswers((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([matchupId]) => activeIds.has(matchupId))
+      )
+    );
+  }, [assignment]);
+
+  // Persist drafts as a side effect of the state settling. Writing inside the
+  // setAnswers updater made the updater impure, so StrictMode wrote twice per
+  // keystroke.
+  useEffect(() => {
+    writeDrafts(code, playerId, answers);
+  }, [answers, code, playerId]);
 
   // When the answering clock is almost out, auto-submit any typed-but-unsent
   // drafts so the player's words aren't replaced by a canned safety quip.
@@ -275,11 +389,12 @@ function AnsweringView({
               <textarea
                 className="input answer-input"
                 placeholder={t("yourAnswer")}
-                maxLength={120}
+                maxLength={MAX_ANSWER_LEN}
                 value={answers[p.matchupId] ?? ""}
-                onChange={(e) =>
-                  setAnswers((a) => ({ ...a, [p.matchupId]: e.target.value }))
-                }
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setAnswers((current) => ({ ...current, [p.matchupId]: value }));
+                }}
               />
               <button
                 className="btn primary"
@@ -292,39 +407,54 @@ function AnsweringView({
           )}
         </div>
       ))}
-      {error && <div className="badge error shake">{error}</div>}
+      {error && <div className="badge error shake" role="alert">{error}</div>}
     </div>
   );
 }
 
 function VotingView({
   state,
+  assignment,
   myPlayerId,
 }: {
   state: RoomState;
+  assignment: PlayerAssignment | null;
   myPlayerId: string;
 }) {
   const { t } = useI18n();
   const matchup = state.quiplash?.activeMatchup ?? null;
   const [voted, setVoted] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The server already knows whether this vote landed. Without reading it, a
+  // reconnect re-rendered the buttons and every tap came back "vote failed"
+  // until the matchup moved on. Local state stays for instant feedback; this
+  // is the recovery path. resetFlags() runs per matchup, so the two agree.
+  const alreadyVoted =
+    state.players.find((p) => p.id === myPlayerId)?.hasVoted ??
+    state.audience.find((a) => a.id === myPlayerId)?.hasVoted ??
+    false;
 
   useEffect(() => {
     setVoted(null);
+    setChosen(null);
     setBusy(false);
     setError("");
   }, [matchup?.id]);
 
   if (!matchup) {
     return (
-      <div className="player-body center">
-        <div className="badge warn">…</div>
+      <div className="player-body center fade-in">
+        <h2>{t("tallyingVotes")}</h2>
+        <div className="pulse-dot" />
       </div>
     );
   }
 
-  const isAuthor = matchup.answers.some((a) => a.playerId === myPlayerId);
+  const isAuthor = assignment?.prompts.some(
+    (prompt) => prompt.matchupId === matchup.id
+  );
 
   if (isAuthor) {
     return (
@@ -335,7 +465,7 @@ function VotingView({
     );
   }
 
-  if (voted) {
+  if (voted || alreadyVoted) {
     return (
       <div className="player-body center fade-in">
         <h2>{t("voteSaved")}</h2>
@@ -344,19 +474,24 @@ function VotingView({
     );
   }
 
-  const vote = async (answerPlayerId: string) => {
+  const vote = async (answerId: string) => {
     if (busy) return;
+    // Mark the tapped answer immediately: waiting on the round trip before
+    // showing anything made the tap feel like it had not registered.
+    setChosen(answerId);
     setBusy(true);
     setError("");
+    playSfx("vote");
+    haptic();
     const res = await emitAck("vote:submit", {
       matchupId: matchup.id,
-      answerPlayerId,
+      answerId,
     });
     setBusy(false);
     if (res.ok) {
-      playSfx("vote");
-      setVoted(answerPlayerId);
+      setVoted(answerId);
     } else {
+      setChosen(null);
       setError(t(errorKey(res.error ?? "vote_failed")));
     }
   };
@@ -368,9 +503,11 @@ function VotingView({
       <div className="vote-options">
         {matchup.answers.map((a, i) => (
           <button
-            key={a.playerId}
-            className={`vote-btn c${i}`}
-            onClick={() => vote(a.playerId)}
+            key={a.answerId}
+            className={`vote-btn c${i} ${
+              chosen === a.answerId ? "chosen" : chosen ? "dimmed" : ""
+            }`}
+            onClick={() => vote(a.answerId)}
             disabled={busy}
             aria-label={t("ariaVote", { text: a.text })}
           >
@@ -378,7 +515,7 @@ function VotingView({
           </button>
         ))}
       </div>
-      {error && <div className="badge error shake">{error}</div>}
+      {error && <div className="badge error shake" role="alert">{error}</div>}
     </div>
   );
 }
@@ -448,7 +585,7 @@ function TriviaAnswerView({
           </button>
         ))}
       </div>
-      {error && <div className="badge error shake">{error}</div>}
+      {error && <div className="badge error shake" role="alert">{error}</div>}
     </div>
   );
 }

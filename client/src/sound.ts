@@ -8,7 +8,6 @@ type SfxName =
   | "reveal"
   | "correct"
   | "wrong"
-  | "tick"
   | "win"
   | "click";
 
@@ -86,7 +85,6 @@ const recipes: Record<SfxName, () => void> = {
     tone(220, 0, 0.18, "sawtooth", 0.14);
     tone(160, 0.12, 0.22, "sawtooth", 0.14);
   },
-  tick: () => tone(880, 0, 0.04, "square", 0.07),
   win: () => {
     [523, 659, 784, 1046].forEach((f, i) =>
       tone(f, i * 0.12, 0.22, "triangle", 0.2)
@@ -100,6 +98,21 @@ export function playSfx(name: SfxName): void {
     recipes[name]();
   } catch {
     /* ignore audio errors */
+  }
+}
+
+/**
+ * A short buzz to confirm a tap on the phone screen.
+ *
+ * Rides the same mute switch as sound: someone who silenced the game does not
+ * want their pocket buzzing either. No-op where the API is unsupported.
+ */
+export function haptic(durationMs = 10): void {
+  if (muted || typeof navigator === "undefined" || !navigator.vibrate) return;
+  try {
+    navigator.vibrate(durationMs);
+  } catch {
+    /* vibration can be blocked by permissions policy */
   }
 }
 

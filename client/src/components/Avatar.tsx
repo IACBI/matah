@@ -2,18 +2,11 @@
 // (which render inconsistently across platforms). Each is drawn in a 40×40
 // viewBox on a soft rounded badge and bobs gently (CSS, in index.css;
 // reduced-motion aware). Identified by a stable id stored in player state.
-import type { JSX } from "react";
+import { memo, type JSX } from "react";
 
-export const AVATAR_IDS = [
-  "cool", "fox", "cat", "frog", "unicorn", "ghost", "robot", "panda",
-  "octopus", "lion", "pizza", "rocket", "cactus", "cupcake", "dragon", "ninja",
-] as const;
-export type AvatarId = (typeof AVATAR_IDS)[number];
+const DEFAULT_AVATAR_ID = "smiley";
 
-export const DEFAULT_AVATAR_ID = "smiley";
-export const HOST_AVATAR_ID = "tv";
-
-type Art = { bg: string; eyes?: boolean; draw: () => JSX.Element };
+type Art = { bg: string; draw: () => JSX.Element };
 
 const eyes = (
   <g fill="#1d150a">
@@ -142,7 +135,17 @@ const ART: Record<string, Art> = {
   },
 };
 
-export function Avatar({ id, className = "" }: { id: string; className?: string }) {
+/**
+ * Memoized: the scoreboard and player chips render one of these per player,
+ * and the countdown re-renders their parents about once a second.
+ */
+export const Avatar = memo(function Avatar({
+  id,
+  className = "",
+}: {
+  id: string;
+  className?: string;
+}) {
   const art = ART[id] ?? ART[DEFAULT_AVATAR_ID];
   return (
     <span className={`avatar-svg ${className}`} aria-hidden="true">
@@ -152,19 +155,4 @@ export function Avatar({ id, className = "" }: { id: string; className?: string 
       </svg>
     </span>
   );
-}
-
-/** The host (TV) screen's badge. */
-export function HostAvatar({ className = "" }: { className?: string }) {
-  return (
-    <span className={`avatar-svg ${className}`} aria-hidden="true">
-      <svg viewBox="0 0 40 40" className="avatar-bob">
-        <rect width="40" height="40" rx="11" fill="#251d13" />
-        <rect x="8" y="11" width="24" height="16" rx="2.5" fill="#1d150a" stroke="#f6bd45" strokeWidth="1.6" />
-        <rect x="10.5" y="13.5" width="19" height="11" rx="1" fill="#2fd0bb" opacity="0.85" />
-        <path d="M16 31l4-4 4 4" stroke="#f6bd45" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        <circle className="av-shine" cx="13" cy="16.5" r="1.2" fill="#fff" opacity="0.7" />
-      </svg>
-    </span>
-  );
-}
+});

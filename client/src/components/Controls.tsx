@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { LANGUAGES } from "../../../shared/src/index";
 import { useI18n } from "../i18n";
 import { LANGUAGE_LABELS } from "../i18n/translations";
@@ -7,73 +7,42 @@ import { IconChevron, IconSound } from "./icons";
 import { isMuted, playSfx, setMuted } from "../sound";
 
 export function LanguageSwitcher() {
-  const { lang, setLang } = useI18n();
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  // Close on outside click and on Escape; Escape returns focus to the trigger.
-  useEffect(() => {
-    if (!open) return;
-    const onPointer = (e: PointerEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { lang, setLang, t } = useI18n();
 
   return (
-    <div className="lang-switcher" ref={wrapRef}>
-      <button
-        ref={triggerRef}
-        className="lang-current"
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Language"
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        <Flag code={lang} /> <IconChevron className="lang-caret" />
-      </button>
-      {open && (
-        <div className="lang-menu" role="menu">
-          {LANGUAGES.map((l) => (
-            <button
-              key={l}
-              role="menuitemradio"
-              aria-checked={l === lang}
-              className={`lang-opt ${l === lang ? "active" : ""}`}
-              onClick={() => {
-                setLang(l);
-                setOpen(false);
-                triggerRef.current?.focus();
-                playSfx("click");
-              }}
-            >
-              <Flag code={l} /> {LANGUAGE_LABELS[l]}
-            </button>
+    <div className="lang-switcher">
+      <label className="lang-current" title={t("language")}>
+        <span className="sr-only">{t("language")}</span>
+        <select
+          className="lang-native"
+          value={lang}
+          aria-label={t("language")}
+          onChange={(event) => {
+            setLang(event.target.value as (typeof LANGUAGES)[number]);
+            playSfx("click");
+          }}
+        >
+          {LANGUAGES.map((language) => (
+            <option key={language} value={language}>
+              {LANGUAGE_LABELS[language]}
+            </option>
           ))}
-        </div>
-      )}
+        </select>
+        <Flag code={lang} />
+        <IconChevron className="lang-caret" />
+      </label>
     </div>
   );
 }
 
 export function SoundToggle() {
+  const { t } = useI18n();
   const [on, setOn] = useState(!isMuted());
   return (
     <button
       className="sound-toggle"
-      aria-label="Sound"
+      aria-label={t(on ? "soundOn" : "soundOff")}
+      title={t(on ? "soundOn" : "soundOff")}
       aria-pressed={on}
       onClick={() => {
         const next = !on;

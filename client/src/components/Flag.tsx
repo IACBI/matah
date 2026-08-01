@@ -1,9 +1,8 @@
 // Accurate, recognizable inline-SVG flags for every supported language, with a
-// cloth "wave in the wind" effect: an animated turbulence + displacement filter
-// ripples the fabric while the fly end flutters (CSS, in index.css). One <svg>
+// lightweight cloth "wave in the wind" effect driven by CSS transforms. One <svg>
 // per language keeps it crisp at any size and avoids emoji flags, which don't
 // render on Windows. Reduced-motion: the ripple/flutter are dropped (static).
-import { useEffect, useState } from "react";
+import { useId } from "react";
 import type { Language } from "../../../shared/src/index";
 
 const W = 30;
@@ -171,41 +170,18 @@ const FLAGS: Record<Language, () => JSX.Element> = {
   ),
 };
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-}
-
 export function Flag({ code, className = "" }: { code: Language; className?: string }) {
   const Inner = FLAGS[code] ?? FLAGS.en;
-  const [animate, setAnimate] = useState(false);
-  // Enable the ripple only when motion is allowed (and after mount, so SSR/static
-  // renders stay calm).
-  useEffect(() => setAnimate(!prefersReducedMotion()), []);
-
-  const fid = `wave-${code}`;
+  const clipId = `flag-clip-${useId().replace(/:/g, "")}`;
   return (
-    <span className={`flag ${animate ? "flag-anim" : ""} ${className}`} aria-hidden="true">
+    <span className={`flag flag-anim ${className}`} aria-hidden="true">
       <svg className="flag-wave" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
         <defs>
-          <clipPath id={`flag-clip-${code}`}>
+          <clipPath id={clipId}>
             <rect width={W} height={H} rx="2.5" />
           </clipPath>
-          {animate && (
-            <filter id={fid} x="-15%" y="-15%" width="130%" height="130%">
-              <feTurbulence type="fractalNoise" baseFrequency="0.018 0.05" numOctaves="2" seed="7" result="n">
-                <animate
-                  attributeName="baseFrequency"
-                  dur="3.6s"
-                  values="0.016 0.045;0.022 0.06;0.016 0.045"
-                  repeatCount="indefinite"
-                />
-              </feTurbulence>
-              <feDisplacementMap in="SourceGraphic" in2="n" scale="1.7" xChannelSelector="R" yChannelSelector="G" />
-            </filter>
-          )}
         </defs>
-        <g clipPath={`url(#flag-clip-${code})`} filter={animate ? `url(#${fid})` : undefined}>
+        <g clipPath={`url(#${clipId})`}>
           <Inner />
         </g>
         <rect width={W} height={H} rx="2.5" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="0.8" />

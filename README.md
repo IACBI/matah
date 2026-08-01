@@ -10,8 +10,6 @@
 
 <br/>
 
-[![▶ Play Live Demo](https://img.shields.io/badge/▶_Play_Live_Demo-f6bd45?style=for-the-badge&logoColor=black)](https://quibble-0rjn.onrender.com)
-
 [![CI](https://github.com/IACBI/matah/actions/workflows/ci.yml/badge.svg)](https://github.com/IACBI/matah/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white&style=flat-square)
 ![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB&style=flat-square)
@@ -22,10 +20,10 @@
 
 <br/>
 
-<img src="docs/screenshots/home.png" width="49%" alt="Home screen" />
-<img src="docs/screenshots/lobby.png" width="49%" alt="Lobby" />
-<img src="docs/screenshots/trivia.png" width="49%" alt="Trivia round" />
-<img src="docs/screenshots/scoreboard.png" width="49%" alt="Scoreboard" />
+<img src="docs/screenshots/home.jpg" width="49%" alt="Home screen" />
+<img src="docs/screenshots/lobby.jpg" width="49%" alt="Lobby" />
+<img src="docs/screenshots/voting.jpg" width="49%" alt="Quiplash voting, with the live vote tally" />
+<img src="docs/screenshots/scoreboard.jpg" width="49%" alt="Scoreboard" />
 
 </div>
 
@@ -45,15 +43,16 @@ It ships with **two game modes**, and the engine is built to make adding more ea
 | ✍️ **Quiplash** | Everyone gets a funny prompt, writes the wittiest answer, then the room votes head-to-head. Most votes wins the round. |
 | 🧠 **Trivia** | Multiple-choice questions where answering **correctly and fast** scores the most — with a bonus for answer **streaks**. |
 
-> **▶ Try it now:** **<https://quibble-0rjn.onrender.com>**
-> *(Hosted on a free tier — the first request after a while may take ~50s to wake up.)*
-
 ---
 
 ## ✨ Highlights
 
 - ⚡ **Real-time multiplayer** over Socket.IO, with automatic reconnect
+- 🔁 **Resume tokens** — a dropped connection reclaims its seat, pending vote, and in-progress answer instead of restarting
 - 🎲 **Multi-game platform** — a clean, extensible `GameEngine` architecture
+- 👥 **Audience mode** — latecomers and anyone joining a full room still vote on every round
+- 🎉 **Emoji reactions** — six live reactions players fire at the host screen
+- 🛠️ **Host tools** — kick a player, set the game length, or end the game early
 - 🌍 **14 languages** — Türkçe, English, Deutsch, Español, Français, Italiano, Português, Русский, العربية, 中文, 日本語, 한국어, हिन्दी, Nederlands (UI *and* question content)
 - 🔊 **Sound effects** synthesized with the Web Audio API (zero audio assets)
 - 🎬 **Animated transitions** + a canvas confetti finale
@@ -88,8 +87,13 @@ matah/
 
 ## 🚀 Getting started
 
+### Requirements
+
+- [Node.js 24](https://nodejs.org/) or newer
+- npm 11 (the version declared in `package.json` is recommended)
+
 ```bash
-npm install      # install all workspaces
+npm ci           # install the exact dependency graph from package-lock.json
 npm run dev      # server on :3001, client on :5173
 ```
 
@@ -101,10 +105,16 @@ in the terminal on your phones to join.
 | Command | What it does |
 |---------|--------------|
 | `npm run dev` | Run server + client in watch mode |
-| `npm run build` | Build the production client bundle |
-| `npm start` | Production server (also serves the built client) |
+| `npm run build` | Compile the server and build the production client bundle |
+| `npm start` | Run the compiled production server and serve the client |
+| `npm test` | Run server unit/integration and client component suites |
+| `npm run test:coverage:server` | Enforce 93% line / 80% branch coverage on `room.ts`, `index.ts`, the engines, `rateLimiter.ts`, and `util.ts` |
+| `npm run test:coverage:client` | Enforce 62% line / 70% branch coverage across the client app |
+| `npm run test:smoke` | Run the full multiplayer Socket.IO smoke suite |
+| `npm run test:browser` | Run real-Chromium multiplayer, responsive, RTL, rematch, and axe checks |
+| `npm run test:load` | Run the 60-second, 25-room/100-socket bounded load and leak check |
 | `npm run typecheck` | Type-check every workspace |
-| `npm run test:e2e` | Play through both modes end-to-end |
+| `npm run lint` | Check the repository with ESLint |
 
 ---
 
@@ -113,9 +123,49 @@ in the terminal on your phones to join.
 One service deploys the whole app — in production the Node server serves the
 built client from the same origin.
 
-- **Render (free, one click):** push to GitHub, then **New → Blueprint** and pick the repo. `render.yaml` does the rest.
-- **Docker:** `docker build -t matah . && docker run -p 3001:3001 matah`
-- **Manual:** `npm install && npm run build && NODE_ENV=production npm start`
+- **Render:** push to GitHub, then choose **New → Blueprint** and select the
+  repository. `render.yaml` installs from the lockfile, builds both workspaces,
+  configures the public origin, and starts the compiled server.
+- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 matah`
+- **Manual:** run `npm ci`, `npm run build`, then start with
+  `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
+
+### Production configuration
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `PUBLIC_ORIGIN` | Production | Exact public origin allowed to open Socket.IO connections, for example `https://game.example.com`. Do not use a wildcard. |
+| `ALLOWED_ORIGINS` | No | Comma-separated additional exact origins, useful for controlled staging domains. |
+| `PORT` | No | HTTP port; defaults to `3001`. Hosting platforms normally provide it. |
+| `NODE_ENV` | Production | Set to `production` to enable production security headers and static serving. |
+
+Eight more variables (`MATAH_RL_CONN_BURST`, `MATAH_RL_CONN_REFILL`, `MATAH_RL_ACTION_BURST`, `MATAH_RL_ACTION_REFILL`, `MATAH_RL_CREATE`, `MATAH_RL_JOIN`, `MATAH_RL_JOIN_ROOM`, `MATAH_RL_REJOIN`) tune the connection, action, and room rate limiters. All are optional — the defaults are sized for a household sharing one address, not a single user — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rate-limiting) for the full list and the reasoning behind each default.
+
+Matah keeps rooms and scores in process memory. Run one application instance:
+deploys, restarts, and crashes end active rooms, and horizontal replicas do not
+share room state. Supporting multiple instances requires shared room/session
+storage plus a compatible Socket.IO adapter and routing strategy.
+
+### Reconnect and session security
+
+The server is authoritative for membership, timers, answers, votes, and scores.
+A successful create or join returns a private resume token; the browser keeps it
+in session storage and presents it after a temporary disconnect. Player IDs are
+public display identifiers and are never accepted as reconnect credentials. A
+successful resume replaces the previous socket for that session.
+
+Treat a resume token like a short-lived session credential: never log, publish,
+or send it to another player. See [SECURITY.md](SECURITY.md) for reporting and
+operational guidance, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
+room lifecycle, trust boundaries, timers, and recovery design.
+
+### Rollback
+
+Deploys do not migrate persistent data because the application has no database.
+To roll back a merged release, revert its merge commit and deploy the resulting
+new `main` commit; do not rewrite shared history. Then verify `/health` and
+complete a short host-plus-three-players smoke game. A rollback or restart ends
+active in-memory rooms, so announce it before a planned production change.
 
 ---
 
@@ -129,11 +179,11 @@ matah/
 │  ├─ room.ts                 # room: membership, phase/timer machine, scoring
 │  ├─ engine.ts               # GameEngine interface
 │  ├─ engines/                # quiplash.ts · trivia.ts
-│  ├─ content/                # prompts.ts · trivia.ts (content in 4 languages)
+│  ├─ content/                # prompts.ts · trivia.ts (content in 14 languages)
 │  └─ rateLimiter.ts          # per-socket token bucket
 └─ client/src/
    ├─ views/                  # Home · HostScreen · PlayerScreen
-   ├─ components/             # Controls (language/sound) · Confetti
+   ├─ components/             # Avatar · Confetti · ConfirmDialog · Connection (link-state overlays) · Controls (language/sound) · Flag · GameIcons · Reactions · RoomErrorBoundary · icons
    ├─ i18n/                   # translations + provider
    └─ sound.ts                # synthesized sound effects
 ```
@@ -143,6 +193,8 @@ matah/
 <div align="center">
 
 Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
+
+[Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -168,7 +220,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **Öne çıkanlar**
 - ⚡ **Gerçek zamanlı çok oyunculu** — Socket.IO üzerinde, otomatik yeniden bağlanmayla
+- 🔁 **Devam belirteçleri** — bağlantı koptuğunda yeniden başlamak yerine koltuğunu, bekleyen oyunu ve yarım kalan cevabını geri alırsın
 - 🎲 **Çoklu oyun platformu** — temiz, genişletilebilir bir `GameEngine` mimarisi
+- 👥 **Seyirci modu** — geç katılanlar ve dolu bir odaya girenler de her turda oy kullanır
+- 🎉 **Emoji tepkiler** — oyuncuların host ekranına canlı gönderdiği altı tepki
+- 🛠️ **Host araçları** — bir oyuncuyu at, oyun uzunluğunu ayarla veya oyunu erken bitir
 - 🌍 **14 dil** — arayüz *ve* soru içeriği
 - 🔊 **Ses efektleri** — Web Audio API ile sentezlenir (sıfır ses dosyası)
 - 🎬 **Animasyonlu geçişler** + canvas konfeti finali
@@ -197,9 +253,13 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 | ✍️ **Quiplash** | Alle bekommen eine lustige Frage, schreiben die witzigste Antwort, dann stimmt der Raum im Duell ab. Die meisten Stimmen gewinnen die Runde. |
 | 🧠 **Quiz** | Multiple-Choice-Fragen, bei denen **richtiges und schnelles** Antworten am meisten Punkte bringt — mit Bonus für **Antwort-Serien**. |
 
-**Highlights**
+**Höhepunkte**
 - ⚡ **Echtzeit-Multiplayer** über Socket.IO, mit automatischem Reconnect
+- 🔁 **Fortsetzungs-Tokens** — eine unterbrochene Verbindung bekommt Platz, offene Stimme und angefangene Antwort zurück, statt neu zu starten
 - 🎲 **Multi-Game-Plattform** — eine saubere, erweiterbare `GameEngine`-Architektur
+- 👥 **Zuschauermodus** — Nachzügler und alle, die einem vollen Raum beitreten, stimmen trotzdem in jeder Runde ab
+- 🎉 **Emoji-Reaktionen** — sechs Live-Reaktionen, die Spieler an den Host-Bildschirm senden
+- 🛠️ **Host-Werkzeuge** — einen Spieler rauswerfen, die Spiellänge festlegen oder das Spiel vorzeitig beenden
 - 🌍 **14 Sprachen** — Oberfläche *und* Frageninhalte
 - 🔊 **Soundeffekte** mit der Web Audio API synthetisiert (keine Audiodateien)
 - 🎬 **Animierte Übergänge** + ein Canvas-Konfetti-Finale
@@ -230,7 +290,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **Lo más destacado**
 - ⚡ **Multijugador en tiempo real** sobre Socket.IO, con reconexión automática
+- 🔁 **Tokens de reanudación** — una conexión caída recupera su asiento, el voto pendiente y la respuesta a medio escribir en vez de reiniciar
 - 🎲 **Plataforma multijuego** — una arquitectura `GameEngine` limpia y extensible
+- 👥 **Modo audiencia** — quienes llegan tarde o se unen a una sala llena igual votan en cada ronda
+- 🎉 **Reacciones con emoji** — seis reacciones en vivo que los jugadores lanzan a la pantalla del anfitrión
+- 🛠️ **Herramientas del anfitrión** — expulsar a un jugador, ajustar la duración de la partida o terminarla antes de tiempo
 - 🌍 **14 idiomas** — interfaz *y* contenido de las preguntas
 - 🔊 **Efectos de sonido** sintetizados con la Web Audio API (cero archivos de audio)
 - 🎬 **Transiciones animadas** + un final de confeti en canvas
@@ -261,7 +325,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **Points forts**
 - ⚡ **Multijoueur en temps réel** via Socket.IO, avec reconnexion automatique
+- 🔁 **Jetons de reprise** — une connexion coupée retrouve sa place, son vote en attente et sa réponse en cours au lieu de repartir de zéro
 - 🎲 **Plateforme multi-jeux** — une architecture `GameEngine` propre et extensible
+- 👥 **Mode public** — les retardataires et ceux qui rejoignent un salon complet votent quand même à chaque manche
+- 🎉 **Réactions emoji** — six réactions en direct que les joueurs envoient sur l'écran de l'hôte
+- 🛠️ **Outils de l'hôte** — exclure un joueur, régler la durée de la partie ou la terminer plus tôt
 - 🌍 **14 langues** — interface *et* contenu des questions
 - 🔊 **Effets sonores** synthétisés avec la Web Audio API (aucun fichier audio)
 - 🎬 **Transitions animées** + un final de confettis en canvas
@@ -292,7 +360,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **In evidenza**
 - ⚡ **Multigiocatore in tempo reale** su Socket.IO, con riconnessione automatica
+- 🔁 **Token di ripresa** — una connessione caduta recupera il posto, il voto in sospeso e la risposta a metà, invece di ripartire da zero
 - 🎲 **Piattaforma multi-gioco** — un'architettura `GameEngine` pulita ed estensibile
+- 👥 **Modalità pubblico** — chi arriva tardi o entra in una stanza piena vota comunque a ogni round
+- 🎉 **Reazioni emoji** — sei reazioni live che i giocatori inviano allo schermo dell'host
+- 🛠️ **Strumenti dell'host** — espellere un giocatore, impostare la durata della partita o terminarla in anticipo
 - 🌍 **14 lingue** — interfaccia *e* contenuto delle domande
 - 🔊 **Effetti sonori** sintetizzati con la Web Audio API (zero file audio)
 - 🎬 **Transizioni animate** + un finale di coriandoli su canvas
@@ -323,7 +395,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **Destaques**
 - ⚡ **Multijogador em tempo real** sobre Socket.IO, com reconexão automática
+- 🔁 **Tokens de retoma** — uma ligação perdida recupera o lugar, o voto pendente e a resposta a meio, em vez de recomeçar
 - 🎲 **Plataforma multi-jogo** — uma arquitetura `GameEngine` limpa e extensível
+- 👥 **Modo audiência** — quem chega tarde ou entra numa sala cheia continua a votar em cada ronda
+- 🎉 **Reações com emoji** — seis reações ao vivo que os jogadores enviam para o ecrã do anfitrião
+- 🛠️ **Ferramentas do anfitrião** — expulsar um jogador, ajustar a duração do jogo ou terminá-lo mais cedo
 - 🌍 **14 idiomas** — interface *e* conteúdo das perguntas
 - 🔊 **Efeitos sonoros** sintetizados com a Web Audio API (zero ficheiros de áudio)
 - 🎬 **Transições animadas** + um final de confetes em canvas
@@ -354,7 +430,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **Ключевые особенности**
 - ⚡ **Мультиплеер в реальном времени** через Socket.IO, с автоматическим переподключением
+- 🔁 **Токены возобновления** — при обрыве связи место, ожидающий голос и незаконченный ответ сохраняются, а не сбрасываются
 - 🎲 **Платформа для нескольких игр** — чистая, расширяемая архитектура `GameEngine`
+- 👥 **Режим зрителя** — опоздавшие и те, кто присоединился к заполненной комнате, всё равно голосуют в каждом раунде
+- 🎉 **Эмодзи-реакции** — шесть живых реакций, которые игроки отправляют на экран ведущего
+- 🛠️ **Инструменты ведущего** — исключить игрока, настроить длительность игры или завершить её раньше
 - 🌍 **14 языков** — интерфейс *и* содержание вопросов
 - 🔊 **Звуковые эффекты** синтезируются через Web Audio API (без аудиофайлов)
 - 🎬 **Анимированные переходы** + финал с конфетти на canvas
@@ -387,7 +467,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **أبرز المزايا**
 - ⚡ **لعب جماعي فوري** عبر Socket.IO، مع إعادة اتصال تلقائية
+- 🔁 **رموز الاستئناف** — عند انقطاع الاتصال يستعيد اللاعب مقعده وصوته المعلّق وإجابته غير المكتملة بدلاً من البدء من جديد
 - 🎲 **منصّة متعددة الألعاب** — بنية `GameEngine` نظيفة وقابلة للتوسيع
+- 👥 **وضع الجمهور** — من ينضم متأخرًا أو إلى غرفة ممتلئة يظل قادرًا على التصويت في كل جولة
+- 🎉 **تفاعلات الإيموجي** — ست تفاعلات حية يرسلها اللاعبون إلى شاشة المضيف
+- 🛠️ **أدوات المضيف** — طرد لاعب، وضبط مدة اللعبة، أو إنهاؤها مبكرًا
 - 🌍 **14 لغة** — الواجهة *ومحتوى* الأسئلة
 - 🔊 **مؤثرات صوتية** مُولّدة عبر Web Audio API (دون أي ملفات صوتية)
 - 🎬 **انتقالات متحركة** + خاتمة قصاصات ورقية على canvas
@@ -420,7 +504,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **亮点**
 - ⚡ **实时多人** —— 基于 Socket.IO，支持自动重连
+- 🔁 **续接令牌** —— 连接中断后可恢复座位、待定投票和未完成的答案，而不是重新开始
 - 🎲 **多游戏平台** —— 简洁、可扩展的 `GameEngine` 架构
+- 👥 **观众模式** —— 迟到者或加入已满房间的人依然可以在每一轮投票
+- 🎉 **表情反应** —— 玩家可向主持屏幕发送的六种实时反应
+- 🛠️ **主持工具** —— 踢出玩家、设置游戏时长或提前结束游戏
 - 🌍 **14 种语言** —— 界面*和*题目内容
 - 🔊 **音效** —— 用 Web Audio API 合成（零音频文件）
 - 🎬 **动画过渡** + canvas 彩纸庆祝结尾
@@ -451,7 +539,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **ハイライト**
 - ⚡ **リアルタイム・マルチプレイヤー** — Socket.IO 上で、自動再接続つき
+- 🔁 **再開トークン** — 接続が切れても最初からやり直さず、座席・保留中の投票・入力途中の回答をそのまま復元
 - 🎲 **マルチゲーム基盤** — クリーンで拡張しやすい `GameEngine` アーキテクチャ
+- 👥 **観客モード** — 遅れて参加した人や満員のルームに入った人も毎ラウンド投票できる
+- 🎉 **絵文字リアクション** — プレイヤーがホスト画面に送るライブリアクション6種
+- 🛠️ **ホストツール** — プレイヤーのキック、ゲームの長さ設定、早期終了
 - 🌍 **14言語** — UI *と*問題コンテンツ
 - 🔊 **効果音** — Web Audio API で合成（音声ファイルはゼロ）
 - 🎬 **アニメーション遷移** + canvas の紙吹雪フィナーレ
@@ -482,7 +574,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **하이라이트**
 - ⚡ **실시간 멀티플레이어** — Socket.IO 기반, 자동 재접속
+- 🔁 **재개 토큰** — 연결이 끊겨도 처음부터 다시 시작하지 않고 자리, 대기 중인 투표, 작성 중이던 답변을 그대로 복원
 - 🎲 **멀티 게임 플랫폼** — 깔끔하고 확장 가능한 `GameEngine` 아키텍처
+- 👥 **관객 모드** — 늦게 참가했거나 꽉 찬 방에 들어온 사람도 매 라운드 투표 가능
+- 🎉 **이모지 리액션** — 플레이어가 호스트 화면으로 보내는 6가지 실시간 리액션
+- 🛠️ **호스트 도구** — 플레이어 강퇴, 게임 길이 설정, 조기 종료
 - 🌍 **14개 언어** — UI *와* 문제 콘텐츠
 - 🔊 **사운드 효과** — Web Audio API로 합성 (오디오 파일 0개)
 - 🎬 **애니메이션 전환** + canvas 색종이 피날레
@@ -513,7 +609,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **मुख्य बातें**
 - ⚡ **रियल-टाइम मल्टीप्लेयर** — Socket.IO पर, अपने-आप दोबारा कनेक्ट
+- 🔁 **रीज़्यूम टोकन** — कनेक्शन टूटने पर दोबारा शुरू करने की बजाय सीट, लंबित वोट और अधूरा जवाब वापस मिल जाता है
 - 🎲 **मल्टी-गेम प्लेटफ़ॉर्म** — साफ़, विस्तार-योग्य `GameEngine` आर्किटेक्चर
+- 👥 **दर्शक मोड** — देर से आने वाले या भरे हुए रूम में शामिल होने वाले भी हर राउंड में वोट कर सकते हैं
+- 🎉 **इमोजी रिएक्शन** — खिलाड़ी होस्ट स्क्रीन पर भेज सकते हैं ऐसे छह लाइव रिएक्शन
+- 🛠️ **होस्ट टूल्स** — किसी खिलाड़ी को निकालना, गेम की लंबाई तय करना या गेम जल्दी खत्म करना
 - 🌍 **14 भाषाएँ** — इंटरफ़ेस *और* सवालों की सामग्री
 - 🔊 **साउंड इफ़ेक्ट** — Web Audio API से सिंथेसाइज़ (शून्य ऑडियो फ़ाइल)
 - 🎬 **एनिमेटेड ट्रांज़िशन** + canvas कॉन्फ़ेटी फ़िनाले
@@ -544,7 +644,11 @@ Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
 
 **Hoogtepunten**
 - ⚡ **Real-time multiplayer** via Socket.IO, met automatische herverbinding
+- 🔁 **Hervattingstokens** — een verbroken verbinding herstelt plek, openstaande stem en halfafgemaakt antwoord in plaats van opnieuw te beginnen
 - 🎲 **Multi-game-platform** — een nette, uitbreidbare `GameEngine`-architectuur
+- 👥 **Publieksmodus** — laatkomers en wie een volle ruimte binnenkomt, stemmen gewoon elke ronde mee
+- 🎉 **Emoji-reacties** — zes live reacties die spelers naar het hostscherm sturen
+- 🛠️ **Hosttools** — een speler verwijderen, de spelduur instellen of het spel vroegtijdig beëindigen
 - 🌍 **14 talen** — interface *en* vraaginhoud
 - 🔊 **Geluidseffecten** gesynthetiseerd met de Web Audio API (nul audiobestanden)
 - 🎬 **Geanimeerde overgangen** + een confetti-finale op canvas

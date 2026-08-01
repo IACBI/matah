@@ -6,72 +6,181 @@ on:
   pull_request:
     branches: [main]
 
-# A newer push to the same branch/PR cancels an in-flight run instead of
-# letting both occupy a runner.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  quality:
+    name: Quality and tests
     runs-on: ubuntu-latest
-    # Safety net: a wedged test fails in minutes instead of burning the
-    # default 6-hour runner limit.
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
 
-      # include=dev so devDeps (tsc/vite/tsx) install even if a runner
-      # defaults NODE_ENV to production.
-      - name: Install
-        run: npm install --include=dev
+      - name: Install locked dependencies
+        run: npm ci --include=dev
 
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Build client
+      - name: Lint
+        run: npm run lint
+
+      - name: Build production bundles
         run: npm run build
 
-      - name: Start server
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Run client component tests
+        run: npm run test:client
+
+      - name: Enforce server coverage thresholds
+        run: npm run test:coverage:server
+
+      - name: Enforce client helper coverage thresholds
+        run: npm run test:coverage:client
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --include=prod --audit-level=high
+
+  socket-smoke:
+    name: Socket.IO smoke suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --include=dev
+
+      - name: Build production bundles
+        run: npm run build
+
+      - name: Run isolated compiled-server smoke tests
+        run: npm run test:smoke
+
+  bounded-load:
+    name: 25-room bounded load
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --include=dev
+
+      - name: Build production bundles
+        run: npm run build
+
+      - name: Run 60-second load and leak check
+        run: npm run test:load
+
+  browser:
+    name: Chromium browser flows
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --include=dev
+
+      - name: Build production bundles
+        run: npm run build
+
+      - name: Install Chromium and system dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser, RTL, and accessibility flows
+        env:
+          CI: true
+        run: npm run test:browser
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: browser-output
+          if-no-files-found: ignore
+          retention-days: 7
+
+  docker-smoke:
+    name: Docker production smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build production image
+        run: docker build --tag matah-ci:${{ github.sha }} .
+
+      - name: Verify container health and home page
+        env:
+          IMAGE_TAG: matah-ci:${{ github.sha }}
         run: |
-          npm start &
-          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:3001/health >/dev/null; then
-              echo "server up"; exit 0
+          CONTAINER_ID=$(docker run --detach --env PUBLIC_ORIGIN=http://127.0.0.1:3001 --publish 3001:3001 "$IMAGE_TAG")
+          trap 'docker logs "$CONTAINER_ID"; docker rm --force "$CONTAINER_ID"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:3001/health > /dev/null; then
+              curl --fail --silent --show-error http://127.0.0.1:3001/ > /dev/null
+              exit 0
             fi
             sleep 1
           done
-          echo "server failed to start"; exit 1
-
-      - name: E2E (both game modes)
-        run: npm run test:e2e
-
-      - name: Reconnect test
-        run: npm run test:reconnect
-
-      - name: Play-again test
-        run: npm run test:playagain
-
-      - name: Connection state recovery test
-        run: npm run test:csr
-
-      - name: Disconnected-player skip test
-        run: npm run test:disconnect
-
-      - name: New-features test (audience, safety, takeover)
-        run: npm run test:features
-
-      - name: Host-tools test (kick, length, end-game)
-        run: npm run test:hosttools
-
-      - name: Stop server
-        if: always()
-        run: kill "$SERVER_PID" || true
+          exit 1

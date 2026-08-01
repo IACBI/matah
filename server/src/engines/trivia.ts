@@ -6,6 +6,7 @@ import {
 import type { TriviaView } from "../../../shared/src/index.js";
 import type { EngineContext, EngineView, GameEngine } from "../engine.js";
 import { pickTrivia, type TriviaQuestion } from "../content/trivia.js";
+import { sample } from "../util.js";
 
 const QUESTION_SECONDS = 20;
 const RESULTS_SECONDS = 7;
@@ -34,14 +35,26 @@ export class TriviaEngine implements GameEngine {
 
   constructor(
     private ctx: EngineContext,
-    private questionCount = TRIVIA_QUESTIONS
+    private questionCount = TRIVIA_QUESTIONS,
+    private avoidQuestions: ReadonlySet<string> = new Set(),
+    private recordQuestion: (question: string) => void = () => {},
   ) {}
 
   start(): void {
-    this.questions = pickTrivia(this.ctx.language, this.questionCount).map((q) => ({
-      ...q,
-      id: randomUUID(),
-    }));
+    this.questions = pickTrivia(
+      this.ctx.language,
+      this.questionCount,
+      this.avoidQuestions,
+    ).map((q) => {
+      this.recordQuestion(q.text);
+      const order = sample(q.options.map((_, index) => index), q.options.length);
+      return {
+        id: randomUUID(),
+        text: q.text,
+        options: order.map((originalIndex) => q.options[originalIndex]),
+        correctIndex: order.indexOf(q.correctIndex),
+      };
+    });
     this.index = 0;
     this.beginQuestion();
   }
@@ -71,7 +84,10 @@ export class TriviaEngine implements GameEngine {
 
     this.answers.set(playerId, {
       optionIndex,
-      elapsedMs: this.ctx.now() - this.questionStart,
+      elapsedMs: Math.max(
+        0,
+        Math.min(QUESTION_SECONDS * 1000, this.ctx.now() - this.questionStart)
+      ),
     });
     player.hasSubmitted = true;
     this.ctx.emit();
@@ -118,7 +134,7 @@ export class TriviaEngine implements GameEngine {
       if (ans && ans.optionIndex === q.correctIndex) {
         const timeRatio = Math.max(
           0,
-          1 - ans.elapsedMs / (QUESTION_SECONDS * 1000)
+          Math.min(1, 1 - ans.elapsedMs / (QUESTION_SECONDS * 1000))
         );
         player.streak += 1;
         points =
@@ -168,5 +184,8 @@ export class TriviaEngine implements GameEngine {
     };
   }
 
-  dispose(): void {}
+  dispose(): void {
+    this.revealed = true;
+    this.answers.clear();
+  }
 }
