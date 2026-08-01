@@ -37,7 +37,11 @@ const SESSION_KEY = "matah.session";
 /** How long a restore may run before we admit the server is not answering. */
 const RESTORE_TIMEOUT_MS = 8_000;
 
-interface StoredSession extends SessionResult {
+/**
+ * What we persist to resume a room. `isAudience` is part of the wire result
+ * but never read back — the live room state is the authority on that.
+ */
+interface StoredSession extends Omit<SessionResult, "isAudience"> {
   role: RoomRole;
 }
 
@@ -161,7 +165,13 @@ export function App() {
         }
         return;
       }
-      const restored: StoredSession = { ...response.data, role: session.role };
+      const { code: nextCode, playerId, resumeToken } = response.data;
+      const restored: StoredSession = {
+        code: nextCode,
+        playerId,
+        resumeToken,
+        role: session.role,
+      };
       initialSession.current = restored;
       writeSession(restored);
       setRole(restored.role);
@@ -224,7 +234,12 @@ export function App() {
   }, []);
 
   const enterRoom = (nextRole: RoomRole, result: SessionResult) => {
-    const session: StoredSession = { ...result, role: nextRole };
+    const session: StoredSession = {
+      code: result.code,
+      playerId: result.playerId,
+      resumeToken: result.resumeToken,
+      role: nextRole,
+    };
     initialSession.current = session;
     writeSession(session);
     clearJoinCode();

@@ -2,12 +2,14 @@
 // small interface glyphs (copy, sound, back, close, timer, …). Reaction icons
 // carry their own lively animation; UI glyphs inherit `currentColor` so they
 // match surrounding text. Animations live in index.css (reduced-motion aware).
-import type { JSX } from "react";
+import { memo, type JSX } from "react";
+import { REACTIONS } from "../../../shared/src/index";
 
 /* ---------------- Reactions ---------------- */
 
-export const REACTION_IDS = ["laugh", "heart", "fire", "clap", "wow", "skull"] as const;
-export type ReactionId = (typeof REACTION_IDS)[number];
+// The ids come from the shared contract; a second copy here could drift from
+// what the server accepts.
+type ReactionId = (typeof REACTIONS)[number];
 
 const REACTION_ART: Record<ReactionId, () => JSX.Element> = {
   laugh: () => (
@@ -49,14 +51,21 @@ const REACTION_ART: Record<ReactionId, () => JSX.Element> = {
   ),
 };
 
-export function ReactionIcon({ id, className = "" }: { id: string; className?: string }) {
+/** Memoized: the host overlay can hold up to 31 of these at once. */
+export const ReactionIcon = memo(function ReactionIcon({
+  id,
+  className = "",
+}: {
+  id: string;
+  className?: string;
+}) {
   const art = REACTION_ART[id as ReactionId] ?? REACTION_ART.laugh;
   return (
     <span className={`rx-icon rx-${id} ${className}`} aria-hidden="true">
       <svg viewBox="0 0 24 24">{art()}</svg>
     </span>
   );
-}
+});
 
 /* ---------------- Medals ---------------- */
 

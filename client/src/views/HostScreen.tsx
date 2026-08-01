@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   GamePhase,
   GameType,
@@ -735,7 +735,12 @@ function ScoreboardView({
   onLeave: () => Promise<void>;
 }) {
   const { t } = useI18n();
-  const ranked = [...state.players].sort((a, b) => b.score - a.score);
+  // The countdown re-renders this screen about once a second; re-sorting the
+  // roster each time is pure waste.
+  const ranked = useMemo(
+    () => [...state.players].sort((a, b) => b.score - a.score),
+    [state.players]
+  );
   return (
     <div className="host-body center" key="scoreboard">
       <Confetti />

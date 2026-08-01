@@ -2,7 +2,7 @@
 // (which render inconsistently across platforms). Each is drawn in a 40×40
 // viewBox on a soft rounded badge and bobs gently (CSS, in index.css;
 // reduced-motion aware). Identified by a stable id stored in player state.
-import type { JSX } from "react";
+import { memo, type JSX } from "react";
 
 const DEFAULT_AVATAR_ID = "smiley";
 
@@ -135,7 +135,17 @@ const ART: Record<string, Art> = {
   },
 };
 
-export function Avatar({ id, className = "" }: { id: string; className?: string }) {
+/**
+ * Memoized: the scoreboard and player chips render one of these per player,
+ * and the countdown re-renders their parents about once a second.
+ */
+export const Avatar = memo(function Avatar({
+  id,
+  className = "",
+}: {
+  id: string;
+  className?: string;
+}) {
   const art = ART[id] ?? ART[DEFAULT_AVATAR_ID];
   return (
     <span className={`avatar-svg ${className}`} aria-hidden="true">
@@ -145,4 +155,4 @@ export function Avatar({ id, className = "" }: { id: string; className?: string 
       </svg>
     </span>
   );
-}
+});
