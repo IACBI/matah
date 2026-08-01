@@ -21,7 +21,7 @@
     "@types/compression": "^1.7.5",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.5",
-    "tsx": "^4.19.2",
+    "tsx": "^4.23.1",
     "typescript": "^5.7.3"
   }
 }
