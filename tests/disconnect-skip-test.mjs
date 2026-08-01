@@ -4,7 +4,9 @@
 // the full answer timer.
 import { io } from "socket.io-client";
 
-const URL = process.env.TEST_URL ?? "http://localhost:3001";
+import { testUrl } from "./helpers/target.mjs";
+
+const URL = await testUrl();
 const conn = () => io(URL, { transports: ["websocket"], forceNew: true, extraHeaders: { Origin: URL } });
 const ack = (s, e, ...a) => new Promise((resolve, reject) =>
   s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))

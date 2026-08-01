@@ -1,54 +1,52 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { Room } from '../../server/src/room.ts';
+import { makeRoom } from '../helpers/room.mjs';
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+test('disconnected members keep a short lease and are then removed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = makeRoom({ code: 'ABCD', memberExpiryMs: 20_000, controllerFailoverMs: 10_000 });
+  h.room.addHost('host-socket');
+  const member = h.room.addPlayer('player-socket', 'Player', 'fox');
+  h.room.emit();
 
-test('disconnected members keep a short lease and are then removed', async () => {
-  let state;
-  const room = new Room('ABCD', 'en', (next) => { state = next; }, () => {}, {
-    memberExpiryMs: 20,
-    controllerFailoverMs: 10,
-  });
-  room.addHost('host-socket');
-  const member = room.addPlayer('player-socket', 'Player', 'fox');
-  room.emit();
-
-  room.handleDisconnect('player-socket');
-  room.emit();
+  h.room.handleDisconnect('player-socket');
+  h.room.emit();
+  let state = await h.state();
   assert.equal(state.players.find((p) => p.id === member.playerId)?.connected, false);
-  assert.equal(room.isFull(), false);
+  assert.equal(h.room.isFull(), false);
 
-  await delay(35);
-  room.emit();
+  h.advance(20_001);
+  t.mock.timers.tick(20_001);
+  h.room.emit();
+  state = await h.state();
   assert.equal(state.players.some((p) => p.id === member.playerId), false);
-  assert.equal(room.pidForSocket('player-socket'), null);
-  room.dispose();
+  assert.equal(h.room.pidForSocket('player-socket'), null);
+  h.dispose();
 });
 
-test('host failover elects one deterministic connected controller', async () => {
-  let state;
-  const room = new Room('EFGH', 'en', (next) => { state = next; }, () => {}, {
-    memberExpiryMs: 100,
-    controllerFailoverMs: 15,
-  });
-  const host = room.addHost('host-socket');
-  const first = room.addPlayer('p1-socket', 'First', 'fox');
-  room.addPlayer('p2-socket', 'Second', 'cat');
-  room.addPlayer('p3-socket', 'Third', 'frog');
-  room.handleDisconnect('host-socket');
+test('host failover elects one deterministic connected controller', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = makeRoom({ code: 'EFGH', memberExpiryMs: 100_000, controllerFailoverMs: 15_000 });
+  const host = h.room.addHost('host-socket');
+  const first = h.room.addPlayer('p1-socket', 'First', 'fox');
+  h.room.addPlayer('p2-socket', 'Second', 'cat');
+  h.room.addPlayer('p3-socket', 'Third', 'frog');
+  h.room.handleDisconnect('host-socket');
 
-  await delay(30);
-  room.emit();
+  h.advance(15_001);
+  t.mock.timers.tick(15_001);
+  h.room.emit();
+  let state = await h.state();
   assert.equal(state.hostConnected, false);
   assert.equal(state.controllerPlayerId, first.playerId);
-  assert.equal(room.canControl(first.playerId), true);
+  assert.equal(h.room.canControl(first.playerId), true);
 
-  const resumed = room.rejoin(host.resumeToken, 'host-return');
+  const resumed = h.room.rejoin(host.resumeToken, 'host-return');
   assert.ok(resumed);
-  room.emit();
+  h.room.emit();
+  state = await h.state();
   assert.equal(state.hostConnected, true);
   assert.equal(state.controllerPlayerId, null);
-  room.dispose();
+  h.dispose();
 });

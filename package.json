@@ -38,14 +38,14 @@
     "test:coverage:client": "npm --workspace client run test:coverage",
     "test:browser": "node tests/browser-test.mjs",
     "test:load": "node --import tsx tests/load-test.mjs",
-    "test:e2e": "node tests/e2e-test.mjs",
-    "test:reconnect": "node tests/reconnect-test.mjs",
-    "test:playagain": "node tests/playagain-test.mjs",
-    "test:csr": "node tests/csr-test.mjs",
-    "test:disconnect": "node tests/disconnect-skip-test.mjs",
-    "test:features": "node tests/new-features-test.mjs",
-    "test:hosttools": "node tests/host-tools-test.mjs",
-    "test:smoke": "node tests/run-smoke-suite.mjs"
+    "test:smoke": "node tests/run-smoke-suite.mjs",
+    "smoke:e2e": "node tests/e2e-test.mjs",
+    "smoke:reconnect": "node tests/reconnect-test.mjs",
+    "smoke:playagain": "node tests/playagain-test.mjs",
+    "smoke:csr": "node tests/csr-test.mjs",
+    "smoke:disconnect": "node tests/disconnect-skip-test.mjs",
+    "smoke:features": "node tests/new-features-test.mjs",
+    "smoke:hosttools": "node tests/host-tools-test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.3",

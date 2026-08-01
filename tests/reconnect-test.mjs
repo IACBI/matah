@@ -2,7 +2,9 @@
 // then must (a) receive their prompts again and (b) be able to submit.
 import { io } from "socket.io-client";
 
-const URL = process.env.TEST_URL ?? "http://localhost:3001";
+import { testUrl } from "./helpers/target.mjs";
+
+const URL = await testUrl();
 const log = (...a) => console.log(...a);
 const conn = () => io(URL, { transports: ["websocket"], forceNew: true, extraHeaders: { Origin: URL } });
 const ack = (s, e, ...a) => new Promise((resolve, reject) =>

@@ -1,20 +1,20 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
-import { createServer as createProbe } from 'node:net';
 import { io as createClient } from 'socket.io-client';
 
-function availablePort() {
-  return new Promise((resolve, reject) => {
-    const probe = createProbe();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      probe.close((error) => error ? reject(error) : resolve(address.port));
-    });
-  });
-}
+import { probePort } from '../helpers/port.mjs';
 
-const port = await availablePort();
+const repoRoot = path.resolve(fileURLToPath(import.meta.url), '../../..');
+// The SPA metadata test needs a real bundle; the origin and rate-limit tests
+// do not. Keep the suite runnable on a fresh clone that has not built yet.
+const clientBuilt = existsSync(path.join(repoRoot, 'client/dist/index.html'));
+
+// PUBLIC_ORIGIN is read once at module load and must match the listening port,
+// so this suite cannot retry onto a different port the way the others can.
+const port = await probePort();
 const url = `http://127.0.0.1:${port}`;
 process.env.NODE_ENV = 'production';
 process.env.PUBLIC_ORIGIN = url;
@@ -63,7 +63,9 @@ test('production rejects a non-allowlisted Socket.IO origin', async () => {
   );
 });
 
-test('production metadata is derived from the handshake origin configuration', async () => {
+test('production metadata is derived from the handshake origin configuration', {
+  skip: clientBuilt ? false : 'run `npm run build` to exercise SPA metadata',
+}, async () => {
   const response = await fetch(url);
   assert.equal(response.status, 200);
   const html = await response.text();

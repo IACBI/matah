@@ -494,26 +494,36 @@ if (isProd) {
   const clientDist = existsSync(rootCandidate)
     ? rootCandidate
     : path.resolve(process.cwd(), "../client/dist");
-  const publicOrigin = allowedOrigins[0];
-  const indexHtml = readFileSync(path.join(clientDist, "index.html"), "utf8")
-    .replaceAll("__PUBLIC_ORIGIN__", publicOrigin);
-  app.use(
-    express.static(clientDist, {
-      index: false,
-      dotfiles: "deny",
-      setHeaders: (response, filePath) => {
-        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
-          response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        } else {
-          response.setHeader("Cache-Control", "no-cache");
-        }
-      },
-    })
-  );
-  app.get("*", (_req, res) => {
-    res.setHeader("Cache-Control", "no-cache");
-    res.type("html").send(indexHtml);
-  });
+  const indexPath = path.join(clientDist, "index.html");
+  if (!existsSync(indexPath)) {
+    // Tests import this module with NODE_ENV=production to exercise the origin
+    // allowlist without building the client. Degrade to an API-only server
+    // instead of throwing at import time.
+    console.warn(
+      `client bundle not found at ${clientDist} — serving API and Socket.IO only`
+    );
+  } else {
+    const publicOrigin = allowedOrigins[0];
+    const indexHtml = readFileSync(indexPath, "utf8")
+      .replaceAll("__PUBLIC_ORIGIN__", publicOrigin);
+    app.use(
+      express.static(clientDist, {
+        index: false,
+        dotfiles: "deny",
+        setHeaders: (response, filePath) => {
+          if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          } else {
+            response.setHeader("Cache-Control", "no-cache");
+          }
+        },
+      })
+    );
+    app.get("*", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
+      res.type("html").send(indexHtml);
+    });
+  }
 }
 
 let shuttingDown = false;

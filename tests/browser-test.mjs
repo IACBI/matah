@@ -1,28 +1,18 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import { createServer } from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
 import axe from 'axe-core';
 import { chromium } from 'playwright';
 
+import { probePort } from './helpers/port.mjs';
+
 const outputDir = path.resolve('browser-output');
 fs.mkdirSync(outputDir, { recursive: true });
 
-function availablePort() {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      probe.close((error) => error ? reject(error) : resolve(address.port));
-    });
-  });
-}
-
 async function startApp() {
-  const port = await availablePort();
+  const port = await probePort();
   const url = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ['server/dist/server/src/index.js'], {
     cwd: process.cwd(),

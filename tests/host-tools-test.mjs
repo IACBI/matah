@@ -2,7 +2,9 @@
 // (rounds / questions, with clamping), end-game-early, and host-only guards.
 import { io } from "socket.io-client";
 
-const URL = process.env.TEST_URL ?? "http://localhost:3001";
+import { testUrl } from "./helpers/target.mjs";
+
+const URL = await testUrl();
 const log = (...a) => console.log(...a);
 const conn = (testIp) => io(URL, {
   transports: ["websocket"],

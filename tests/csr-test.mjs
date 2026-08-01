@@ -5,7 +5,9 @@
 //  3. the server re-binds its identity so it can still submit answers.
 import { io } from "socket.io-client";
 
-const URL = process.env.TEST_URL ?? "http://localhost:3001";
+import { testUrl } from "./helpers/target.mjs";
+
+const URL = await testUrl();
 const conn = () => io(URL, { transports: ["websocket"], extraHeaders: { Origin: URL } }); // reconnection on by default
 const ack = (s, e, ...a) => new Promise((resolve, reject) =>
   s.timeout(5000).emit(e, ...a, (error, result) => error ? reject(error) : resolve(result))

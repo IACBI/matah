@@ -1,6 +1,14 @@
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
+import { existsSync } from 'node:fs';
 import process from 'node:process';
+
+import { probePort } from './helpers/port.mjs';
+
+const SERVER_ENTRY = 'server/dist/server/src/index.js';
+if (!existsSync(SERVER_ENTRY)) {
+  console.error(`Missing ${SERVER_ENTRY}. Run \`npm run build\` first.`);
+  process.exit(1);
+}
 
 const scripts = [
   'e2e-test.mjs',
@@ -11,17 +19,6 @@ const scripts = [
   'new-features-test.mjs',
   'host-tools-test.mjs',
 ];
-
-function availablePort() {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      probe.close((error) => error ? reject(error) : resolve(address.port));
-    });
-  });
-}
 
 async function waitForHealth(url, child, timeoutMs = 10_000) {
   const startedAt = Date.now();
@@ -50,9 +47,9 @@ function waitForExit(child, timeoutMs) {
 }
 
 async function runScript(script) {
-  const port = await availablePort();
+  const port = await probePort();
   const url = `http://127.0.0.1:${port}`;
-  const server = spawn(process.execPath, ['server/dist/server/src/index.js'], {
+  const server = spawn(process.execPath, [SERVER_ENTRY], {
     cwd: process.cwd(),
     env: { ...process.env, NODE_ENV: 'production', PORT: String(port), PUBLIC_ORIGIN: url },
     stdio: ['ignore', 'pipe', 'pipe'],
