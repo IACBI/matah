@@ -31,14 +31,22 @@ testing with phones on the same local network.
 npm run lint
 npm run typecheck
 npm test
-npm run test:smoke
 npm run build
+npm run test:smoke
 ```
 
+`npm test` runs the unit, integration, and client suites and needs nothing
+built first — it's the one that should pass on a fresh clone. `npm run
+test:smoke` and `npm run test:browser` drive the compiled server, so they
+need `npm run build` to have run first; both probe `/health` and point you at
+`npm run build` if the bundle is missing.
+
 For UI work, also check a desktop host view and a narrow mobile player view.
-Verify keyboard use, visible focus, reduced motion, and an RTL language. For
-deployment work, build the Docker image and confirm that `/health` becomes
-healthy before exercising a short game.
+Verify keyboard use, visible focus, reduced motion, and an RTL language, and
+run `npm run test:browser` for multiplayer, responsive, RTL, rematch, and
+accessibility checks in real Chromium. For deployment work, build the Docker
+image and confirm that `/health` becomes healthy before exercising a short
+game.
 
 ## Pull requests
 

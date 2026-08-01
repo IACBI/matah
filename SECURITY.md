@@ -29,6 +29,14 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
 - The private resume token returned by create/join is the reconnect credential.
   It is kept in browser session storage, must not be logged or shared, and is
   replaced by a newer resumed connection.
+- Resume tokens are strictly single-use: a successful rejoin rotates the
+  token immediately, before the client is told about it, and the previous
+  token stops working. There is no grace window — a grace period would let a
+  used token remain valid for a time, which would make it replayable.
+- Control authority is scoped by capability, not an all-or-nothing host flag.
+  If the host disconnects, an elected player controller can keep the game
+  moving, but `kick` is reserved to the connected host and is never granted
+  to a stand-in.
 - The server validates all game actions and phase transitions. UI restrictions
   are convenience controls, not authorization boundaries.
 

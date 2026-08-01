@@ -11,8 +11,8 @@
 - [ ] `npm run lint`
 - [ ] `npm run typecheck`
 - [ ] `npm test`
-- [ ] `npm run test:smoke` (when multiplayer behavior changes)
 - [ ] `npm run build`
+- [ ] `npm run test:smoke` (when multiplayer behavior changes; needs the build above)
 - [ ] Desktop host and narrow mobile player views checked (for UI changes)
 
 List any check that was not run and explain why.

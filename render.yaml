@@ -14,4 +14,8 @@ services:
       - key: NODE_VERSION
         value: "24"
       - key: PUBLIC_ORIGIN
-        value: https://quibble-0rjn.onrender.com
+        # No default: this is a public repository, so baking in the author's
+        # own deployment origin would make every other clone's Socket.IO
+        # handshake reject its own traffic. sync: false prompts the operator
+        # to set the real origin when the blueprint is created.
+        sync: false
