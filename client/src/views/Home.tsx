@@ -20,6 +20,8 @@ interface Props {
   /** A translation key for a one-off notice (e.g. after being kicked). */
   notice?: TKey;
   onDismissNotice?: () => void;
+  /** Offered when the client has stopped reconnecting on its own. */
+  onRetryConnection?: () => void;
 }
 
 /** A ?code=XXXX in the URL (e.g. from the host-screen QR) prefills the join form. */
@@ -31,7 +33,13 @@ function codeFromUrl(): string {
     .slice(0, ROOM_CODE_LENGTH);
 }
 
-export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
+export function Home({
+  connected,
+  onEnter,
+  notice,
+  onDismissNotice,
+  onRetryConnection,
+}: Props) {
   const { t, lang } = useI18n();
   const initialCode = codeFromUrl();
   const [mode, setMode] = useState<"choose" | "join">(
@@ -92,6 +100,11 @@ export function Home({ connected, onEnter, notice, onDismissNotice }: Props) {
       {notice && (
         <div className="badge warn notice" role="status">
           <span>{t(notice)}</span>
+          {onRetryConnection && (
+            <button className="btn tiny" onClick={onRetryConnection}>
+              {t("retry")}
+            </button>
+          )}
           <button
             className="notice-close"
             onClick={onDismissNotice}

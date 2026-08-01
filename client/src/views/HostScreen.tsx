@@ -249,7 +249,9 @@ export function HostScreen({
         <TriviaQuestionView state={state} />
       )}
 
-      {state.phase === "voting" && state.quiplash?.activeMatchup && (
+      {/* Rendered even without an active matchup: between pairs the screen
+          used to go completely blank. */}
+      {state.phase === "voting" && state.gameType === "quiplash" && (
         <QuiplashVoteView state={state} />
       )}
 

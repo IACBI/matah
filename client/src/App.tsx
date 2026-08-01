@@ -188,8 +188,12 @@ export function App() {
     const onConnect = () => void tryRejoin();
     const onDisconnect = () =>
       setLink((current) => (current === "unreachable" ? current : "connecting"));
-    // socket.io has exhausted its retries; nothing more will arrive on its own.
-    const onGaveUp = () => setLink("unreachable");
+    // socket.io has exhausted its retries; nothing more will arrive on its own,
+    // so say so rather than leaving a "connecting…" badge up indefinitely.
+    const onGaveUp = () => {
+      setLink("unreachable");
+      setNotice("serverUnreachable");
+    };
     const onKicked = () => resetToHome("kickedNotice");
     const onSessionReplaced = () => resetToHome("sessionReplacedNotice");
 
@@ -303,15 +307,15 @@ export function App() {
         connected={connected}
         notice={notice}
         onDismissNotice={() => setNotice(undefined)}
+        onRetryConnection={link === "unreachable" ? retry : undefined}
       />
     );
   }
 
-  // Only a cold start has nothing to show. Once a room has rendered, a
-  // reconnect layers an overlay over the live tree instead of unmounting it —
-  // otherwise a brief blip discarded the pending vote, the picked option, and
-  // the host's game selection.
-  if (roomState === null) {
+  // The room screens render their own waiting states and keep their local UI
+  // across a reconnect, so this is only for the one case with nothing left to
+  // try: no room state, and the link has given up.
+  if (roomState === null && link === "unreachable") {
     return (
       <RestoreScreen link={link} notice={notice} onRetry={retry} onLeave={leave} />
     );
