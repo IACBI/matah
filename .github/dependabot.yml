@@ -33,6 +33,21 @@ updates:
         patterns:
           - "vitest"
           - "@vitest/*"
+      # react and react-dom must cross a major together; bumping react alone
+      # renders "Objects are not valid as a React child" at runtime.
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      # @vitejs/plugin-react reaches into vite's internals, so its majors are
+      # tied to vite's — plugin-react 6 imports `vite/internal`, which vite 7
+      # does not export.
+      vite:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
 
   - package-ecosystem: github-actions
     directory: "/"
