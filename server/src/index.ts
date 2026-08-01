@@ -609,7 +609,10 @@ if (isProd) {
         },
       })
     );
-    app.get("*", (request, res) => {
+    // Express 5 dropped the bare "*" path. The braces matter: a plain "/*splat"
+    // requires at least one segment, which would leave "/" — the entry point
+    // every player loads — with no route at all.
+    app.get("/{*splat}", (request, res) => {
       // A missing bundle must 404 rather than fall through to the shell: the
       // browser reports the HTML it gets back as a MIME type error, which
       // buries the real cause.
