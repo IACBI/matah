@@ -2,7 +2,7 @@
 // lightweight cloth "wave in the wind" effect driven by CSS transforms. One <svg>
 // per language keeps it crisp at any size and avoids emoji flags, which don't
 // render on Windows. Reduced-motion: the ripple/flutter are dropped (static).
-import { useId } from "react";
+import { useId, type JSX } from "react";
 import type { Language } from "../../../shared/src/index";
 
 const W = 30;
