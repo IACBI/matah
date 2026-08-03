@@ -2,7 +2,7 @@
 
 # Build the browser bundle and compile the TypeScript server in a reproducible
 # stage that contains the full development toolchain.
-FROM node:25-alpine AS build
+FROM node:26-alpine AS build
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ RUN npm run build
 RUN NPM_CONFIG_INCLUDE=prod npm prune --omit=dev
 
 
-FROM node:25-alpine AS runtime
+FROM node:26-alpine AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=3001
