@@ -72,27 +72,34 @@ function limit(name: string, fallback: number): number {
   return Number.isFinite(raw) && raw > 0 ? raw : fallback;
 }
 
-// These are sized for a party, not a botnet. Every phone at the table shares
-// one NAT'd address, so per-IP ceilings that look generous for a single user
-// are the whole household's budget: after a Wi-Fi blip, eight clients running
-// socket.io's retry ladder must all get back in.
+// These are sized for a shared address, not a single user. One IPv4 address
+// can be an entire carrier NAT — mobile operators put hundreds of subscribers
+// behind one — and after a network blip all of them come back at once running
+// socket.io's retry ladder. (IPv6 folds to a /56, which really is one
+// household; a budget has to suit the worse case.) What keeps these from also
+// being a botnet's budget is that rate is no longer the only brake: the
+// session and room ceilings below bound what one address can hold however
+// fast it asks, which is what a rate limit could never express.
 const connectionLimiter = new BoundedRateLimiter(
-  limit("CONN_BURST", 60),
-  limit("CONN_REFILL", 2),
+  limit("CONN_BURST", 120),
+  limit("CONN_REFILL", 8),
   10_000,
   10 * 60_000
 );
 const actionLimiter = new BoundedRateLimiter(
-  limit("ACTION_BURST", 80),
-  limit("ACTION_REFILL", 20),
+  limit("ACTION_BURST", 400),
+  limit("ACTION_REFILL", 100),
   10_000,
   10 * 60_000
 );
 const roomCreateLimiter = new BoundedWindowRateLimiter(
-  limit("CREATE", 10),
+  limit("CREATE", 30),
   10 * 60_000,
   10_000
 );
+// Left where it is while the rest were widened for carrier NAT: a wrong room
+// code is charged to this window and nothing else, so it is the only thing
+// standing between an anonymous client and enumerating live rooms.
 const roomJoinLimiter = new BoundedWindowRateLimiter(
   limit("JOIN", 60),
   60_000,
@@ -108,7 +115,7 @@ const roomJoinRoomLimiter = new BoundedWindowRateLimiter(
 // Every successful rejoin fans a full room state out to up to 29 members, so
 // it needs its own ceiling rather than only the generic per-socket bucket.
 const rejoinLimiter = new BoundedWindowRateLimiter(
-  limit("REJOIN", 20),
+  limit("REJOIN", 120),
   60_000,
   10_000
 );
@@ -131,7 +138,7 @@ const MAX_LIVE_CONNECTIONS = limit("MAX_CONNECTIONS", 5_000);
 // briefly more while socket.io's retry ladder overlaps old and new sessions.
 // The map holds one entry per address with a live session, so the count of
 // live sessions bounds it.
-const MAX_CONNECTIONS_PER_IP = limit("CONNECTIONS_PER_IP", 100);
+const MAX_CONNECTIONS_PER_IP = limit("CONNECTIONS_PER_IP", 250);
 const liveConnections = new Map<string, number>();
 
 /** The part of an engine.io session used here; engine.io is a transitive dep. */
@@ -265,7 +272,7 @@ const MAX_ROOMS = 500;
 // any accepted event before the idle timeout defeats every reclamation path.
 // Every other user then gets server_busy until a restart that destroys all the
 // legitimate games. Cap how many live rooms one address may own at once.
-const MAX_ROOMS_PER_IP = limit("ROOMS_PER_IP", 5);
+const MAX_ROOMS_PER_IP = limit("ROOMS_PER_IP", 20);
 /** Room code -> the address that created it, plus the live tally per address. */
 const roomOwners = new Map<string, string>();
 const roomsPerIp = new Map<string, number>();
