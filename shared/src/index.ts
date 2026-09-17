@@ -71,6 +71,13 @@ export interface QuiplashView {
 /** Personalized prompts a player must answer (quiplash answering phase). */
 export interface PlayerAssignment {
   prompts: { matchupId: string; prompt: string; submitted: boolean }[];
+  /**
+   * The matchup this player has already voted on, if any. Quiplash strips the
+   * per-player vote flags out of `RoomState`, because the connected players who
+   * have *not* voted on a matchup are exactly the two who wrote it, so a
+   * reconnecting voter recovers that one bit through this private channel.
+   */
+  votedMatchupId: string | null;
 }
 
 // ---- Trivia ----
@@ -110,6 +117,14 @@ export interface RoomState {
   serverNow: number;
   /** Elected player controller while the host is unavailable; null otherwise. */
   controllerPlayerId: string | null;
+  /**
+   * Aggregate answering and voting progress. Quiplash blanks the per-player
+   * flags in `players` while answering and voting — "who has not answered yet"
+   * pins which displayed answer is real, and "who has not voted" names a
+   * matchup's authors — so progress UI counts from here instead. `submitted`
+   * covers connected players; `voted` covers connected players and audience.
+   */
+  progress: { submitted: number; voted: number };
   quiplash?: QuiplashView;
   trivia?: TriviaView;
 }

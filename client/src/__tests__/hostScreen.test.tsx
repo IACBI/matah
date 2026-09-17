@@ -45,19 +45,16 @@ describe('HostScreen', () => {
   });
 
   it('shows live vote progress during quiplash voting', () => {
-    const voted = [
-      player('p1', { hasVoted: true }),
-      player('p2'),
-      player('p3'),
-      player('p4'),
-    ];
+    // Quiplash sends the tally as a count: naming the players who have not
+    // voted would name the two authors of the answers on screen.
     renderHost(
       roomState({
         phase: 'voting',
         gameType: 'quiplash',
         round: 1,
         totalRounds: 3,
-        players: voted,
+        players: [player('p1'), player('p2'), player('p3'), player('p4')],
+        progress: { submitted: 4, voted: 1 },
         quiplash: {
           currentMatchupIndex: 0,
           totalMatchups: 4,

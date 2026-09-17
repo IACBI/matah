@@ -36,6 +36,7 @@ export function roomState(overrides: Partial<RoomState> = {}): RoomState {
     phaseEndsAt: null,
     serverNow: Date.now(),
     controllerPlayerId: null,
+    progress: { submitted: 0, voted: 0 },
     ...overrides,
   };
 }

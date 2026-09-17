@@ -61,9 +61,17 @@ function harness({ playerCount = 3, audienceCount = 2, rounds = 1 } = {}) {
   };
 }
 
-/** The matchup both of the given players author (there is exactly one). */
-function matchupFor(h, playerId) {
-  return h.assignments.get(playerId).prompts[0].matchupId;
+/**
+ * The matchup the two named players both author (there is exactly one). Round
+ * pairing is shuffled, so which matchup that is has to be looked up — and the
+ * players it leaves out are the ones eligible to vote on it.
+ */
+function matchupFor(h, playerId, partnerId = 'p2') {
+  const partner = h.assignments.get(partnerId).prompts;
+  const shared = h.assignments.get(playerId).prompts
+    .find((prompt) => partner.some((other) => other.matchupId === prompt.matchupId));
+  assert.ok(shared, `${playerId} and ${partnerId} co-author a matchup`);
+  return shared.matchupId;
 }
 
 test('two real answers split the pool by vote share', () => {

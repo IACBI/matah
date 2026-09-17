@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type {
   Matchup,
   MatchupResult,
@@ -16,6 +16,19 @@ const ANSWER_SECONDS = 60;
 const VOTE_SECONDS = 20;
 const MIN_VOTE_DISPLAY_SECONDS = 3;
 const RESULTS_SECONDS = 9;
+
+/**
+ * Fisher-Yates over a copy. Both callers below exist to protect the anonymity
+ * of a vote, so the order must not be derivable from anything a client sees.
+ */
+function shuffled<T>(items: readonly T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 export class QuiplashEngine implements GameEngine {
   readonly type = "quiplash" as const;
@@ -69,10 +82,14 @@ export class QuiplashEngine implements GameEngine {
     const n = players.length;
 
     // Pair first, then choose prompts, so selection can see who will author
-    // each one. Cyclic pairing: matchup i is written by player i and i+1.
-    this.matchupAuthors = players.map((_, i) => [
-      players[i].id,
-      players[(i + 1) % n].id,
+    // each one. Cyclic pairing: matchup i is written by seats i and i+1 of an
+    // order reshuffled every round. Pairing along the broadcast player order
+    // instead would let anyone in the room read a matchup's two authors off
+    // its index while its answers are still meant to be anonymous.
+    const seating = shuffled(players);
+    this.matchupAuthors = seating.map((_, i) => [
+      seating[i].id,
+      seating[(i + 1) % n].id,
     ]);
     const prompts = pickPromptsForSlots(
       this.ctx.language,
@@ -109,7 +126,7 @@ export class QuiplashEngine implements GameEngine {
   }
 
   /** The prompts a player is responsible for this round. */
-  private assignmentFor(playerId: string) {
+  private assignmentFor(playerId: string): PlayerAssignment {
     const prompts = this.matchupAuthors
       .map((authors, mi) =>
         authors.includes(playerId)
@@ -123,7 +140,13 @@ export class QuiplashEngine implements GameEngine {
           : null
       )
       .filter((x): x is PlayerAssignment["prompts"][number] => x !== null);
-    return { prompts };
+    // The room state deliberately stops saying who has voted while a matchup is
+    // open, so a reconnecting voter gets their own flag back through here.
+    const active = this.votingActive
+      ? (this.matchups[this.currentMatchupIndex] ?? null)
+      : null;
+    const voted = active !== null && this.ctx.getPlayer(playerId)?.hasVoted === true;
+    return { prompts, votedMatchupId: voted ? active.id : null };
   }
 
   /** Re-sendable assignment also identifies authors during anonymous voting. */
@@ -172,6 +195,11 @@ export class QuiplashEngine implements GameEngine {
     if (!this.answeringActive) return;
     this.answeringActive = false;
     this.fillSafetyAnswers();
+    // Answers are stored in submission order with the canned safety quips
+    // appended last, which is enough to tell voters which text is whose. Fix a
+    // random display order once, here, so it stays put across every broadcast
+    // of the matchup.
+    for (const matchup of this.matchups) matchup.answers = shuffled(matchup.answers);
     this.currentMatchupIndex = -1;
     this.advanceMatchup();
   }

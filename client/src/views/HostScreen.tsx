@@ -241,7 +241,7 @@ export function HostScreen({
         <div className="host-body center" key="answering">
           <h2 className="phase-title">{t("writingAnswers")}</h2>
           <p className="hint">{t("answerHint")}</p>
-          <PlayerChips state={state} flag="hasSubmitted" />
+          <AnswerProgress state={state} />
         </div>
       )}
 
@@ -560,6 +560,28 @@ function QuiplashVoteView({ state }: { state: RoomState }) {
 }
 
 /**
+ * Quiplash answering progress as a count. Naming who has answered would say
+ * whose displayed answer is the canned safety quip once voting opens, so the
+ * server sends the total rather than per-player flags.
+ */
+function AnswerProgress({ state }: { state: RoomState }) {
+  const { t } = useI18n();
+  const total = state.players.filter((p) => p.connected).length;
+  if (total === 0) return null;
+  const answered = Math.min(state.progress.submitted, total);
+  return (
+    <div className="vote-progress" role="status" aria-live="polite">
+      <div className="vote-progress-bar">
+        <span style={{ width: `${(answered / total) * 100}%` }} />
+      </div>
+      <span className="vote-progress-label">
+        {t("answerProgress", { n: answered, total })}
+      </span>
+    </div>
+  );
+}
+
+/**
  * Live vote tally for the host screen.
  *
  * The room used to sit through twenty silent seconds with nothing changing.
@@ -576,7 +598,9 @@ function VoteProgress({
 }) {
   const { t } = useI18n();
   const participants = [...state.players, ...state.audience].filter((p) => p.connected);
-  const voted = participants.filter((p) => p.hasVoted).length;
+  // Counted server-side: the players still missing from the tally are exactly
+  // the authors of the two answers on screen, so they are not named here.
+  const voted = state.progress.voted;
   const eligible = Math.max(voted, participants.length - authorCount);
   if (eligible === 0) return null;
   return (

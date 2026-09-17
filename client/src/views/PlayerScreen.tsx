@@ -192,7 +192,6 @@ export function PlayerScreen({
         ) : state.gameType === "quiplash" ? (
           <AnsweringView
             assignment={assignment}
-            submitted={me?.hasSubmitted}
             timer={secondsLeft}
             code={code}
             playerId={myPlayerId}
@@ -270,13 +269,11 @@ function AudienceWaitView() {
 
 function AnsweringView({
   assignment,
-  submitted,
   timer,
   code,
   playerId,
 }: {
   assignment: PlayerAssignment | null;
-  submitted?: boolean;
   timer?: number | null;
   code: string;
   playerId: string;
@@ -363,8 +360,10 @@ function AnsweringView({
     );
   }
 
-  const allSent =
-    submitted || assignment.prompts.every((p) => sent[p.matchupId]);
+  // Seeded from the assignment, which is re-sent on reconnect, so this
+  // survives a dropped connection without the room state having to say who has
+  // answered — during quiplash that would say whose answer is the canned one.
+  const allSent = assignment.prompts.every((p) => sent[p.matchupId]);
 
   if (allSent) {
     return (
@@ -430,11 +429,13 @@ function VotingView({
   // The server already knows whether this vote landed. Without reading it, a
   // reconnect re-rendered the buttons and every tap came back "vote failed"
   // until the matchup moved on. Local state stays for instant feedback; this
-  // is the recovery path. resetFlags() runs per matchup, so the two agree.
+  // is the recovery path. Players read it from their private assignment, since
+  // publishing who has not voted would name the matchup's two authors while
+  // their answers are still anonymous; audience members author nothing and
+  // keep their public flag.
   const alreadyVoted =
-    state.players.find((p) => p.id === myPlayerId)?.hasVoted ??
-    state.audience.find((a) => a.id === myPlayerId)?.hasVoted ??
-    false;
+    (matchup !== null && assignment?.votedMatchupId === matchup.id) ||
+    (state.audience.find((a) => a.id === myPlayerId)?.hasVoted ?? false);
 
   useEffect(() => {
     setVoted(null);

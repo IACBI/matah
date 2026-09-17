@@ -113,7 +113,11 @@ test('invalid answers and votes are rejected and a complete vote advances after 
   const assignment = h.assignments.get('p1');
   const matchupId = assignment.prompts[0].matchupId;
   assert.equal(h.engine.handleAnswer('ghost', matchupId, 'answer'), false);
-  assert.equal(h.engine.handleAnswer('p3', matchupId, 'answer'), false);
+  // Pairing is shuffled per round, so the non-author has to be looked up.
+  const outsider = h.players.find((candidate) => !h.assignments
+    .get(candidate.id).prompts.some((prompt) => prompt.matchupId === matchupId));
+  assert.ok(outsider, 'every matchup has exactly one player who does not write for it');
+  assert.equal(h.engine.handleAnswer(outsider.id, matchupId, 'answer'), false);
   assert.equal(
     h.engine.handleAnswer('p1', matchupId, '   '),
     false,
@@ -140,6 +144,34 @@ test('invalid answers and votes are rejected and a complete vote advances after 
 
   h.engine.dispose();
   assert.equal(h.engine.currentAssignment('p1'), null);
+});
+
+test('neither the pairing nor the answer order follows the visible roster', () => {
+  // Both orders are broadcast to everyone while a vote is open, so either one
+  // tracking the roster hands the room a map from a displayed answer back to
+  // the player who wrote it. Over 40 rounds both must vary.
+  const coAuthors = new Set();
+  const cannedShownFirst = new Set();
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const h = harness();
+    h.engine.start();
+    const matchupId = h.assignments.get('p1').prompts[0].matchupId;
+    const partner = h.players.find((candidate) => candidate.id !== 'p1' && h.assignments
+      .get(candidate.id).prompts.some((prompt) => prompt.matchupId === matchupId));
+    coAuthors.add(partner.id);
+
+    assert.equal(h.engine.handleAnswer('p1', matchupId, 'real'), true);
+    h.fireTimeout();
+    const active = h.engine.serialize().quiplash.activeMatchup;
+    assert.equal(active.id, matchupId, 'the only matchup with a real answer is the votable one');
+    cannedShownFirst.add(active.answers[0].text !== 'real');
+  }
+  assert.deepEqual([...coAuthors].sort(), ['p2', 'p3'], 'authors must not be roster neighbours');
+  assert.deepEqual(
+    [...cannedShownFirst].sort(),
+    [false, true],
+    'a canned safety quip must not always be the last answer shown',
+  );
 });
 
 test('voting skips abandoned matchups and reaches results without a voter', () => {

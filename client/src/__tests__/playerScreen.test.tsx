@@ -39,13 +39,16 @@ function votingState(me: ReturnType<typeof player>) {
   });
 }
 
-function renderVoting(me: ReturnType<typeof player>) {
+function renderVoting(
+  me: ReturnType<typeof player>,
+  votedMatchupId: string | null = null,
+) {
   return renderApp(
     <PlayerScreen
       code="ABCD"
       myPlayerId={me.id}
       state={votingState(me)}
-      assignment={{ prompts: [] }}
+      assignment={{ prompts: [], votedMatchupId }}
       secondsLeft={12}
       connected
       leaving={false}
@@ -67,10 +70,12 @@ describe('PlayerScreen voting', () => {
   });
 
   it('shows the vote as saved when the server says it landed', () => {
-    // A reconnect remounts this view with no local state. Before reading
-    // `hasVoted`, the buttons came back and every tap returned vote_failed
-    // until the matchup advanced.
-    renderVoting(player('me', { hasVoted: true }));
+    // A reconnect remounts this view with no local state. Without the server's
+    // answer, the buttons came back and every tap returned vote_failed until
+    // the matchup advanced. Players read it from the private assignment: the
+    // room state does not publish who has voted while a matchup is open,
+    // because those who have not are its authors.
+    renderVoting(player('me'), MATCHUP.id);
     expect(screen.queryByRole('button', { name: /Titanic II/ })).toBeNull();
     expect(screen.getByText(/vote saved/i)).not.toBeNull();
   });

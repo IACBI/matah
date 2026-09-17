@@ -19,6 +19,7 @@ function state(overrides: Partial<RoomState> = {}): RoomState {
     phaseEndsAt: 15_000,
     serverNow: 10_000,
     controllerPlayerId: null,
+    progress: { submitted: 0, voted: 0 },
     ...overrides,
   };
 }

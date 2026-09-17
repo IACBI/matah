@@ -128,6 +128,7 @@ describe('PlayerScreen quiplash answering', () => {
 
   const assignment: PlayerAssignment = {
     prompts: [{ matchupId: 'm1', prompt: 'A terrible slogan for a bank', submitted: false }],
+    votedMatchupId: null,
   };
 
   function answeringState() {
@@ -234,13 +235,20 @@ describe('PlayerScreen quiplash answering', () => {
   });
 
   it('shows the waiting view once the server says everything is in', () => {
+    // Quiplash keeps per-player submit flags out of the room state, so the
+    // assignment — re-sent on reconnect — is what says the answer landed.
     renderPlayer(
       roomState({
         phase: 'answering',
         gameType: 'quiplash',
-        players: [player(ME, { hasSubmitted: true }), player('p2'), player('p3')],
+        players: [player(ME), player('p2'), player('p3')],
       }),
-      { assignment },
+      {
+        assignment: {
+          prompts: [{ ...assignment.prompts[0], submitted: true }],
+          votedMatchupId: null,
+        },
+      },
     );
     expect(screen.queryByRole('textbox')).toBeNull();
   });
@@ -286,6 +294,7 @@ describe('PlayerScreen quiplash voting', () => {
       {
         assignment: {
           prompts: [{ matchupId: 'm1', prompt: 'A terrible slogan for a bank', submitted: true }],
+          votedMatchupId: null,
         },
       },
     );
@@ -507,6 +516,7 @@ describe('PlayerScreen draft cleanup', () => {
       {
         assignment: {
           prompts: [{ matchupId: 'm1', prompt: 'A slogan', submitted: false }],
+          votedMatchupId: null,
         },
       },
     );
@@ -547,6 +557,7 @@ describe('PlayerScreen draft storage failure', () => {
         {
           assignment: {
             prompts: [{ matchupId: 'm1', prompt: 'A slogan', submitted: false }],
+            votedMatchupId: null,
           },
         },
       );

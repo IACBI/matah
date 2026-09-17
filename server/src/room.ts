@@ -774,11 +774,21 @@ export class Room {
     const players: Player[] = [];
     const audience: RoomState["audience"] = [];
     let hostConnected = false;
+    const progress = { submitted: 0, voted: 0 };
+    // Quiplash judges answers anonymously, and per-player progress gives that
+    // away: whoever has not answered wrote the canned safety quip, and the
+    // connected players who have not voted on a matchup are its two authors.
+    // Broadcast the counts the UI actually shows and blank the flags. Audience
+    // flags stay as they are — nobody in the audience writes anything.
+    const anonymousProgress =
+      this.gameType === "quiplash" &&
+      (this.phase === "answering" || this.phase === "voting");
     // One pass instead of the four separate filters this used to run.
     for (const player of this.players.values()) {
       if (player.isHost) {
         hostConnected ||= player.connected;
       } else if (player.isAudience) {
+        if (player.connected && player.hasVoted) progress.voted += 1;
         audience.push({
           id: player.id,
           name: player.name,
@@ -787,7 +797,13 @@ export class Room {
           hasVoted: player.hasVoted,
         });
       } else {
-        players.push({ ...player });
+        if (player.connected && player.hasSubmitted) progress.submitted += 1;
+        if (player.connected && player.hasVoted) progress.voted += 1;
+        players.push(
+          anonymousProgress
+            ? { ...player, hasSubmitted: false, hasVoted: false }
+            : { ...player }
+        );
       }
     }
     return {
@@ -804,6 +820,7 @@ export class Room {
       phaseEndsAt: this.phaseEndsAt,
       serverNow: this.wallNow(),
       controllerPlayerId: this.controllerPlayerId,
+      progress,
       quiplash: view?.quiplash,
       trivia: view?.trivia,
     };

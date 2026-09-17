@@ -55,6 +55,40 @@ test('ending a game drops the abandoned engine but keeps the round counters', as
   room.dispose();
 });
 
+test('quiplash reports progress as a count, trivia names the players', async () => {
+  const room = seated(3, 1);
+  assert.equal(room.room.start('quiplash', 1), null);
+  const assignment = room.assignments.get('p1-socket');
+  assert.ok(assignment, 'every seated player is handed prompts');
+  // A player counts as done only once both of their prompts are in.
+  for (const prompt of assignment.prompts) {
+    assert.equal(
+      room.room.submitAnswer(room.players[0].playerId, prompt.matchupId, 'mine'),
+      true,
+    );
+  }
+
+  const answering = await room.state();
+  assert.equal(
+    answering.players.some((entry) => entry.hasSubmitted),
+    false,
+    'naming who has answered says whose displayed answer is the canned one',
+  );
+  assert.equal(answering.progress.submitted, 1, 'the count is what the host screen shows');
+  room.dispose();
+
+  // Trivia has no anonymous authorship to protect, so its per-player flags
+  // stay: the host screen ticks off each player as their answer lands.
+  const quiz = seated(3);
+  assert.equal(quiz.room.start('trivia', 1), null);
+  const question = (await quiz.state()).trivia.question;
+  assert.equal(quiz.room.submitTriviaAnswer(quiz.players[0].playerId, question.id, 0), true);
+  const answered = await quiz.state();
+  assert.equal(answered.players.filter((entry) => entry.hasSubmitted).length, 1);
+  assert.equal(answered.progress.submitted, 1);
+  quiz.dispose();
+});
+
 test('spectators are given seats when a game starts, restarts, or rematches', async () => {
   const room = seated(2, 2);
   // Two seated players is below the floor; the spectators make it playable.
