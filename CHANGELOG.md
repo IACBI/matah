@@ -49,6 +49,16 @@ Notable project changes are recorded here. Matah follows the structure of
 - Phase timing uses server deadlines, reducing repeated full-state broadcasts.
 - Render installs from the lockfile and restricts Socket.IO to the public
   deployment origin.
+- **Per-address limits are sized for a carrier NAT, not one household.** An
+  IPv4 address can front hundreds of mobile subscribers, and after a network
+  blip they all reconnect at once; the connection, action, create and rejoin
+  budgets were sized for eight phones at one table. They are wider now because
+  the new session and room ceilings, not the rates, are what bound abuse.
+  `room:join` is the exception and stays where it was: a wrong room code is
+  charged to that window and nowhere else.
+- The minimum supported Node.js is now 24.15 (or 26 and up), and the Docker
+  image builds and runs on the same 24.x line as CI and the Render blueprint
+  instead of 25.
 - Accessibility: contrast, touch target sizing, avatar grid layout on narrow
   screens, and a visible focus ring on the language selector.
 

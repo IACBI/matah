@@ -90,23 +90,26 @@ considered.
 ## Rate limiting
 
 Every limiter reads its ceiling from the environment via `MATAH_RL_*`,
-falling back to a default sized for a party sharing one NAT'd address rather
-than a single visitor — after a Wi-Fi blip, every phone at the table
-reconnects at once and must fit inside the same per-IP budget.
+falling back to a default sized for a shared address rather than a single
+visitor. One IPv4 address can be an entire carrier NAT — mobile operators put
+hundreds of subscribers behind one — and after a network blip all of them come
+back at once running socket.io's retry ladder, so a budget sized for a single
+household's phones would turn that into a queue. IPv6 folds to a /56, which
+really is one household, but a default has to suit the worse case.
 
 | Variable | Default | Scope | Limits |
 |---|---|---|---|
-| `MATAH_RL_CONN_BURST` | 60 | per IP | Socket.IO connection attempts (token bucket capacity) |
-| `MATAH_RL_CONN_REFILL` | 2/s | per IP | Connection attempts refill rate |
-| `MATAH_RL_ACTION_BURST` | 80 | per IP | Socket event actions (token bucket capacity) |
-| `MATAH_RL_ACTION_REFILL` | 20/s | per IP | Socket event actions refill rate |
-| `MATAH_RL_CREATE` | 10 | per IP / 10 min | `room:create` |
-| `MATAH_RL_JOIN` | 60 | per IP / 60 s | `room:join` |
+| `MATAH_RL_CONN_BURST` | 120 | per IP | Socket.IO connection attempts (token bucket capacity) |
+| `MATAH_RL_CONN_REFILL` | 8/s | per IP | Connection attempts refill rate |
+| `MATAH_RL_ACTION_BURST` | 400 | per IP | Socket event actions (token bucket capacity); each socket also has its own 20/10-per-s bucket |
+| `MATAH_RL_ACTION_REFILL` | 100/s | per IP | Socket event actions refill rate |
+| `MATAH_RL_CREATE` | 30 | per IP / 10 min | `room:create`, with `MATAH_RL_ROOMS_PER_IP` below as the actual brake on saturation |
+| `MATAH_RL_JOIN` | 60 | per IP / 60 s | `room:join`; deliberately not widened with the rest, since a wrong room code is charged here and nowhere else |
 | `MATAH_RL_JOIN_ROOM` | 40 | per room code / 60 s | `room:join`, scoped to the target room so flooding one room costs the attacker rather than every other player behind the same router |
-| `MATAH_RL_REJOIN` | 20 | per IP / 60 s | `room:rejoin`, which has its own ceiling because every successful rejoin fans a full room state out to up to 29 members |
+| `MATAH_RL_REJOIN` | 120 | per IP / 60 s | `room:rejoin`, which has its own ceiling because every successful rejoin fans a full room state out to up to 29 members |
 | `MATAH_RL_MAX_CONNECTIONS` | 5000 | whole server | live Socket.IO sessions, refused at the handshake |
-| `MATAH_RL_CONNECTIONS_PER_IP` | 100 | per IP | one address's share of those live sessions |
-| `MATAH_RL_ROOMS_PER_IP` | 5 | per IP | rooms one address may own at the same time |
+| `MATAH_RL_CONNECTIONS_PER_IP` | 250 | per IP | one address's share of those live sessions |
+| `MATAH_RL_ROOMS_PER_IP` | 20 | per IP | rooms one address may own at the same time |
 
 "Per IP" means per rate-limit identity rather than per address as received: an
 IPv4-mapped IPv6 address folds to its dotted form and a native IPv6 address
@@ -125,6 +128,15 @@ until `room:create` returns `server_busy` to everyone else. Both ceilings are
 checked before engine.io allocates the socket and never touch sessions that
 already exist, so shedding new load leaves running games alone; the room quota
 counts only rooms still owned, so releasing one hands the slot back.
+
+The rates above are generous because they are no longer the only brake. A
+create rate was once the only thing between one client and all 500 registry
+slots; now the quota is, so the rate can suit a carrier NAT without reopening
+that. The two per-address counts are each a small share of their global
+ceiling — 5 % of the sessions, 4 % of the registry — so filling either still
+takes 20-odd distinct addresses. They do not stop someone with a delegated
+prefix to spend (a /48 holds 256 distinct /56 keys); they stop the single
+client, which is the attack the reference deployments actually face.
 
 The global ceiling on its own would keep the process alive without keeping it
 useful — one client can reach it unaided and every other player is then turned
