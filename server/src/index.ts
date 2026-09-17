@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import compression from "compression";
 import helmet from "helmet";
-import { rateLimit } from "express-rate-limit";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { Server } from "socket.io";
 import type {
   ApiResult,
@@ -114,15 +114,39 @@ const rejoinLimiter = new BoundedWindowRateLimiter(
 );
 const reactionRoomLimiter = new BoundedRateLimiter(20, 20, 1_000, 10 * 60_000);
 
+// Those buckets meter how fast connections *arrive*; none of them limits how
+// many *accumulate*. A session that answers engine.io's pings is never
+// reclaimed by anything, so one address at the sanctioned rate piles up idle
+// sockets by the thousand until the single process hosting every room runs out
+// of heap and takes all of them down with it. Arrival rate cannot express that
+// ceiling, so state it directly.
+const MAX_LIVE_CONNECTIONS = limit("MAX_CONNECTIONS", 1_000);
+
+/**
+ * Collapse a peer address to the identity the per-IP limiters key on:
+ * IPv4-mapped IPv6 folds to its dotted IPv4 form and native IPv6 truncates to
+ * its /56 network. An IPv6 client owns every address in its delegated prefix
+ * and may source each connection from a different one — SLAAC privacy
+ * extensions do precisely that on their own — so keying on the address as
+ * received hands every connection a brand-new budget and voids all five
+ * ceilings above. This is express-rate-limit's own default key, reused so the
+ * HTTP and socket layers agree on what counts as one client.
+ */
+function limiterKey(address: string): string {
+  return ipKeyGenerator(address);
+}
+
 function clientAddress(request: IncomingMessage): string {
   const forwarded = request.headers["x-forwarded-for"];
   if (isProd && typeof forwarded === "string") {
     // This deployment trusts exactly one edge proxy. Use the right-most hop so
     // a client-supplied leading X-Forwarded-For value cannot rotate rate-limit
     // identities when the edge appends the real address.
-    return forwarded.split(",").at(-1)?.trim() || request.socket.remoteAddress || "unknown";
+    return limiterKey(
+      forwarded.split(",").at(-1)?.trim() || request.socket.remoteAddress || "unknown"
+    );
   }
-  return request.socket.remoteAddress ?? "unknown";
+  return limiterKey(request.socket.remoteAddress ?? "unknown");
 }
 
 function originAllowed(origin: string | undefined): boolean {
@@ -176,6 +200,13 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
       callback("origin_not_allowed", false);
       return;
     }
+    // Refused before engine.io allocates the socket. Sessions that already
+    // exist are untouched — their polls and upgrades carry a sid and never
+    // reach this hook — so running games keep playing while new load is shed.
+    if (io.engine.clientsCount >= MAX_LIVE_CONNECTIONS) {
+      callback("server_busy", false);
+      return;
+    }
     if (!connectionLimiter.take(clientAddress(request))) {
       callback("rate_limited", false);
       return;
@@ -192,6 +223,15 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 
 const rooms = new Map<string, Room>();
 const MAX_ROOMS = 500;
+// MAX_ROOMS is a global quota, but creation is throttled per address only: one
+// patient client can take every slot and keep it, since a connected socket plus
+// any accepted event before the idle timeout defeats every reclamation path.
+// Every other user then gets server_busy until a restart that destroys all the
+// legitimate games. Cap how many live rooms one address may own at once.
+const MAX_ROOMS_PER_IP = limit("ROOMS_PER_IP", 5);
+/** Room code -> the address that created it, plus the live tally per address. */
+const roomOwners = new Map<string, string>();
+const roomsPerIp = new Map<string, number>();
 const IDLE_MS = 30 * 60_000;
 /** Everyone has dropped and nothing has happened since — reclaim sooner. */
 const ABANDONED_IDLE_MS = 5 * 60_000;
@@ -203,21 +243,29 @@ export function activeRoomCount(): number {
   return rooms.size;
 }
 
+/** The only way out of the registry, so the per-owner tally cannot drift. */
+function removeRoom(code: string): void {
+  const room = rooms.get(code);
+  if (!room) return;
+  room.dispose();
+  rooms.delete(code);
+  const owner = roomOwners.get(code);
+  roomOwners.delete(code);
+  if (owner === undefined) return;
+  const left = (roomsPerIp.get(owner) ?? 1) - 1;
+  if (left > 0) roomsPerIp.set(owner, left);
+  else roomsPerIp.delete(owner);
+}
+
 function sweepIdleRooms(): void {
   for (const [code, room] of rooms) {
-    if (room.isStale(IDLE_MS, ABANDONED_IDLE_MS)) {
-      room.dispose();
-      rooms.delete(code);
-    }
+    if (room.isStale(IDLE_MS, ABANDONED_IDLE_MS)) removeRoom(code);
   }
 }
 
 /** Drop a room the moment its last member is gone. */
 function deleteIfVacant(room: Room): void {
-  if (rooms.get(room.code) === room && room.isVacant()) {
-    room.dispose();
-    rooms.delete(room.code);
-  }
+  if (rooms.get(room.code) === room && room.isVacant()) removeRoom(room.code);
 }
 
 let sweepHandle: NodeJS.Timeout | null = null;
@@ -313,6 +361,9 @@ io.on("connection", (socket) => {
     guard(callback, "room:create", () => {
       if (!roomCreateLimiter.take(ip)) return { ok: false, error: "rate_limited" };
       if (rooms.size >= MAX_ROOMS) return { ok: false, error: "server_busy" };
+      if ((roomsPerIp.get(ip) ?? 0) >= MAX_ROOMS_PER_IP) {
+        return { ok: false, error: "rate_limited" };
+      }
       const language = LANGUAGES.includes(payload?.language as Language)
         ? (payload.language as Language)
         : "tr";
@@ -326,6 +377,10 @@ io.on("connection", (socket) => {
           io.to(socketId).emit("player:assignment", assignment)
       );
       rooms.set(code, room);
+      // Counted after leaveCurrentRoom(), which may just have released — and
+      // decremented — this socket's previous room.
+      roomOwners.set(code, ip);
+      roomsPerIp.set(ip, (roomsPerIp.get(ip) ?? 0) + 1);
       const session = room.addHost(socket.id);
       socket.join(code);
       joinedCode = code;
@@ -655,6 +710,8 @@ export function stopServer(): Promise<void> {
   sweepHandle = null;
   for (const room of rooms.values()) room.dispose();
   rooms.clear();
+  roomOwners.clear();
+  roomsPerIp.clear();
   if (!httpServer.listening) return Promise.resolve();
   return new Promise((resolve) => io.close(() => resolve()));
 }

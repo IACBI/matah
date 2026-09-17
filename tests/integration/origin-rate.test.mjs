@@ -22,6 +22,9 @@ process.env.PUBLIC_ORIGIN = url;
 // whatever the shipped default happens to be.
 const CREATE_LIMIT = 5;
 process.env.MATAH_RL_CREATE = String(CREATE_LIMIT);
+// The per-address room quota is exercised in capacity.test.mjs; leave it out
+// of the way here so the assertions below fail for the limiter under test.
+process.env.MATAH_RL_ROOMS_PER_IP = '500';
 const { startServer, stopServer } = await import('../../server/src/index.ts');
 const sockets = [];
 
@@ -115,6 +118,33 @@ test('create limit uses the trusted right-most forwarded address', async () => {
   }
   assert.equal(results.slice(0, CREATE_LIMIT).every((result) => result.ok), true);
   assert.deepEqual(results[CREATE_LIMIT], { ok: false, error: 'rate_limited' });
+});
+
+test('one IPv6 prefix is one rate-limit identity', async () => {
+  // A client with an IPv6 prefix picks a new source address per connection for
+  // free, so the addresses below are all genuinely its own. Folding them to
+  // their /56 network — the same identity express-rate-limit's HTTP layer uses
+  // — is what stops a single client from buying a fresh budget per connection.
+  const results = [];
+  for (let index = 0; index <= CREATE_LIMIT; index += 1) {
+    const socket = await connect(url, `2001:db8:1:${index}:abcd::${index + 1}`);
+    results.push(await ack(socket, 'room:create', { language: 'en' }));
+  }
+  assert.equal(results.slice(0, CREATE_LIMIT).every((result) => result.ok), true);
+  assert.deepEqual(results[CREATE_LIMIT], { ok: false, error: 'rate_limited' });
+});
+
+test('an IPv4-mapped address and its plain form are one identity', async () => {
+  // One socket per create: room:create costs half of a socket's own bucket.
+  for (let index = 0; index < CREATE_LIMIT; index += 1) {
+    const socket = await connect(url, '::ffff:198.51.100.77');
+    assert.equal((await ack(socket, 'room:create', { language: 'en' })).ok, true);
+  }
+  const plain = await connect(url, '198.51.100.77');
+  assert.deepEqual(await ack(plain, 'room:create', { language: 'en' }), {
+    ok: false,
+    error: 'rate_limited',
+  });
 });
 
 test('one socket cannot remain authorized as two room identities', async () => {

@@ -7,6 +7,7 @@ import { clients } from '../helpers/socket.mjs';
 // budget would throttle setup. origin-rate.test.mjs covers the limits.
 process.env.MATAH_RL_CREATE = '500';
 process.env.MATAH_RL_ACTION_BURST = '5000';
+process.env.MATAH_RL_ROOMS_PER_IP = '500';
 const { startServer, stopServer } = await import('../../server/src/index.ts');
 
 let baseUrl;
