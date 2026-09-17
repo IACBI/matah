@@ -119,8 +119,26 @@ const reactionRoomLimiter = new BoundedRateLimiter(20, 20, 1_000, 10 * 60_000);
 // reclaimed by anything, so one address at the sanctioned rate piles up idle
 // sockets by the thousand until the single process hosting every room runs out
 // of heap and takes all of them down with it. Arrival rate cannot express that
-// ceiling, so state it directly.
-const MAX_LIVE_CONNECTIONS = limit("MAX_CONNECTIONS", 1_000);
+// ceiling, so state it directly. It has to sit above what a full registry
+// implies — MAX_ROOMS rooms of up to 8 players, 20 audience and a host — or
+// the app would refuse the capacity it advertises, and far enough below the
+// process's heap that reaching it is a shrug rather than a crash.
+const MAX_LIVE_CONNECTIONS = limit("MAX_CONNECTIONS", 5_000);
+// A global ceiling alone keeps the process alive without keeping it useful:
+// one client can reach it by itself and every new player anywhere is turned
+// away, which is a cheaper denial than the crash it prevents. This is each
+// address's share of it. A household needs a socket per phone plus the TV, and
+// briefly more while socket.io's retry ladder overlaps old and new sessions.
+// The map holds one entry per address with a live session, so the count of
+// live sessions bounds it.
+const MAX_CONNECTIONS_PER_IP = limit("CONNECTIONS_PER_IP", 100);
+const liveConnections = new Map<string, number>();
+
+/** The part of an engine.io session used here; engine.io is a transitive dep. */
+type EngineSession = {
+  request: IncomingMessage;
+  once(event: "close", listener: () => void): unknown;
+};
 
 /**
  * Collapse a peer address to the identity the per-IP limiters key on:
@@ -207,7 +225,12 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
       callback("server_busy", false);
       return;
     }
-    if (!connectionLimiter.take(clientAddress(request))) {
+    const address = clientAddress(request);
+    if ((liveConnections.get(address) ?? 0) >= MAX_CONNECTIONS_PER_IP) {
+      callback("rate_limited", false);
+      return;
+    }
+    if (!connectionLimiter.take(address)) {
       callback("rate_limited", false);
       return;
     }
@@ -219,6 +242,20 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     maxDisconnectionDuration: 120_000,
     skipMiddlewares: false,
   },
+});
+
+// Counted at the engine.io layer rather than in io.on("connection"): a
+// handshake that never sends a CONNECT frame still holds a socket, an fd and
+// its timers for the 45 s socket.io gives it, and must still cost its address
+// something.
+io.engine.on("connection", (socket: EngineSession) => {
+  const address = clientAddress(socket.request);
+  liveConnections.set(address, (liveConnections.get(address) ?? 0) + 1);
+  socket.once("close", () => {
+    const left = (liveConnections.get(address) ?? 1) - 1;
+    if (left > 0) liveConnections.set(address, left);
+    else liveConnections.delete(address);
+  });
 });
 
 const rooms = new Map<string, Room>();
@@ -712,6 +749,7 @@ export function stopServer(): Promise<void> {
   rooms.clear();
   roomOwners.clear();
   roomsPerIp.clear();
+  liveConnections.clear();
   if (!httpServer.listening) return Promise.resolve();
   return new Promise((resolve) => io.close(() => resolve()));
 }

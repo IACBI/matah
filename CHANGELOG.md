@@ -17,8 +17,10 @@ Notable project changes are recorded here. Matah follows the structure of
   room, replacing the browser's native confirm prompt.
 - Configurable rate limits (`MATAH_RL_*` environment variables) for
   connections, gameplay actions, room creation, joins, and rejoins.
-- A global ceiling on live Socket.IO sessions (`MATAH_RL_MAX_CONNECTIONS`) and
-  a per-address ceiling on rooms held at once (`MATAH_RL_ROOMS_PER_IP`).
+- Ceilings on what can accumulate rather than how fast it arrives: live
+  Socket.IO sessions overall (`MATAH_RL_MAX_CONNECTIONS`), one address's share
+  of them (`MATAH_RL_CONNECTIONS_PER_IP`), and rooms one address holds at once
+  (`MATAH_RL_ROOMS_PER_IP`).
 - 27 new interface strings across all 14 languages, including reaction and
   timer labels for screen readers.
 
@@ -74,10 +76,12 @@ Notable project changes are recorded here. Matah follows the structure of
   fold to their dotted form, IPv6 addresses to their /56 network — so a client
   rotating source addresses inside its own prefix can no longer buy itself a
   fresh budget on every connection.
-- Rate limits are backed by ceilings on what can accumulate: the number of
-  live sessions the server admits, and the number of rooms one address holds.
-  Neither could be expressed as a rate, and without them a client staying
-  inside every published rate could still exhaust memory or the room registry.
+- Rate limits are backed by ceilings on what can accumulate: the live sessions
+  the server admits, each address's share of them, and the rooms one address
+  holds. None of these could be expressed as a rate, and without them a client
+  staying inside every published rate could still exhaust memory or the room
+  registry — or, with only a global ceiling, take every remaining session slot
+  by itself and leave everyone else unable to connect.
 - Quiplash shuffles each matchup's answers and each round's pairing, so that
   neither the order answers are displayed in nor a matchup's position in the
   round leaks who wrote what while voting is open.

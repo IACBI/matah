@@ -104,7 +104,8 @@ reconnects at once and must fit inside the same per-IP budget.
 | `MATAH_RL_JOIN` | 60 | per IP / 60 s | `room:join` |
 | `MATAH_RL_JOIN_ROOM` | 40 | per room code / 60 s | `room:join`, scoped to the target room so flooding one room costs the attacker rather than every other player behind the same router |
 | `MATAH_RL_REJOIN` | 20 | per IP / 60 s | `room:rejoin`, which has its own ceiling because every successful rejoin fans a full room state out to up to 29 members |
-| `MATAH_RL_MAX_CONNECTIONS` | 1000 | whole server | live Socket.IO sessions, refused at the handshake |
+| `MATAH_RL_MAX_CONNECTIONS` | 5000 | whole server | live Socket.IO sessions, refused at the handshake |
+| `MATAH_RL_CONNECTIONS_PER_IP` | 100 | per IP | one address's share of those live sessions |
 | `MATAH_RL_ROOMS_PER_IP` | 5 | per IP | rooms one address may own at the same time |
 
 "Per IP" means per rate-limit identity rather than per address as received: an
@@ -115,15 +116,25 @@ a different address inside it for free — SLAAC privacy extensions do exactly
 that unprompted — so keying on the address itself would hand each connection
 a brand-new budget and void every ceiling in the table.
 
-The last two entries are counts rather than rates, because a rate says nothing
-about accumulation. A session that answers engine.io's pings is never reclaimed
-and a room whose creator stays connected is never swept, so a client staying
-inside every rate above can still pile up sessions until the one process
-hosting every room runs out of heap, or hold all 500 registry slots until
-`room:create` returns `server_busy` to everyone else. The connection ceiling
-is checked before engine.io allocates the socket and never touches sessions
-that already exist, so shedding new load leaves running games alone; the room
-quota counts only rooms still owned, so releasing one hands the slot back.
+The last three entries are counts rather than rates, because a rate says
+nothing about accumulation. A session that answers engine.io's pings is never
+reclaimed and a room whose creator stays connected is never swept, so a client
+staying inside every rate above can still pile up sessions until the one
+process hosting every room runs out of heap, or hold all 500 registry slots
+until `room:create` returns `server_busy` to everyone else. Both ceilings are
+checked before engine.io allocates the socket and never touch sessions that
+already exist, so shedding new load leaves running games alone; the room quota
+counts only rooms still owned, so releasing one hands the slot back.
+
+The global ceiling on its own would keep the process alive without keeping it
+useful — one client can reach it unaided and every other player is then turned
+away — so `MATAH_RL_CONNECTIONS_PER_IP` is each address's share of it. Live
+sessions are counted at the engine.io layer rather than on `io.on("connection")`,
+so a handshake that never sends a CONNECT frame still costs its address the
+socket it is holding. `MATAH_RL_MAX_CONNECTIONS` sits above what a full
+registry implies (500 rooms of up to 8 players, 20 audience and a host) and far
+below the heap the process has, so reaching it is a refusal rather than a
+crash.
 
 In front of all of those sits one HTTP limiter of 120 requests per IP per
 minute, covering the health endpoint and the SPA shell. It deliberately does
