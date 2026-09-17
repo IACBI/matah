@@ -139,7 +139,7 @@ built client from the same origin.
 | `PORT` | No | HTTP port; defaults to `3001`. Hosting platforms normally provide it. |
 | `NODE_ENV` | Production | Set to `production` to enable production security headers and static serving. |
 
-Eight more variables (`MATAH_RL_CONN_BURST`, `MATAH_RL_CONN_REFILL`, `MATAH_RL_ACTION_BURST`, `MATAH_RL_ACTION_REFILL`, `MATAH_RL_CREATE`, `MATAH_RL_JOIN`, `MATAH_RL_JOIN_ROOM`, `MATAH_RL_REJOIN`) tune the connection, action, and room rate limiters. All are optional — the defaults are sized for a household sharing one address, not a single user — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rate-limiting) for the full list and the reasoning behind each default.
+Ten more variables (`MATAH_RL_CONN_BURST`, `MATAH_RL_CONN_REFILL`, `MATAH_RL_ACTION_BURST`, `MATAH_RL_ACTION_REFILL`, `MATAH_RL_CREATE`, `MATAH_RL_JOIN`, `MATAH_RL_JOIN_ROOM`, `MATAH_RL_REJOIN`, `MATAH_RL_MAX_CONNECTIONS`, `MATAH_RL_ROOMS_PER_IP`) tune the connection, action, and room limits. All are optional — the defaults are sized for a household sharing one address, not a single user — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rate-limiting) for the full list and the reasoning behind each default.
 
 Matah keeps rooms and scores in process memory. Run one application instance:
 deploys, restarts, and crashes end active rooms, and horizontal replicas do not

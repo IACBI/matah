@@ -17,6 +17,8 @@ Notable project changes are recorded here. Matah follows the structure of
   room, replacing the browser's native confirm prompt.
 - Configurable rate limits (`MATAH_RL_*` environment variables) for
   connections, gameplay actions, room creation, joins, and rejoins.
+- A global ceiling on live Socket.IO sessions (`MATAH_RL_MAX_CONNECTIONS`) and
+  a per-address ceiling on rooms held at once (`MATAH_RL_ROOMS_PER_IP`).
 - 27 new interface strings across all 14 languages, including reaction and
   timer labels for screen readers.
 
@@ -26,6 +28,9 @@ Notable project changes are recorded here. Matah follows the structure of
   answers in a matchup are real, and every submitted answer earns a flat
   bonus regardless of how the vote goes — being paired with someone who ran
   out the clock no longer outscores winning a genuine head-to-head.
+- **During Quiplash the host screen shows how many players have answered**
+  rather than ticking each one off by name, which is what kept answer
+  authorship inferable while the room was still voting. Trivia is unchanged.
 - **A game now ends to the scoreboard if the room drops below three players
   mid-round**, instead of continuing with a matchup nobody present can vote
   on.
@@ -65,6 +70,21 @@ Notable project changes are recorded here. Matah follows the structure of
   rejected during this work.
 - `kick` is scoped to the connected host only, even after control authority
   fails over to an elected player controller.
+- Per-address limits now key on a normalized identity — IPv4-mapped addresses
+  fold to their dotted form, IPv6 addresses to their /56 network — so a client
+  rotating source addresses inside its own prefix can no longer buy itself a
+  fresh budget on every connection.
+- Rate limits are backed by ceilings on what can accumulate: the number of
+  live sessions the server admits, and the number of rooms one address holds.
+  Neither could be expressed as a rate, and without them a client staying
+  inside every published rate could still exhaust memory or the room registry.
+- Quiplash shuffles each matchup's answers and each round's pairing, so that
+  neither the order answers are displayed in nor a matchup's position in the
+  round leaks who wrote what while voting is open.
+- Quiplash no longer broadcasts per-player answer and vote flags while a round
+  is being written or judged. Whoever has not answered is the author of the
+  canned quip on screen, and the players yet to vote on a matchup are the two
+  who wrote it, so the room now receives aggregate counts instead.
 
 ## [0.1.0] - 2026-06-26
 

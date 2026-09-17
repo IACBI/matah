@@ -104,6 +104,26 @@ reconnects at once and must fit inside the same per-IP budget.
 | `MATAH_RL_JOIN` | 60 | per IP / 60 s | `room:join` |
 | `MATAH_RL_JOIN_ROOM` | 40 | per room code / 60 s | `room:join`, scoped to the target room so flooding one room costs the attacker rather than every other player behind the same router |
 | `MATAH_RL_REJOIN` | 20 | per IP / 60 s | `room:rejoin`, which has its own ceiling because every successful rejoin fans a full room state out to up to 29 members |
+| `MATAH_RL_MAX_CONNECTIONS` | 1000 | whole server | live Socket.IO sessions, refused at the handshake |
+| `MATAH_RL_ROOMS_PER_IP` | 5 | per IP | rooms one address may own at the same time |
+
+"Per IP" means per rate-limit identity rather than per address as received: an
+IPv4-mapped IPv6 address folds to its dotted form and a native IPv6 address
+folds to its /56 network, which is what the HTTP limiter in front of them all
+keys on too. A client holding an IPv6 prefix can source every connection from
+a different address inside it for free — SLAAC privacy extensions do exactly
+that unprompted — so keying on the address itself would hand each connection
+a brand-new budget and void every ceiling in the table.
+
+The last two entries are counts rather than rates, because a rate says nothing
+about accumulation. A session that answers engine.io's pings is never reclaimed
+and a room whose creator stays connected is never swept, so a client staying
+inside every rate above can still pile up sessions until the one process
+hosting every room runs out of heap, or hold all 500 registry slots until
+`room:create` returns `server_busy` to everyone else. The connection ceiling
+is checked before engine.io allocates the socket and never touches sessions
+that already exist, so shedding new load leaves running games alone; the room
+quota counts only rooms still owned, so releasing one hands the slot back.
 
 In front of all of those sits one HTTP limiter of 120 requests per IP per
 minute, covering the health endpoint and the SPA shell. It deliberately does
@@ -117,7 +137,7 @@ through to the shell.
 Reactions have a separate, fixed (non-configurable) limit: 3 tokens refilling
 at 3/s per socket, plus a 20/20 per-room bucket, since a reaction storm is a
 cosmetic annoyance rather than a resource risk and does not need the same
-operational tuning as the other five.
+operational tuning as the limits above.
 
 ## Trust boundaries and abuse controls
 
@@ -129,8 +149,18 @@ operational tuning as the other five.
   bounded per-socket limiter; reactions also have socket and room limits.
 - Names and answers are NFC-normalized, stripped of control/bidirectional
   formatting characters, and truncated on Unicode code-point boundaries.
-- Quiplash vote payloads expose random answer IDs and text only. Authorship is
-  revealed after voting.
+- Quiplash vote payloads expose random answer IDs and text only, in an order
+  shuffled once per matchup so that neither submission order nor the canned
+  safety quips sitting last identifies an author. Round pairings are shuffled
+  too, so a matchup's index cannot be read against the broadcast roster.
+  Authorship is revealed after voting.
+- While quiplash is answering or voting, per-player `hasSubmitted` and
+  `hasVoted` are replaced by the aggregate counts in `RoomState.progress`:
+  whoever has not answered wrote the canned quip on screen, and the connected
+  players who have not voted on a matchup are exactly its two authors. Audience
+  vote flags stay public — the audience writes nothing — and a reconnecting
+  player recovers their own vote state from their private assignment. Trivia
+  keeps the per-player flags; it has no anonymous authorship to protect.
 - Unexpected handler exceptions are logged with event and socket context while
   clients receive a generic typed error.
 
