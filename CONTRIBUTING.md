@@ -5,7 +5,8 @@ focused pull requests are easiest to review and safest to ship.
 
 ## Development setup
 
-Use Node.js 24 or newer and the npm version declared in `package.json`.
+Use Node.js 24.15 or newer (or 26 and up — the test runner does not support
+the 25.x line) and the npm version declared in `package.json`.
 
 ```bash
 npm ci

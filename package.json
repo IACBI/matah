@@ -6,7 +6,7 @@
   "author": "𝓐.𝓒.𝓑",
   "license": "MIT",
   "engines": {
-    "node": ">=24"
+    "node": "^24.15.0 || >=26.0.0"
   },
   "packageManager": "npm@11.4.2",
   "keywords": [

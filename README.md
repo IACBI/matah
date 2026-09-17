@@ -89,7 +89,7 @@ matah/
 
 ### Requirements
 
-- [Node.js 24](https://nodejs.org/) or newer
+- [Node.js 24.15](https://nodejs.org/) or newer, or 26 and up — the test runner does not support the 25.x line
 - npm 11 (the version declared in `package.json` is recommended)
 
 ```bash
