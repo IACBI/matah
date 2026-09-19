@@ -14,8 +14,11 @@ const ack = (s, e, ...a) => new Promise((resolve, reject) =>
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const host = conn();
-const ps = [conn(), conn(), conn()];
-const names = ["Ada", "Bora", "Can"];
+// Four players so every option index gets answered below: the engine shuffles
+// each question's options, so three players can leave the correct one untouched
+// and nobody scores.
+const ps = [conn(), conn(), conn(), conn()];
+const names = ["Ada", "Bora", "Can", "Deniz"];
 const ids = [];
 let st = null;
 host.on("room:state", (s) => (st = s));
@@ -39,7 +42,10 @@ while (st.phase !== "scoreboard" && st.phase !== "gameover" && safety-- > 0) {
   if (st.phase === "answering" && st.trivia?.question && !answered.has(st.trivia.question.id)) {
     answered.add(st.trivia.question.id);
     for (const [i, p] of ps.entries())
-      await ack(p, "trivia:answer", { questionId: st.trivia.question.id, optionIndex: i % 4 });
+      await ack(p, "trivia:answer", {
+        questionId: st.trivia.question.id,
+        optionIndex: Math.min(i, st.trivia.question.options.length - 1),
+      });
   } else if (st.phase === "results") {
     await ack(host, "game:next", { phaseId: st.phaseId });
   }
@@ -57,7 +63,7 @@ log(bad.ok ? "✗ oyuncu restart edebildi (HATA)" : "✓ oyuncu restart engellen
 const good = await ack(host, "game:restart", { phaseId: st.phaseId });
 await wait(300);
 const backToLobby = st.phase === "lobby";
-const samePlayers = st.players.length === 3 && ids.every((id) => st.players.some((p) => p.id === id));
+const samePlayers = st.players.length === 4 && ids.every((id) => st.players.some((p) => p.id === id));
 const scoresReset = st.players.every((p) => p.score === 0);
 log("✓ host restart:", good.ok);
 log("  lobiye döndü:", backToLobby, "| aynı oyuncular:", samePlayers, "| skorlar sıfır:", scoresReset);
