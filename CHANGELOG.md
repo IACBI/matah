@@ -23,6 +23,27 @@ Notable project changes are recorded here. Matah follows the structure of
   (`MATAH_RL_ROOMS_PER_IP`).
 - 27 new interface strings across all 14 languages, including reaction and
   timer labels for screen readers.
+- **Bluff**, a third game mode: write a believable fake answer to a trivia
+  question, then find the real one among everyone's lies. It reuses the
+  trivia pool, so it works in all 14 languages.
+- **Pause and resume** for the host, and for a stand-in controller. The clock
+  freezes, phones show a paused overlay, and no pause counts against trivia
+  answer speed.
+- **Games survive a restart** when `MATAH_REDIS_URL` or `MATAH_SNAPSHOT_FILE`
+  is set: rooms are snapshotted on shutdown and every few seconds, and
+  players resume with the session they already had after a deploy or a
+  crash.
+- **Session standings**: totals and wins across every game played in a room,
+  shown from the second game on.
+- **End-of-game highlights**, with the most-voted answers or the most
+  convincing lies, and a **share button** that sends a text recap to the
+  phone's share sheet or the clipboard.
+- **Custom Quiplash prompt packs**: the host pastes up to 30 prompts, played
+  before the built-in ones.
+- The host can move players between seats and the audience in the lobby.
+- Quiplash results show who voted for each answer.
+- 12 more trivia questions and 12 more Quiplash prompts in every language
+  (32 questions and 40 prompts each).
 
 ### Changed
 
@@ -71,6 +92,17 @@ Notable project changes are recorded here. Matah follows the structure of
   landed, instead of failing every tap until the round moved on.
 - A rejoin failure while in a room now shows a notice with a retry, instead
   of leaving the player on frozen pre-disconnect state.
+- The confirmation dialog no longer pulls focus back to "Yes" every time the
+  countdown ticks, which made Enter confirm an action the host had tabbed
+  away from.
+- The trivia result sound plays once per question instead of again on every
+  room update during the results screen.
+- The lobby's start button counts only connected players, matching the
+  server, instead of offering a start that is always refused.
+- A Quiplash round with a single connected player closes as soon as they
+  answer rather than always running out the clock.
+- The browser accessibility audit waits for entrance animations to finish,
+  instead of reporting half-faded text as a contrast failure.
 
 ### Security
 

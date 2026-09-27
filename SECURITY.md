@@ -35,8 +35,13 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
   used token remain valid for a time, which would make it replayable.
 - Control authority is scoped by capability, not an all-or-nothing host flag.
   If the host disconnects, an elected player controller can keep the game
-  moving, but `kick` is reserved to the connected host and is never granted
-  to a stand-in.
+  moving and may pause it, but `kick`, moving players between seats and the
+  audience, and loading custom prompts are reserved to the connected host and
+  are never granted to a stand-in.
+- Custom prompts are host-written text shown to every player. They pass
+  through the same sanitizer as names and answers (control and bidi
+  characters stripped, length capped by code point) and are rendered as text,
+  never as HTML.
 - The server validates all game actions and phase transitions. UI restrictions
   are convenience controls, not authorization boundaries.
 
@@ -48,15 +53,27 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
   security results before deployment.
 - Run the supplied container as its non-root user and preserve the `/health`
   check.
-- Matah stores active rooms only in process memory. Use one application
-  instance unless shared state and a Socket.IO-compatible scaling design have
-  been implemented.
+- Matah keeps active rooms in process memory. Use one application instance
+  unless shared state and a Socket.IO-compatible scaling design have been
+  implemented.
+- `MATAH_REDIS_URL` usually carries a password. Set it as a secret in your
+  platform, not in a committed file. Matah never logs it; log lines name only
+  the host, port and key. Prefer `rediss://` when Redis is reached over a
+  network you do not control.
 - Avoid logging player answers, resume tokens, or full Socket.IO payloads.
 
 ## Data handling
 
 The application has no database in its default configuration. Names, answers,
 votes, scores, and session material exist only in server memory for the life of
-a room. Browser session data is scoped to the current tab session. Operators
+a room.
+
+When restart persistence is enabled (`MATAH_REDIS_URL` or
+`MATAH_SNAPSHOT_FILE`), the same room data is also written to that store:
+names, answers, votes, scores, custom prompts, and the address that created
+each room. Resume credentials are written only as SHA-256 digests of random
+256-bit tokens, which cannot be turned back into a working token. Snapshot
+files are created with owner-only permissions (0600), and the Redis key
+expires after 15 minutes. Snapshots older than that are ignored. Browser session data is scoped to the current tab session. Operators
 are responsible for any additional proxy, analytics, or platform logs enabled
 in their own deployment.

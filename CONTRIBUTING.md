@@ -37,7 +37,11 @@ npm run test:smoke
 ```
 
 `npm test` runs the unit, integration, and client suites and needs nothing
-built first — it's the one that should pass on a fresh clone. `npm run
+built first — it's the one that should pass on a fresh clone. The Redis
+persistence tests skip themselves unless `MATAH_TEST_REDIS_URL` points at a
+disposable Redis; CI runs one as a service container, and locally
+`docker run --rm -p 127.0.0.1:6379:6379 redis:7-alpine` plus
+`MATAH_TEST_REDIS_URL=redis://127.0.0.1:6379` is enough. `npm run
 test:smoke` and `npm run test:browser` drive the compiled server, so they
 need `npm run build` to have run first; both probe `/health` and point you at
 `npm run build` if the bundle is missing.

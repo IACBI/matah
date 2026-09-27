@@ -12,10 +12,10 @@ Browser host / player controllers
                ▼
 Express + Socket.IO (one Node process)
                │
-       in-memory room registry
-         ┌─────┴─────┐
-         ▼           ▼
- QuiplashEngine  TriviaEngine
+       in-memory room registry ──── snapshot ───▶ file or Redis (optional)
+      ┌────────┼────────┐
+      ▼        ▼        ▼
+ Quiplash   Trivia    Bluff
 ```
 
 The server is authoritative. Clients render `RoomState` and submit commands;
@@ -25,9 +25,39 @@ single-use. `phaseEndsAt` and `serverNow` let browsers render smooth local
 countdowns without a room-wide state broadcast every second.
 
 This design deliberately has no database, Redis adapter, or cross-instance
-coordination. Deploy exactly one instance. A process restart loses active rooms,
-and horizontal replicas would diverge without shared state, sticky routing, and
-a Socket.IO-compatible adapter.
+coordination. Deploy exactly one instance: horizontal replicas would diverge
+without shared state, sticky routing, and a Socket.IO-compatible adapter. A
+restart no longer has to end every game, though — see "Surviving a restart".
+
+## Surviving a restart
+
+With `MATAH_REDIS_URL` or `MATAH_SNAPSHOT_FILE` set, the server writes the
+whole room registry to one snapshot: on SIGTERM/SIGINT, and every
+`MATAH_SNAPSHOT_INTERVAL_MS` (default 15 s, minimum 1 s) while rooms are
+changing. An unchanged registry is not re-saved. At boot the snapshot is read
+back, so a deploy or a crash costs at most the last few seconds of play.
+
+- **What is saved.** Each `Room.toSnapshot()` is plain JSON: members, phase,
+  time left on the phase clock (running or paused), session standings, custom
+  prompts, and the engine's own `snapshot()`. Resume credentials are stored
+  only as the SHA-256 digests the room already keeps, never as tokens.
+- **What comes back.** Every socket died with the old process, so everyone is
+  restored disconnected, on the usual 120-second lease. Clients reconnect
+  with the resume token they already hold. `phaseId` is bumped so no command
+  composed before the restart can land, and a running phase gets 15 extra
+  seconds for the room to reconnect.
+- **Timers.** Phase timers are closures and cannot be saved. Each engine
+  implements `timeoutHandler()`, which returns the callback for whatever phase
+  it is in, and the room re-arms it with the time that was left.
+- **Limits.** A snapshot older than 15 minutes is ignored. A room that fails
+  to restore is skipped and logged, not fatal. The Redis key expires after 15
+  minutes. It is still one process: two instances sharing a key would
+  overwrite each other.
+
+The Redis store speaks the few RESP2 commands it needs (AUTH, SELECT, GET,
+SET with EX) over a short-lived connection per save, supporting `rediss://`
+for TLS. With saves every few seconds at most, a pooled client library would
+add a dependency and a reconnect state machine for no measurable gain.
 
 ## Session and room lifecycle
 
@@ -198,11 +228,46 @@ Tests supply fake clocks and deterministic content controls through that
 boundary.
 
 Quiplash keeps answer ownership private during voting, includes connected
-audience voters, and enforces a three-second minimum voting display. Trivia
+audience voters, and enforces a three-second minimum voting display. Once a
+round's voting is over, its results name who voted for each answer. Trivia
 shuffles each question's options server-side, accepts integer indexes only,
 clamps elapsed time to the question window, and applies deterministic
 streak/final multipliers. Rematches reuse settings while avoiding the
 immediately previous content when the pool allows it.
+
+Bluff reuses the trivia pool, so every language gets the mode without content
+of its own. Players write a fake answer to a question, then pick the real one
+from the truth and everyone's lies, shuffled. Answers are compared loosely
+(case, accents, spacing and punctuation ignored): writing the truth is refused
+with `answer_is_truth`, and identical lies merge into one option credited to
+every author. When too few lies arrive, the question's own wrong trivia
+options fill in as house decoys. A player can never pick their own lie; the
+private assignment tells each phone which option that is. Finding the truth
+scores 500, and each player fooled scores 250 for every author of that lie,
+both doubled on the final question.
+
+### Pausing
+
+`game:pause` freezes the phase clock. The room keeps the time left and the
+timer's callback, and engines read a game clock with every pause cut out, so
+trivia speed scoring and the Quiplash minimum voting display never count a
+pause against anyone. Gameplay submissions are refused with `game_paused`, so
+nothing can complete a phase behind a frozen clock. `game:resume` re-arms the
+timer and re-checks completion for anyone who dropped while it was frozen. Any
+phase change, including a skip, starts the next phase on a live clock.
+
+### Session standings, highlights, seats and prompt packs
+
+Every game that reaches the scoreboard, including one ended early, banks each
+player's score into `sessionScore` and credits a win to the top score (ties
+share it). The scoreboard also shows the game's highlights: the most-voted
+Quiplash answers or the Bluff lies that fooled the most players. In the lobby
+the host can move a player to the audience and back. Someone sent to the
+audience stays there across games, rather than being promoted straight back
+at the next start. The host can also load up to 30 Quiplash prompts of their
+own (90 code points each). These are sanitized like any user text and played
+before the built-in prompts, without breaking the per-author rule below.
+`maxHttpBufferSize` is 16 KiB so a full multi-byte pack fits in one frame.
 
 ### Quiplash scoring
 
@@ -276,7 +341,8 @@ in both cases the fix was worse than the problem it solved.
 The build compiles shared/server TypeScript and creates lazy client chunks. The
 multi-stage image prunes development dependencies, runs as the unprivileged
 `node` user, and exposes `/health`. SIGTERM/SIGINT stop room timers and close the
-HTTP/Socket.IO server.
+HTTP/Socket.IO server, saving a room snapshot first when persistence is
+configured.
 
 `PUBLIC_ORIGIN` is also injected into canonical and social metadata by the
 server when it serves the built HTML, keeping deploy metadata and the handshake
@@ -284,4 +350,6 @@ allowlist on one configuration value.
 
 Rollback by reverting the release merge commit on `main`, then redeploying and
 checking `/health`, the home page, and a host-plus-three-player game. Do not
-rewrite shared history. A rollback necessarily ends active in-memory rooms.
+rewrite shared history. Without persistence a rollback ends active rooms. With
+it, rooms survive only if the older release reads the same snapshot version;
+otherwise they are ignored and start fresh.
