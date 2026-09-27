@@ -15,6 +15,8 @@ export function participant(id, flags = {}) {
     hasSubmitted: false,
     hasVoted: false,
     streak: 0,
+    sessionScore: 0,
+    wins: 0,
   };
 }
 

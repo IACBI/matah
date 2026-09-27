@@ -40,7 +40,7 @@ test('host failover elects one deterministic connected controller', async (t) =>
   let state = await h.state();
   assert.equal(state.hostConnected, false);
   assert.equal(state.controllerPlayerId, first.playerId);
-  assert.equal(h.room.canControl(first.playerId), true);
+  assert.equal(h.room.can(first.playerId, "advance"), true);
 
   const resumed = h.room.rejoin(host.resumeToken, 'host-return');
   assert.ok(resumed);

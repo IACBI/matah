@@ -16,6 +16,8 @@ export function player(id: string, overrides: Partial<Player> = {}): Player {
     hasSubmitted: false,
     hasVoted: false,
     streak: 0,
+    sessionScore: 0,
+    wins: 0,
     ...overrides,
   };
 }
@@ -37,6 +39,10 @@ export function roomState(overrides: Partial<RoomState> = {}): RoomState {
     serverNow: Date.now(),
     controllerPlayerId: null,
     progress: { submitted: 0, voted: 0 },
+    pausedRemainingMs: null,
+    gamesPlayed: 0,
+    customPromptCount: 0,
+    highlights: null,
     ...overrides,
   };
 }

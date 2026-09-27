@@ -1,664 +1,263 @@
-<div align="center">
+<a id="top"></a>
+# Matah
 
-# 🎉 Matah
-
-### The hilarious party game you play with friends
-
-*Open the host screen on a TV, grab your phones, and let the chaos begin.*
-
-**🇬🇧 English** · [🇹🇷 Türkçe](#tr-trke) · [🇩🇪 Deutsch](#de-deutsch) · [🇪🇸 Español](#es-espaol) · [🇫🇷 Français](#fr-franais) · [🇮🇹 Italiano](#it-italiano) · [🇵🇹 Português](#pt-portugus) · [🇷🇺 Русский](#ru-ru) · [🇸🇦 العربية](#ar-ar) · [🇨🇳 中文](#zh-zh) · [🇯🇵 日本語](#ja-ja) · [🇰🇷 한국어](#ko-ko) · [🇮🇳 हिन्दी](#hi-hi) · [🇳🇱 Nederlands](#nl-nederlands)
-
-<br/>
+The party game you play with friends: one TV, everyone's phones, three game modes, 14 languages.
 
 [![CI](https://github.com/IACBI/matah/actions/workflows/ci.yml/badge.svg)](https://github.com/IACBI/matah/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white&style=flat-square)
 ![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB&style=flat-square)
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?logo=socketdotio&logoColor=white&style=flat-square)
 ![Node.js](https://img.shields.io/badge/Node.js-5FA04E?logo=nodedotjs&logoColor=white&style=flat-square)
-![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white&style=flat-square)
 ![License: MIT](https://img.shields.io/badge/License-MIT-f6bd45?style=flat-square)
 
-<br/>
+<p align="center">
+  <img src="docs/screenshots/home.jpg" width="49%" alt="Home screen" />
+  <img src="docs/screenshots/lobby.jpg" width="49%" alt="Lobby" />
+  <img src="docs/screenshots/voting.jpg" width="49%" alt="Quiplash voting with the live vote tally" />
+  <img src="docs/screenshots/scoreboard.jpg" width="49%" alt="Scoreboard" />
+</p>
 
-<img src="docs/screenshots/home.jpg" width="49%" alt="Home screen" />
-<img src="docs/screenshots/lobby.jpg" width="49%" alt="Lobby" />
-<img src="docs/screenshots/voting.jpg" width="49%" alt="Quiplash voting, with the live vote tally" />
-<img src="docs/screenshots/scoreboard.jpg" width="49%" alt="Scoreboard" />
-
-</div>
+**Read this in:** [English](#english) · [Türkçe](#turkce)
 
 ---
 
-## 🎮 What is Matah?
+<a id="english"></a>
+## English
 
-Matah is a **Jackbox-style, real-time multiplayer party game**. One screen — a
-TV or laptop — acts as the **host display** and shows a 4-letter room code.
-Everyone else **joins from their phone**, and the game plays out across all the
-devices at once.
+### Overview
 
-It ships with **two game modes**, and the engine is built to make adding more easy:
+Matah is a Jackbox-style party game played in real time. A TV or laptop runs
+the host screen and shows a four-letter room code; everyone else joins from
+their phone and the game plays out on every device at once. The server decides
+everything that matters (who is in the room, the timers, the scores), so a
+phone that drops and comes back picks up exactly where it was.
 
-| Mode | How it works |
+| Mode | How it plays |
 |------|--------------|
-| ✍️ **Quiplash** | Everyone gets a funny prompt, writes the wittiest answer, then the room votes head-to-head. Most votes wins the round. |
-| 🧠 **Trivia** | Multiple-choice questions where answering **correctly and fast** scores the most — with a bonus for answer **streaks**. |
+| **Quiplash** | Everyone writes the funniest answer to a prompt, then the room votes head to head. Later rounds are worth more. |
+| **Trivia** | Multiple choice. Being right and being fast both score, with a bonus for streaks and double points on the last question. |
+| **Bluff** | Write a believable fake answer to a trivia question, then find the real one among everyone's lies. You score for finding the truth and for every player your lie fools. |
 
----
+### Features
 
-## ✨ Highlights
-
-- ⚡ **Real-time multiplayer** over Socket.IO, with automatic reconnect
-- 🔁 **Resume tokens** — a dropped connection reclaims its seat, pending vote, and in-progress answer instead of restarting
-- 🎲 **Multi-game platform** — a clean, extensible `GameEngine` architecture
-- 👥 **Audience mode** — latecomers and anyone joining a full room still vote on every round
-- 🎉 **Emoji reactions** — six live reactions players fire at the host screen
-- 🛠️ **Host tools** — kick a player, set the game length, or end the game early
-- 🌍 **14 languages** — Türkçe, English, Deutsch, Español, Français, Italiano, Português, Русский, العربية, 中文, 日本語, 한국어, हिन्दी, Nederlands (UI *and* question content)
-- 🔊 **Sound effects** synthesized with the Web Audio API (zero audio assets)
-- 🎬 **Animated transitions** + a canvas confetti finale
-- 🔒 **Security-minded** — Helmet/CSP, input validation, per-socket rate limiting
-- 🚀 **Performance-minded** — gzip, vendor chunk splitting, self-hosted fonts
-
----
-
-## 🕹️ How to play
-
-1. On a **TV or laptop**, open the app and hit **Start New Game** → a room code appears.
-2. On each **phone** (same Wi-Fi, or just the live URL), tap **Join a Room** and enter your name + the code.
-3. Once **at least 3 players** have joined, the host picks a mode and starts.
-4. Answer, vote, watch the scores climb — and let the confetti rain on the winner! 🎊
-
----
-
-## 🛠️ Tech stack
-
-A TypeScript monorepo (npm workspaces) with three packages:
-
-```
-matah/
-├─ shared/   → types & Socket.IO event contracts shared by both sides
-├─ server/   → Express + Socket.IO game server (in-memory rooms + engines)
-└─ client/   → React + Vite interface (host display + player controller)
-```
-
-**Server:** Node · Express · Socket.IO  ·  **Client:** React · Vite  ·  **Shared:** end-to-end typed events
-
----
-
-## 🚀 Getting started
+- Three game modes, each available in all 14 languages: 40 Quiplash prompts and 32 trivia questions per language.
+- Dropped connections recover their seat, their vote and a half-written answer through a private, single-use resume token.
+- Games survive a server restart when a snapshot store is configured. Rooms are saved on shutdown and every few seconds, so a deploy or a crash costs at most the last moments of play.
+- Host tools: pause and resume, skip ahead, end early, set the game length, remove a player, and move players between seats and the audience.
+- Custom Quiplash prompt packs: the host pastes up to 30 prompts of their own, played before the built-in ones.
+- Latecomers and anyone joining a full room watch as the audience and still vote in Quiplash.
+- The scoreboard shows the game's best moments and running session standings, and a share button sends a text recap to the phone's share sheet or the clipboard.
+- Quiplash results show who voted for which answer. Emoji reactions fly across the host screen.
+- Rate limits, connection and room ceilings, origin checks, Helmet/CSP, and sanitized input throughout. See [SECURITY.md](SECURITY.md).
 
 ### Requirements
 
-- [Node.js 24.15](https://nodejs.org/) or newer, or 26 and up — the test runner does not support the 25.x line
-- npm 11 (the version declared in `package.json` is recommended)
+- Node.js 24.15 or newer on the 24 line, or 26 and up. The test runner does not support the 25 line.
+- npm 11.
+- Optional: a Redis server, only if you want games to survive restarts on a host without a persistent disk.
+
+### Installation
 
 ```bash
-npm ci           # install the exact dependency graph from package-lock.json
-npm run dev      # server on :3001, client on :5173
+npm ci
+npm run dev
 ```
 
-Open `http://localhost:5173` on your computer to host, and the LAN address shown
-in the terminal on your phones to join.
+The server listens on port 3001 and the client on 5173. Open
+`http://localhost:5173` to host, and the LAN address printed in the terminal on
+each phone to join.
 
-### Useful scripts
+To deploy, one Node service serves both the Socket.IO server and the built
+client:
+
+- **Render:** choose **New → Blueprint** and select the repository. `render.yaml` builds both workspaces and asks for `PUBLIC_ORIGIN`.
+- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 matah`
+- **Any Node host:** `npm ci`, `npm run build`, then `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
+
+### Usage
+
+1. On the TV or laptop, press **Start New Game**. A room code and a QR code appear.
+2. On each phone, scan the QR code, or open the site, press **Join a Room**, and enter a name and the code.
+3. With at least three players in, the host picks a mode and a length and starts.
 
 | Command | What it does |
 |---------|--------------|
-| `npm run dev` | Run server + client in watch mode |
-| `npm run build` | Compile the server and build the production client bundle |
-| `npm start` | Run the compiled production server and serve the client |
-| `npm test` | Run server unit/integration and client component suites |
-| `npm run test:coverage:server` | Enforce 93% line / 80% branch coverage on `room.ts`, `index.ts`, the engines, `rateLimiter.ts`, and `util.ts` |
-| `npm run test:coverage:client` | Enforce 62% line / 70% branch coverage across the client app |
-| `npm run test:smoke` | Run the full multiplayer Socket.IO smoke suite |
-| `npm run test:browser` | Run real-Chromium multiplayer, responsive, RTL, rematch, and axe checks |
-| `npm run test:load` | Run the 60-second, 25-room/100-socket bounded load and leak check |
-| `npm run typecheck` | Type-check every workspace |
-| `npm run lint` | Check the repository with ESLint |
+| `npm run dev` | Server and client in watch mode |
+| `npm run build` | Compile the server and build the production client |
+| `npm start` | Run the compiled production server |
+| `npm test` | Server unit and integration suites plus client component tests |
+| `npm run test:coverage:server` | Enforce 93% line / 80% branch coverage on the server |
+| `npm run test:coverage:client` | Enforce 62% line / 70% branch coverage on the client |
+| `npm run test:smoke` | Multiplayer smoke suite against the compiled server |
+| `npm run test:browser` | Real Chromium: multiplayer, pause, Bluff, responsive, RTL and axe checks |
+| `npm run test:load` | 60-second, 25-room bounded load and leak check |
+| `npm run lint` · `npm run typecheck` | ESLint and TypeScript across every workspace |
 
----
+`test:smoke` and `test:browser` need `npm run build` first. `test:browser`
+also needs Chromium: `npx playwright install chromium`.
 
-## ☁️ Deploy
-
-One service deploys the whole app — in production the Node server serves the
-built client from the same origin.
-
-- **Render:** push to GitHub, then choose **New → Blueprint** and select the
-  repository. `render.yaml` installs from the lockfile, builds both workspaces,
-  configures the public origin, and starts the compiled server.
-- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 matah`
-- **Manual:** run `npm ci`, `npm run build`, then start with
-  `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
-
-### Production configuration
+### Configuration
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `PUBLIC_ORIGIN` | Production | Exact public origin allowed to open Socket.IO connections, for example `https://game.example.com`. Do not use a wildcard. |
-| `ALLOWED_ORIGINS` | No | Comma-separated additional exact origins, useful for controlled staging domains. |
-| `PORT` | No | HTTP port; defaults to `3001`. Hosting platforms normally provide it. |
-| `NODE_ENV` | Production | Set to `production` to enable production security headers and static serving. |
+| `PUBLIC_ORIGIN` | In production | The exact public origin allowed to connect, for example `https://game.example.com`. No wildcards. |
+| `NODE_ENV` | In production | `production` turns on static serving and the production origin check. |
+| `ALLOWED_ORIGINS` | No | Extra exact origins, comma-separated, for staging domains. |
+| `PORT` | No | HTTP port, default `3001`. |
+| `MATAH_REDIS_URL` | No | `redis://` or `rediss://` URL. Rooms are snapshotted here so games survive a restart. Treat it as a secret. |
+| `MATAH_SNAPSHOT_FILE` | No | A file path for the same snapshots, for hosts with a persistent disk. `MATAH_REDIS_URL` wins if both are set. |
+| `MATAH_SNAPSHOT_KEY` | No | Redis key for the snapshot, default `matah:snapshot`. |
+| `MATAH_SNAPSHOT_INTERVAL_MS` | No | How often a changed registry is saved, default `15000`, minimum `1000`. |
 
-Eleven more variables (`MATAH_RL_CONN_BURST`, `MATAH_RL_CONN_REFILL`, `MATAH_RL_ACTION_BURST`, `MATAH_RL_ACTION_REFILL`, `MATAH_RL_CREATE`, `MATAH_RL_JOIN`, `MATAH_RL_JOIN_ROOM`, `MATAH_RL_REJOIN`, `MATAH_RL_MAX_CONNECTIONS`, `MATAH_RL_CONNECTIONS_PER_IP`, `MATAH_RL_ROOMS_PER_IP`) tune the connection, action, and room limits. All are optional — the defaults are sized for a household sharing one address, not a single user — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rate-limiting) for the full list and the reasoning behind each default.
+Eleven `MATAH_RL_*` variables tune the rate limits and the connection and room
+ceilings. The defaults are sized for a whole household behind one address; the
+full list and the reasoning behind each default are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rate-limiting).
 
-Matah keeps rooms and scores in process memory. Run one application instance:
-deploys, restarts, and crashes end active rooms, and horizontal replicas do not
-share room state. Supporting multiple instances requires shared room/session
-storage plus a compatible Socket.IO adapter and routing strategy.
+Run exactly one instance. Rooms live in that process's memory, and two
+instances would neither share rooms nor share a snapshot key safely. Render's
+free plan and most containers lose their disk on redeploy, so use Redis there
+rather than a snapshot file. Restart persistence is tested against Redis 7;
+a Redis-compatible service that accepts `AUTH`, `SELECT`, `GET` and `SET` should
+work the same way. How snapshots, timers and resume tokens survive a restart is
+described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#surviving-a-restart).
 
-### Reconnect and session security
+### Contributing
 
-The server is authoritative for membership, timers, answers, votes, and scores.
-A successful create or join returns a private resume token; the browser keeps it
-in session storage and presents it after a temporary disconnect. Player IDs are
-public display identifiers and are never accepted as reconnect credentials. A
-successful resume replaces the previous socket for that session.
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers
+the workflow and the checks to run first, and [CHANGELOG.md](CHANGELOG.md)
+records what changed. The Redis tests skip themselves unless
+`MATAH_TEST_REDIS_URL` points at a disposable Redis.
 
-Treat a resume token like a short-lived session credential: never log, publish,
-or send it to another player. See [SECURITY.md](SECURITY.md) for reporting and
-operational guidance, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
-room lifecycle, trust boundaries, timers, and recovery design.
+The repository is an npm workspace with three packages: `shared/` holds the
+types and Socket.IO event contracts, `server/` holds the Express and Socket.IO
+server with one engine per game mode, and `client/` holds the React host and
+phone interface.
 
-### Rollback
+### License
 
-Deploys do not migrate persistent data because the application has no database.
-To roll back a merged release, revert its merge commit and deploy the resulting
-new `main` commit; do not rewrite shared history. Then verify `/health` and
-complete a short host-plus-three-players smoke game. A rollback or restart ends
-active in-memory rooms, so announce it before a planned production change.
+MIT © 𝓐.𝓒.𝓑. See [LICENSE](LICENSE).
+
+[⬆ Back to top](#top)
 
 ---
 
-## 📁 Project layout
+<a id="turkce"></a>
+## Türkçe
 
+### Genel Bakış
+
+Matah, gerçek zamanlı oynanan Jackbox tarzı bir parti oyunu. TV ya da laptop
+host ekranını açar ve dört harfli bir oda kodu gösterir; diğer herkes
+telefonundan katılır ve oyun bütün cihazlarda aynı anda akar. Önemli olan her
+şeye (odada kimin olduğuna, sürelere, puanlara) sunucu karar verir. Bu yüzden
+bağlantısı kopan bir telefon geri döndüğünde tam kaldığı yerden devam eder.
+
+| Mod | Nasıl oynanır |
+|-----|---------------|
+| **Quiplash** | Herkes bir soruya en komik cevabı yazar, sonra oda ikili düellolarda oylar. Sonraki turlar daha çok puan getirir. |
+| **Bilgi Yarışması** | Çoktan seçmeli. Hem doğru hem hızlı cevap puan kazandırır; üst üste doğrulara seri bonusu, son soruya çift puan vardır. |
+| **Blöf** | Bir bilgi sorusuna inandırıcı bir sahte cevap yaz, sonra herkesin yalanları arasından gerçeğini bul. Gerçeği bulmak da, yalanınla kandırdığın her oyuncu da puan getirir. |
+
+### Özellikler
+
+- Üç oyun modu, 14 dilin hepsinde: her dilde 40 Quiplash sorusu ve 32 bilgi sorusu.
+- Bağlantısı kopan oyuncu, kişiye özel ve tek kullanımlık bir devam anahtarıyla koltuğunu, oyunu ve yarım kalan cevabını geri alır.
+- Bir kayıt deposu ayarlandığında oyunlar sunucunun yeniden başlamasından sağ çıkar. Odalar kapanışta ve birkaç saniyede bir kaydedilir; bir deploy ya da çökme en fazla son birkaç anı kaybettirir.
+- Host araçları: duraklatma ve devam ettirme, sonraki aşamaya geçme, oyunu erken bitirme, oyun uzunluğunu ayarlama, oyuncu çıkarma ve oyuncuları koltuk ile izleyiciler arasında taşıma.
+- Özel Quiplash soru paketleri: host en fazla 30 kendi sorusunu yapıştırır, bunlar hazır sorulardan önce oynanır.
+- Geç gelenler ve dolu odaya katılanlar izleyici olarak oyunu takip eder, Quiplash'te yine oy kullanır.
+- Skor tablosu oyunun en iyi anlarını ve oturum boyunca biriken sıralamayı gösterir; paylaş butonu kısa bir özeti telefonun paylaşım menüsüne ya da panoya gönderir.
+- Quiplash sonuçları kimin hangi cevaba oy verdiğini gösterir. Emoji tepkileri host ekranında uçuşur.
+- Hız sınırları, bağlantı ve oda tavanları, origin kontrolü, Helmet/CSP ve her yerde temizlenmiş girdi. Ayrıntılar [SECURITY.md](SECURITY.md) içinde.
+
+### Gereksinimler
+
+- Node.js 24 serisinde 24.15 ya da üstü, veya 26 ve sonrası. Test çalıştırıcısı 25 serisini desteklemiyor.
+- npm 11.
+- İsteğe bağlı: bir Redis sunucusu. Yalnızca kalıcı diski olmayan bir sunucuda oyunların yeniden başlatmaya dayanmasını istiyorsan gerekir.
+
+### Kurulum
+
+```bash
+npm ci
+npm run dev
 ```
-matah/
-├─ shared/src/index.ts        # shared types + socket contracts
-├─ server/src/
-│  ├─ index.ts                # Socket.IO server, security, prod static serving
-│  ├─ room.ts                 # room: membership, phase/timer machine, scoring
-│  ├─ engine.ts               # GameEngine interface
-│  ├─ engines/                # quiplash.ts · trivia.ts
-│  ├─ content/                # prompts.ts · trivia.ts (content in 14 languages)
-│  └─ rateLimiter.ts          # per-socket token bucket
-└─ client/src/
-   ├─ views/                  # Home · HostScreen · PlayerScreen
-   ├─ components/             # Avatar · Confetti · ConfirmDialog · Connection (link-state overlays) · Controls (language/sound) · Flag · GameIcons · Reactions · RoomErrorBoundary · icons
-   ├─ i18n/                   # translations + provider
-   └─ sound.ts                # synthesized sound effects
-```
-
----
-
-<div align="center">
-
-Built with ❤️ and TypeScript · Licensed under [MIT](LICENSE)
-
-[Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
-
-</div>
-
----
-
-## 🌍 Other languages
-
-*Core sections are translated below; deeper technical/deploy sections stay in English.*
-
-<a id="tr-trke"></a>
-<details>
-<summary><b>🇹🇷 Türkçe</b></summary>
-
-### 🎉 Matah
-*Arkadaşlarınla oynadığın çılgın parti oyunu.*
-
-**Matah nedir?** Jackbox tarzı, **gerçek zamanlı çok oyunculu** bir parti oyunu. Bir ekran — TV ya da laptop — **host ekranı** olur ve 4 harfli bir oda kodu gösterir. Herkes **telefonundan katılır** ve oyun tüm cihazlarda aynı anda akar. **İki oyun modu** ile gelir ve motoru yeni mod eklemeyi kolaylaştıracak şekilde tasarlanmıştır:
-
-| Mod | Nasıl işler |
-|------|--------------|
-| ✍️ **Quiplash** | Herkese komik bir soru gelir; en esprili cevabı yaz, sonra oda ikili düellolarla oylar. En çok oyu alan turu kazanır. |
-| 🧠 **Bilgi Yarışması** | Çoktan seçmeli sorular; **doğru ve hızlı** cevaplamak en çok puanı kazandırır — üst üste doğrularda **seri bonusu** vardır. |
-
-**Öne çıkanlar**
-- ⚡ **Gerçek zamanlı çok oyunculu** — Socket.IO üzerinde, otomatik yeniden bağlanmayla
-- 🔁 **Devam belirteçleri** — bağlantı koptuğunda yeniden başlamak yerine koltuğunu, bekleyen oyunu ve yarım kalan cevabını geri alırsın
-- 🎲 **Çoklu oyun platformu** — temiz, genişletilebilir bir `GameEngine` mimarisi
-- 👥 **Seyirci modu** — geç katılanlar ve dolu bir odaya girenler de her turda oy kullanır
-- 🎉 **Emoji tepkiler** — oyuncuların host ekranına canlı gönderdiği altı tepki
-- 🛠️ **Host araçları** — bir oyuncuyu at, oyun uzunluğunu ayarla veya oyunu erken bitir
-- 🌍 **14 dil** — arayüz *ve* soru içeriği
-- 🔊 **Ses efektleri** — Web Audio API ile sentezlenir (sıfır ses dosyası)
-- 🎬 **Animasyonlu geçişler** + canvas konfeti finali
-- 🔒 **Güvenlik odaklı** — Helmet/CSP, girdi doğrulama, soket başına hız sınırı
-- 🚀 **Performans odaklı** — gzip, vendor chunk ayrımı, kendi sunulan fontlar
-
-**Nasıl oynanır**
-1. **TV veya laptopta** uygulamayı aç ve **Yeni Oyun Başlat**'a bas — bir oda kodu belirir.
-2. Her **telefonda** (aynı Wi-Fi ya da canlı URL) **Odaya Katıl**'a dokun, adını + kodu gir.
-3. **En az 3 oyuncu** katılınca host bir mod seçip başlatır.
-4. Cevapla, oyla, puanların yükselişini izle — ve konfetiler kazananın üstüne yağsın! 🎊
-
-</details>
-
-<a id="de-deutsch"></a>
-<details>
-<summary><b>🇩🇪 Deutsch</b></summary>
-
-### 🎉 Matah
-*Das urkomische Partyspiel für Freunde.*
-
-**Was ist Matah?** Ein **Echtzeit-Multiplayer-Partyspiel** im Jackbox-Stil. Ein Bildschirm — ein TV oder Laptop — ist die **Host-Anzeige** und zeigt einen 4-stelligen Raumcode. Alle anderen **treten per Handy bei**, und das Spiel läuft gleichzeitig auf allen Geräten. Es bringt **zwei Spielmodi** mit, und die Engine ist so gebaut, dass weitere leicht hinzukommen:
-
-| Modus | So funktioniert es |
-|------|--------------|
-| ✍️ **Quiplash** | Alle bekommen eine lustige Frage, schreiben die witzigste Antwort, dann stimmt der Raum im Duell ab. Die meisten Stimmen gewinnen die Runde. |
-| 🧠 **Quiz** | Multiple-Choice-Fragen, bei denen **richtiges und schnelles** Antworten am meisten Punkte bringt — mit Bonus für **Antwort-Serien**. |
-
-**Höhepunkte**
-- ⚡ **Echtzeit-Multiplayer** über Socket.IO, mit automatischem Reconnect
-- 🔁 **Fortsetzungs-Tokens** — eine unterbrochene Verbindung bekommt Platz, offene Stimme und angefangene Antwort zurück, statt neu zu starten
-- 🎲 **Multi-Game-Plattform** — eine saubere, erweiterbare `GameEngine`-Architektur
-- 👥 **Zuschauermodus** — Nachzügler und alle, die einem vollen Raum beitreten, stimmen trotzdem in jeder Runde ab
-- 🎉 **Emoji-Reaktionen** — sechs Live-Reaktionen, die Spieler an den Host-Bildschirm senden
-- 🛠️ **Host-Werkzeuge** — einen Spieler rauswerfen, die Spiellänge festlegen oder das Spiel vorzeitig beenden
-- 🌍 **14 Sprachen** — Oberfläche *und* Frageninhalte
-- 🔊 **Soundeffekte** mit der Web Audio API synthetisiert (keine Audiodateien)
-- 🎬 **Animierte Übergänge** + ein Canvas-Konfetti-Finale
-- 🔒 **Sicherheitsbewusst** — Helmet/CSP, Eingabevalidierung, Rate-Limit pro Socket
-- 🚀 **Performance-bewusst** — gzip, Vendor-Chunk-Splitting, selbst gehostete Fonts
-
-**So wird gespielt**
-1. Öffne die App auf einem **TV oder Laptop** und drücke **Neues Spiel starten** — ein Raumcode erscheint.
-2. Tippe auf jedem **Handy** (gleiches WLAN oder die Live-URL) auf **Raum beitreten** und gib deinen Namen + den Code ein.
-3. Sobald **mindestens 3 Spieler** beigetreten sind, wählt der Host einen Modus und startet.
-4. Antworte, stimme ab, sieh die Punkte steigen — und lass Konfetti auf den Gewinner regnen! 🎊
-
-</details>
-
-<a id="es-espaol"></a>
-<details>
-<summary><b>🇪🇸 Español</b></summary>
-
-### 🎉 Matah
-*El divertidísimo juego de fiesta para jugar con amigos.*
-
-**¿Qué es Matah?** Un **juego de fiesta multijugador en tiempo real** al estilo Jackbox. Una pantalla — una TV o portátil — es la **pantalla del anfitrión** y muestra un código de sala de 4 letras. Los demás **se unen desde el móvil** y el juego transcurre en todos los dispositivos a la vez. Incluye **dos modos de juego** y el motor está hecho para añadir más fácilmente:
-
-| Modo | Cómo funciona |
-|------|--------------|
-| ✍️ **Quiplash** | Todos reciben una pregunta graciosa, escriben la respuesta más ingeniosa y la sala vota mano a mano. Más votos gana la ronda. |
-| 🧠 **Trivia** | Preguntas tipo test donde responder **bien y rápido** da más puntos — con bonus por **rachas** de aciertos. |
-
-**Lo más destacado**
-- ⚡ **Multijugador en tiempo real** sobre Socket.IO, con reconexión automática
-- 🔁 **Tokens de reanudación** — una conexión caída recupera su asiento, el voto pendiente y la respuesta a medio escribir en vez de reiniciar
-- 🎲 **Plataforma multijuego** — una arquitectura `GameEngine` limpia y extensible
-- 👥 **Modo audiencia** — quienes llegan tarde o se unen a una sala llena igual votan en cada ronda
-- 🎉 **Reacciones con emoji** — seis reacciones en vivo que los jugadores lanzan a la pantalla del anfitrión
-- 🛠️ **Herramientas del anfitrión** — expulsar a un jugador, ajustar la duración de la partida o terminarla antes de tiempo
-- 🌍 **14 idiomas** — interfaz *y* contenido de las preguntas
-- 🔊 **Efectos de sonido** sintetizados con la Web Audio API (cero archivos de audio)
-- 🎬 **Transiciones animadas** + un final de confeti en canvas
-- 🔒 **Pensado en seguridad** — Helmet/CSP, validación de entradas, límite por socket
-- 🚀 **Pensado en rendimiento** — gzip, división de chunks de vendor, fuentes propias
-
-**Cómo jugar**
-1. En una **TV o portátil**, abre la app y pulsa **Iniciar juego nuevo** — aparece un código de sala.
-2. En cada **móvil** (misma Wi-Fi o la URL en vivo), toca **Unirse a una sala** e introduce tu nombre + el código.
-3. Cuando se unan **al menos 3 jugadores**, el anfitrión elige un modo y empieza.
-4. Responde, vota, mira subir las puntuaciones — ¡y que caiga el confeti sobre el ganador! 🎊
-
-</details>
-
-<a id="fr-franais"></a>
-<details>
-<summary><b>🇫🇷 Français</b></summary>
-
-### 🎉 Matah
-*Le jeu de soirée hilarant à jouer entre amis.*
-
-**C'est quoi Matah ?** Un **jeu de soirée multijoueur en temps réel**, façon Jackbox. Un écran — une TV ou un ordi — sert d'**affichage hôte** et montre un code de salon à 4 lettres. Tous les autres **rejoignent depuis leur téléphone** et la partie se joue sur tous les appareils en même temps. Il propose **deux modes de jeu**, et le moteur est conçu pour en ajouter facilement :
-
-| Mode | Comment ça marche |
-|------|--------------|
-| ✍️ **Quiplash** | Chacun reçoit une question drôle, écrit la réponse la plus spirituelle, puis le salon vote en duel. Le plus de votes remporte la manche. |
-| 🧠 **Quiz** | Questions à choix multiples où répondre **juste et vite** rapporte le plus — avec un bonus pour les **séries** de bonnes réponses. |
-
-**Points forts**
-- ⚡ **Multijoueur en temps réel** via Socket.IO, avec reconnexion automatique
-- 🔁 **Jetons de reprise** — une connexion coupée retrouve sa place, son vote en attente et sa réponse en cours au lieu de repartir de zéro
-- 🎲 **Plateforme multi-jeux** — une architecture `GameEngine` propre et extensible
-- 👥 **Mode public** — les retardataires et ceux qui rejoignent un salon complet votent quand même à chaque manche
-- 🎉 **Réactions emoji** — six réactions en direct que les joueurs envoient sur l'écran de l'hôte
-- 🛠️ **Outils de l'hôte** — exclure un joueur, régler la durée de la partie ou la terminer plus tôt
-- 🌍 **14 langues** — interface *et* contenu des questions
-- 🔊 **Effets sonores** synthétisés avec la Web Audio API (aucun fichier audio)
-- 🎬 **Transitions animées** + un final de confettis en canvas
-- 🔒 **Soucieux de la sécurité** — Helmet/CSP, validation des entrées, limite par socket
-- 🚀 **Soucieux des performances** — gzip, découpage des chunks vendor, polices auto-hébergées
-
-**Comment jouer**
-1. Sur une **TV ou un ordi**, ouvre l'appli et appuie sur **Lancer une partie** — un code de salon apparaît.
-2. Sur chaque **téléphone** (même Wi-Fi ou l'URL en ligne), touche **Rejoindre un salon** et saisis ton prénom + le code.
-3. Une fois qu'**au moins 3 joueurs** ont rejoint, l'hôte choisit un mode et lance la partie.
-4. Réponds, vote, regarde les scores grimper — et que les confettis pleuvent sur le gagnant ! 🎊
-
-</details>
-
-<a id="it-italiano"></a>
-<details>
-<summary><b>🇮🇹 Italiano</b></summary>
-
-### 🎉 Matah
-*Il divertentissimo party game da giocare con gli amici.*
-
-**Cos'è Matah?** Un **party game multigiocatore in tempo reale** in stile Jackbox. Uno schermo — una TV o un portatile — è il **display dell'host** e mostra un codice stanza di 4 lettere. Tutti gli altri **si uniscono dal telefono** e si gioca su tutti i dispositivi contemporaneamente. Include **due modalità di gioco** e il motore è pensato per aggiungerne facilmente altre:
-
-| Modalità | Come funziona |
-|------|--------------|
-| ✍️ **Quiplash** | Tutti ricevono una domanda divertente, scrivono la risposta più arguta, poi la stanza vota testa a testa. Più voti vince il round. |
-| 🧠 **Quiz** | Domande a scelta multipla in cui rispondere **in modo corretto e veloce** fa più punti — con bonus per le **serie** di risposte esatte. |
-
-**In evidenza**
-- ⚡ **Multigiocatore in tempo reale** su Socket.IO, con riconnessione automatica
-- 🔁 **Token di ripresa** — una connessione caduta recupera il posto, il voto in sospeso e la risposta a metà, invece di ripartire da zero
-- 🎲 **Piattaforma multi-gioco** — un'architettura `GameEngine` pulita ed estensibile
-- 👥 **Modalità pubblico** — chi arriva tardi o entra in una stanza piena vota comunque a ogni round
-- 🎉 **Reazioni emoji** — sei reazioni live che i giocatori inviano allo schermo dell'host
-- 🛠️ **Strumenti dell'host** — espellere un giocatore, impostare la durata della partita o terminarla in anticipo
-- 🌍 **14 lingue** — interfaccia *e* contenuto delle domande
-- 🔊 **Effetti sonori** sintetizzati con la Web Audio API (zero file audio)
-- 🎬 **Transizioni animate** + un finale di coriandoli su canvas
-- 🔒 **Attento alla sicurezza** — Helmet/CSP, validazione input, rate limit per socket
-- 🚀 **Attento alle prestazioni** — gzip, splitting dei chunk vendor, font self-hosted
-
-**Come si gioca**
-1. Su una **TV o un portatile**, apri l'app e premi **Inizia una nuova partita** — appare un codice stanza.
-2. Su ogni **telefono** (stessa Wi-Fi o l'URL live), tocca **Entra in una stanza** e inserisci il tuo nome + il codice.
-3. Quando si uniscono **almeno 3 giocatori**, l'host sceglie una modalità e inizia.
-4. Rispondi, vota, guarda i punteggi salire — e lascia che i coriandoli piovano sul vincitore! 🎊
-
-</details>
-
-<a id="pt-portugus"></a>
-<details>
-<summary><b>🇵🇹 Português</b></summary>
-
-### 🎉 Matah
-*O jogo de festa hilariante que jogas com amigos.*
-
-**O que é o Matah?** Um **jogo de festa multijogador em tempo real**, ao estilo Jackbox. Um ecrã — uma TV ou portátil — é o **ecrã do anfitrião** e mostra um código de sala de 4 letras. Toda a gente **entra a partir do telemóvel** e o jogo decorre em todos os dispositivos ao mesmo tempo. Vem com **dois modos de jogo** e o motor foi feito para acrescentar mais com facilidade:
-
-| Modo | Como funciona |
-|------|--------------|
-| ✍️ **Quiplash** | Todos recebem uma pergunta engraçada, escrevem a resposta mais espirituosa e depois a sala vota frente a frente. Mais votos vence a ronda. |
-| 🧠 **Perguntas e Respostas** | Perguntas de escolha múltipla em que responder **certo e depressa** pontua mais — com bónus por **sequências** de acertos. |
-
-**Destaques**
-- ⚡ **Multijogador em tempo real** sobre Socket.IO, com reconexão automática
-- 🔁 **Tokens de retoma** — uma ligação perdida recupera o lugar, o voto pendente e a resposta a meio, em vez de recomeçar
-- 🎲 **Plataforma multi-jogo** — uma arquitetura `GameEngine` limpa e extensível
-- 👥 **Modo audiência** — quem chega tarde ou entra numa sala cheia continua a votar em cada ronda
-- 🎉 **Reações com emoji** — seis reações ao vivo que os jogadores enviam para o ecrã do anfitrião
-- 🛠️ **Ferramentas do anfitrião** — expulsar um jogador, ajustar a duração do jogo ou terminá-lo mais cedo
-- 🌍 **14 idiomas** — interface *e* conteúdo das perguntas
-- 🔊 **Efeitos sonoros** sintetizados com a Web Audio API (zero ficheiros de áudio)
-- 🎬 **Transições animadas** + um final de confetes em canvas
-- 🔒 **Atento à segurança** — Helmet/CSP, validação de entradas, limite por socket
-- 🚀 **Atento ao desempenho** — gzip, divisão de chunks de vendor, fontes próprias
-
-**Como jogar**
-1. Numa **TV ou portátil**, abre a aplicação e carrega em **Iniciar Novo Jogo** — aparece um código de sala.
-2. Em cada **telemóvel** (mesma Wi-Fi ou o URL ao vivo), toca em **Entrar numa Sala** e introduz o teu nome + o código.
-3. Assim que **pelo menos 3 jogadores** tiverem entrado, o anfitrião escolhe um modo e começa.
-4. Responde, vota, vê as pontuações a subir — e deixa cair os confetes sobre o vencedor! 🎊
-
-</details>
-
-<a id="ru-ru"></a>
-<details>
-<summary><b>🇷🇺 Русский</b></summary>
-
-### 🎉 Matah
-*Уморительная вечериночная игра для компании друзей.*
-
-**Что такое Matah?** **Многопользовательская вечериночная игра в реальном времени** в стиле Jackbox. Один экран — телевизор или ноутбук — служит **дисплеем ведущего** и показывает код комнаты из 4 букв. Все остальные **подключаются с телефонов**, и игра идёт сразу на всех устройствах. В игре **два режима**, а движок устроен так, чтобы легко добавлять новые:
-
-| Режим | Как это работает |
-|------|--------------|
-| ✍️ **Quiplash** | Каждому достаётся смешное задание, нужно придумать самый остроумный ответ, затем комната голосует в дуэлях. Больше всего голосов — победа в раунде. |
-| 🧠 **Викторина** | Вопросы с вариантами ответов, где **правильный и быстрый** ответ приносит больше всего очков — с бонусом за **серии** верных ответов. |
-
-**Ключевые особенности**
-- ⚡ **Мультиплеер в реальном времени** через Socket.IO, с автоматическим переподключением
-- 🔁 **Токены возобновления** — при обрыве связи место, ожидающий голос и незаконченный ответ сохраняются, а не сбрасываются
-- 🎲 **Платформа для нескольких игр** — чистая, расширяемая архитектура `GameEngine`
-- 👥 **Режим зрителя** — опоздавшие и те, кто присоединился к заполненной комнате, всё равно голосуют в каждом раунде
-- 🎉 **Эмодзи-реакции** — шесть живых реакций, которые игроки отправляют на экран ведущего
-- 🛠️ **Инструменты ведущего** — исключить игрока, настроить длительность игры или завершить её раньше
-- 🌍 **14 языков** — интерфейс *и* содержание вопросов
-- 🔊 **Звуковые эффекты** синтезируются через Web Audio API (без аудиофайлов)
-- 🎬 **Анимированные переходы** + финал с конфетти на canvas
-- 🔒 **С заботой о безопасности** — Helmet/CSP, валидация ввода, лимит на сокет
-- 🚀 **С заботой о производительности** — gzip, разделение vendor-чанков, свои шрифты
-
-**Как играть**
-1. На **телевизоре или ноутбуке** откройте приложение и нажмите **Начать новую игру** — появится код комнаты.
-2. На каждом **телефоне** (та же Wi-Fi или живой URL) нажмите **Войти в комнату** и введите имя + код.
-3. Как только наберётся **хотя бы 3 игрока**, ведущий выбирает режим и начинает.
-4. Отвечайте, голосуйте, следите за ростом очков — и пусть на победителя прольётся конфетти! 🎊
-
-</details>
-
-<a id="ar-ar"></a>
-<details>
-<summary><b>🇸🇦 العربية</b></summary>
-
-<div dir="rtl">
-
-### 🎉 Matah
-*لعبة الحفلات المضحكة التي تلعبها مع أصدقائك.*
-
-**ما هي Matah؟** **لعبة حفلات جماعية فورية** على غرار Jackbox. تكون إحدى الشاشات — تلفاز أو حاسوب محمول — هي **شاشة المضيف** وتعرض رمز غرفة من 4 أحرف. ينضم الجميع الآخرون **من هواتفهم**، وتجري اللعبة على كل الأجهزة في آنٍ واحد. تأتي بـ**نمطَي لعب**، وقد صُمّم محرّكها لإضافة المزيد بسهولة:
-
-| النمط | كيف يعمل |
-|------|--------------|
-| ✍️ **Quiplash** | يحصل الجميع على سؤال مضحك، فيكتب كلٌّ أذكى إجابة، ثم تصوّت الغرفة في مواجهات مباشرة. صاحب أكثر الأصوات يفوز بالجولة. |
-| 🧠 **أسئلة وأجوبة** | أسئلة متعددة الخيارات حيث تمنحك الإجابة **الصحيحة والسريعة** أعلى النقاط — مع مكافأة لـ**سلاسل** الإجابات الصحيحة. |
-
-**أبرز المزايا**
-- ⚡ **لعب جماعي فوري** عبر Socket.IO، مع إعادة اتصال تلقائية
-- 🔁 **رموز الاستئناف** — عند انقطاع الاتصال يستعيد اللاعب مقعده وصوته المعلّق وإجابته غير المكتملة بدلاً من البدء من جديد
-- 🎲 **منصّة متعددة الألعاب** — بنية `GameEngine` نظيفة وقابلة للتوسيع
-- 👥 **وضع الجمهور** — من ينضم متأخرًا أو إلى غرفة ممتلئة يظل قادرًا على التصويت في كل جولة
-- 🎉 **تفاعلات الإيموجي** — ست تفاعلات حية يرسلها اللاعبون إلى شاشة المضيف
-- 🛠️ **أدوات المضيف** — طرد لاعب، وضبط مدة اللعبة، أو إنهاؤها مبكرًا
-- 🌍 **14 لغة** — الواجهة *ومحتوى* الأسئلة
-- 🔊 **مؤثرات صوتية** مُولّدة عبر Web Audio API (دون أي ملفات صوتية)
-- 🎬 **انتقالات متحركة** + خاتمة قصاصات ورقية على canvas
-- 🔒 **واعٍ بالأمان** — Helmet/CSP، والتحقق من المدخلات، وحدّ معدّل لكل socket
-- 🚀 **واعٍ بالأداء** — gzip، وتقسيم حزم vendor، وخطوط مُستضافة ذاتيًا
-
-**كيف تلعب**
-1. على **تلفاز أو حاسوب محمول**، افتح التطبيق واضغط على **ابدأ لعبة جديدة** — يظهر رمز الغرفة.
-2. على كل **هاتف** (نفس شبكة Wi-Fi أو الرابط المباشر)، اضغط على **انضم إلى غرفة** وأدخل اسمك + الرمز.
-3. بمجرد انضمام **3 لاعبين على الأقل**، يختار المضيف نمطًا ويبدأ.
-4. أجب، وصوّت، وشاهد النقاط تتصاعد — ودع الزينة تتساقط على الفائز! 🎊
-
-</div>
-
-</details>
-
-<a id="zh-zh"></a>
-<details>
-<summary><b>🇨🇳 中文</b></summary>
-
-### 🎉 Matah
-*和朋友一起玩的爆笑派对游戏。*
-
-**Matah 是什么？** 一款 Jackbox 风格的**实时多人派对游戏**。一块屏幕——电视或笔记本——作为**主持显示屏**，展示一个 4 位的房间码。其他所有人**用手机加入**，游戏在所有设备上同时进行。内置**两种游戏模式**，引擎也便于轻松扩展更多模式：
-
-| 模式 | 玩法 |
-|------|--------------|
-| ✍️ **Quiplash** | 每个人都会拿到一道搞笑题目，写下最机智的答案，然后全房间一对一投票。得票最多者赢得本回合。 |
-| 🧠 **知识问答** | 选择题模式，答得**又对又快**得分最高——连续答对还有**连击奖励**。 |
-
-**亮点**
-- ⚡ **实时多人** —— 基于 Socket.IO，支持自动重连
-- 🔁 **续接令牌** —— 连接中断后可恢复座位、待定投票和未完成的答案，而不是重新开始
-- 🎲 **多游戏平台** —— 简洁、可扩展的 `GameEngine` 架构
-- 👥 **观众模式** —— 迟到者或加入已满房间的人依然可以在每一轮投票
-- 🎉 **表情反应** —— 玩家可向主持屏幕发送的六种实时反应
-- 🛠️ **主持工具** —— 踢出玩家、设置游戏时长或提前结束游戏
-- 🌍 **14 种语言** —— 界面*和*题目内容
-- 🔊 **音效** —— 用 Web Audio API 合成（零音频文件）
-- 🎬 **动画过渡** + canvas 彩纸庆祝结尾
-- 🔒 **注重安全** —— Helmet/CSP、输入校验、按 socket 限流
-- 🚀 **注重性能** —— gzip、第三方代码分块、自托管字体
-
-**怎么玩**
-1. 在**电视或笔记本**上打开应用，点击 **开始新游戏**——房间码就会出现。
-2. 在每部**手机**上（同一 Wi-Fi 或在线 URL）点击 **加入房间**，输入你的名字和房间码。
-3. **至少 3 名玩家**加入后，房主选择一个模式并开始。
-4. 作答、投票、看着分数节节攀升——再让彩纸为赢家洒落吧！🎊
-
-</details>
-
-<a id="ja-ja"></a>
-<details>
-<summary><b>🇯🇵 日本語</b></summary>
-
-### 🎉 Matah
-*友達とワイワイ盛り上がる爆笑パーティーゲーム。*
-
-**Matah ってなに？** Jackbox スタイルの**リアルタイム・マルチプレイヤー・パーティーゲーム**。テレビやノートPCの画面1つが**ホスト表示**になり、4文字のルームコードを表示します。ほかのみんなは**スマホから参加**し、全員の端末で同時にプレイ。**2つのゲームモード**を搭載し、エンジンはモードを簡単に追加できる設計です：
-
-| モード | 遊び方 |
-|------|--------------|
-| ✍️ **Quiplash** | 全員に面白いお題が配られ、一番ウィットの効いた回答を書き、ルームのみんなで一騎打ちの投票。最多票がそのラウンドの勝者です。 |
-| 🧠 **クイズ** | 多肢選択式の問題で、**正しく素早く**答えるほど高得点 — 連続正解には**ストリークボーナス**も。 |
-
-**ハイライト**
-- ⚡ **リアルタイム・マルチプレイヤー** — Socket.IO 上で、自動再接続つき
-- 🔁 **再開トークン** — 接続が切れても最初からやり直さず、座席・保留中の投票・入力途中の回答をそのまま復元
-- 🎲 **マルチゲーム基盤** — クリーンで拡張しやすい `GameEngine` アーキテクチャ
-- 👥 **観客モード** — 遅れて参加した人や満員のルームに入った人も毎ラウンド投票できる
-- 🎉 **絵文字リアクション** — プレイヤーがホスト画面に送るライブリアクション6種
-- 🛠️ **ホストツール** — プレイヤーのキック、ゲームの長さ設定、早期終了
-- 🌍 **14言語** — UI *と*問題コンテンツ
-- 🔊 **効果音** — Web Audio API で合成（音声ファイルはゼロ）
-- 🎬 **アニメーション遷移** + canvas の紙吹雪フィナーレ
-- 🔒 **セキュリティ重視** — Helmet/CSP、入力バリデーション、ソケット単位のレート制限
-- 🚀 **パフォーマンス重視** — gzip、vendor チャンク分割、セルフホストのフォント
-
-**遊び方**
-1. **テレビやノートPC**でアプリを開いて **新しいゲームを始める** をタップ — ルームコードが表示されます。
-2. それぞれの**スマホ**で（同じ Wi-Fi かライブURL）**ルームに参加** をタップし、名前とコードを入力。
-3. プレイヤーが**3人以上**集まったら、ホストがモードを選んでスタート。
-4. 答えて、投票して、スコアがぐんぐん上がるのを見守ろう — 勝者には紙吹雪を降らせちゃおう！🎊
-
-</details>
-
-<a id="ko-ko"></a>
-<details>
-<summary><b>🇰🇷 한국어</b></summary>
-
-### 🎉 Matah
-*친구들과 함께 즐기는 폭소 파티 게임.*
-
-**Matah가 뭐냐고요?** Jackbox 스타일의 **실시간 멀티플레이어 파티 게임**이에요. 화면 하나 — TV나 노트북 — 가 4자리 방 코드를 보여 주는 **호스트 화면**이 되고, 나머지 사람들은 **휴대폰으로 참가**해 모든 기기에서 동시에 즐겨요. **두 가지 게임 모드**가 있고, 엔진은 모드를 쉽게 추가할 수 있도록 설계됐어요:
-
-| 모드 | 방식 |
-|------|--------------|
-| ✍️ **Quiplash** | 모두에게 웃긴 문제가 주어지면 가장 재치 있는 답을 쓰고, 방 전체가 일대일로 투표해요. 표를 가장 많이 받은 사람이 라운드 승리. |
-| 🧠 **퀴즈** | 객관식 문제로, **빠르고 정확하게** 맞힐수록 점수가 높아요 — 연속 정답에는 **연속 보너스**까지. |
-
-**하이라이트**
-- ⚡ **실시간 멀티플레이어** — Socket.IO 기반, 자동 재접속
-- 🔁 **재개 토큰** — 연결이 끊겨도 처음부터 다시 시작하지 않고 자리, 대기 중인 투표, 작성 중이던 답변을 그대로 복원
-- 🎲 **멀티 게임 플랫폼** — 깔끔하고 확장 가능한 `GameEngine` 아키텍처
-- 👥 **관객 모드** — 늦게 참가했거나 꽉 찬 방에 들어온 사람도 매 라운드 투표 가능
-- 🎉 **이모지 리액션** — 플레이어가 호스트 화면으로 보내는 6가지 실시간 리액션
-- 🛠️ **호스트 도구** — 플레이어 강퇴, 게임 길이 설정, 조기 종료
-- 🌍 **14개 언어** — UI *와* 문제 콘텐츠
-- 🔊 **사운드 효과** — Web Audio API로 합성 (오디오 파일 0개)
-- 🎬 **애니메이션 전환** + canvas 색종이 피날레
-- 🔒 **보안 중심** — Helmet/CSP, 입력 검증, 소켓별 속도 제한
-- 🚀 **성능 중심** — gzip, vendor 청크 분리, 자체 호스팅 폰트
-
-**플레이 방법**
-1. **TV나 노트북**에서 앱을 열고 **새 게임 시작**을 누르면 방 코드가 나와요.
-2. 각자 **휴대폰**에서(같은 Wi-Fi 또는 라이브 URL) **방 참가하기**를 누르고 이름과 코드를 입력하세요.
-3. **최소 3명**이 모이면 방장이 모드를 골라 시작해요.
-4. 답하고, 투표하고, 점수가 올라가는 걸 지켜보세요 — 그리고 우승자에게 색종이가 쏟아지게 하세요! 🎊
-
-</details>
-
-<a id="hi-hi"></a>
-<details>
-<summary><b>🇮🇳 हिन्दी</b></summary>
-
-### 🎉 Matah
-*दोस्तों के साथ खेलने वाला धमाकेदार पार्टी गेम।*
-
-**Matah क्या है?** Jackbox-स्टाइल का **रियल-टाइम मल्टीप्लेयर पार्टी गेम**। एक स्क्रीन — TV या लैपटॉप — **होस्ट डिस्प्ले** होती है जिस पर 4 अक्षरों का रूम कोड दिखता है। बाकी सब **अपने फ़ोन से जुड़ते हैं** और खेल सभी डिवाइस पर एक साथ चलता है। इसमें **दो गेम मोड** हैं, और इंजन इस तरह बना है कि और मोड आसानी से जोड़े जा सकें:
-
-| मोड | कैसे चलता है |
-|------|--------------|
-| ✍️ **Quiplash** | सबको एक मज़ेदार सवाल मिलता है, सबसे चुटीला जवाब लिखें, फिर पूरा रूम आमने-सामने वोट करता है। सबसे ज़्यादा वोट राउंड जीतते हैं। |
-| 🧠 **क्विज़** | बहुविकल्पीय सवाल, जहाँ **सही और तेज़** जवाब देने पर सबसे ज़्यादा अंक मिलते हैं — लगातार सही जवाबों पर **स्ट्रिक बोनस** भी। |
-
-**मुख्य बातें**
-- ⚡ **रियल-टाइम मल्टीप्लेयर** — Socket.IO पर, अपने-आप दोबारा कनेक्ट
-- 🔁 **रीज़्यूम टोकन** — कनेक्शन टूटने पर दोबारा शुरू करने की बजाय सीट, लंबित वोट और अधूरा जवाब वापस मिल जाता है
-- 🎲 **मल्टी-गेम प्लेटफ़ॉर्म** — साफ़, विस्तार-योग्य `GameEngine` आर्किटेक्चर
-- 👥 **दर्शक मोड** — देर से आने वाले या भरे हुए रूम में शामिल होने वाले भी हर राउंड में वोट कर सकते हैं
-- 🎉 **इमोजी रिएक्शन** — खिलाड़ी होस्ट स्क्रीन पर भेज सकते हैं ऐसे छह लाइव रिएक्शन
-- 🛠️ **होस्ट टूल्स** — किसी खिलाड़ी को निकालना, गेम की लंबाई तय करना या गेम जल्दी खत्म करना
-- 🌍 **14 भाषाएँ** — इंटरफ़ेस *और* सवालों की सामग्री
-- 🔊 **साउंड इफ़ेक्ट** — Web Audio API से सिंथेसाइज़ (शून्य ऑडियो फ़ाइल)
-- 🎬 **एनिमेटेड ट्रांज़िशन** + canvas कॉन्फ़ेटी फ़िनाले
-- 🔒 **सुरक्षा-सजग** — Helmet/CSP, इनपुट वैलिडेशन, प्रति-socket रेट लिमिट
-- 🚀 **परफ़ॉर्मेंस-सजग** — gzip, vendor चंक स्प्लिटिंग, सेल्फ़-होस्टेड फ़ॉन्ट
-
-**कैसे खेलें**
-1. **TV या लैपटॉप** पर ऐप खोलें और **नया गेम शुरू करें** दबाएँ — एक रूम कोड दिखेगा।
-2. हर **फ़ोन** पर (वही Wi-Fi या लाइव URL) **रूम में शामिल हों** टैप करें और अपना नाम + कोड डालें।
-3. **कम से कम 3 खिलाड़ियों** के जुड़ते ही, होस्ट एक मोड चुनकर शुरू करता है।
-4. जवाब दें, वोट करें, स्कोर बढ़ते देखें — और जीतने वाले पर कॉन्फ़ेटी की बारिश होने दें! 🎊
-
-</details>
-
-<a id="nl-nederlands"></a>
-<details>
-<summary><b>🇳🇱 Nederlands</b></summary>
-
-### 🎉 Matah
-*Het hilarische partyspel dat je met vrienden speelt.*
-
-**Wat is Matah?** Een **real-time multiplayer partyspel** in Jackbox-stijl. Eén scherm — een tv of laptop — is het **hostscherm** en toont een ruimtecode van 4 letters. Iedereen **sluit aan vanaf de telefoon** en het spel speelt zich op alle apparaten tegelijk af. Het komt met **twee spelmodi**, en de engine is gebouwd om er makkelijk meer toe te voegen:
-
-| Modus | Hoe het werkt |
-|------|--------------|
-| ✍️ **Quiplash** | Iedereen krijgt een grappige opdracht, schrijft het geestigste antwoord en de ruimte stemt één-tegen-één. De meeste stemmen wint de ronde. |
-| 🧠 **Quiz** | Meerkeuzevragen waarbij **goed én snel** antwoorden het meest oplevert — met een bonus voor **reeksen** goede antwoorden. |
-
-**Hoogtepunten**
-- ⚡ **Real-time multiplayer** via Socket.IO, met automatische herverbinding
-- 🔁 **Hervattingstokens** — een verbroken verbinding herstelt plek, openstaande stem en halfafgemaakt antwoord in plaats van opnieuw te beginnen
-- 🎲 **Multi-game-platform** — een nette, uitbreidbare `GameEngine`-architectuur
-- 👥 **Publieksmodus** — laatkomers en wie een volle ruimte binnenkomt, stemmen gewoon elke ronde mee
-- 🎉 **Emoji-reacties** — zes live reacties die spelers naar het hostscherm sturen
-- 🛠️ **Hosttools** — een speler verwijderen, de spelduur instellen of het spel vroegtijdig beëindigen
-- 🌍 **14 talen** — interface *en* vraaginhoud
-- 🔊 **Geluidseffecten** gesynthetiseerd met de Web Audio API (nul audiobestanden)
-- 🎬 **Geanimeerde overgangen** + een confetti-finale op canvas
-- 🔒 **Veiligheidsbewust** — Helmet/CSP, invoervalidatie, rate limiting per socket
-- 🚀 **Prestatiegericht** — gzip, vendor-chunksplitsing, zelf-gehoste fonts
-
-**Hoe speel je het**
-1. Open de app op een **tv of laptop** en druk op **Nieuw spel starten** — er verschijnt een ruimtecode.
-2. Tik op elke **telefoon** (zelfde wifi of de live-URL) op **Deelnemen aan een ruimte** en voer je naam + de code in.
-3. Zodra **minstens 3 spelers** zijn aangesloten, kiest de host een modus en begint.
-4. Antwoord, stem, zie de scores stijgen — en laat de confetti op de winnaar neerdalen! 🎊
-
-</details>
+
+Sunucu 3001, istemci 5173 portunu dinler. Host olmak için
+`http://localhost:5173` adresini, katılmak için de terminalde yazan yerel ağ
+adresini her telefonda aç.
+
+Yayına alırken tek bir Node servisi hem Socket.IO sunucusunu hem de derlenmiş
+istemciyi sunar:
+
+- **Render:** **New → Blueprint** seçip depoyu işaretle. `render.yaml` iki workspace'i de derler ve `PUBLIC_ORIGIN` değerini sorar.
+- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 matah`
+- **Herhangi bir Node sunucusu:** `npm ci`, `npm run build`, ardından `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
+
+### Kullanım
+
+1. TV'de ya da laptopta **Yeni Oyun Başlat**'a bas. Bir oda kodu ve QR kod çıkar.
+2. Her telefonda QR kodu okut, ya da siteyi açıp **Odaya Katıl**'a bas, bir isim ve kodu gir.
+3. En az üç oyuncu gelince host modu ve uzunluğu seçip oyunu başlatır.
+
+| Komut | Ne yapar |
+|-------|----------|
+| `npm run dev` | Sunucu ve istemciyi izleme modunda çalıştırır |
+| `npm run build` | Sunucuyu derler, üretim istemcisini oluşturur |
+| `npm start` | Derlenmiş üretim sunucusunu çalıştırır |
+| `npm test` | Sunucu unit ve entegrasyon testleri ile istemci bileşen testleri |
+| `npm run test:coverage:server` | Sunucuda %93 satır / %80 dal kapsamını zorunlu tutar |
+| `npm run test:coverage:client` | İstemcide %62 satır / %70 dal kapsamını zorunlu tutar |
+| `npm run test:smoke` | Derlenmiş sunucuya karşı çok oyunculu smoke testleri |
+| `npm run test:browser` | Gerçek Chromium'da çok oyunculu, duraklatma, Blöf, duyarlı tasarım, RTL ve axe kontrolleri |
+| `npm run test:load` | 60 saniyelik, 25 odalık sınırlı yük ve sızıntı testi |
+| `npm run lint` · `npm run typecheck` | Tüm workspace'lerde ESLint ve TypeScript |
+
+`test:smoke` ve `test:browser` önce `npm run build` ister. `test:browser` için
+Chromium da gerekir: `npx playwright install chromium`.
+
+### Yapılandırma
+
+| Değişken | Zorunlu | Amacı |
+|----------|---------|-------|
+| `PUBLIC_ORIGIN` | Üretimde | Bağlanmasına izin verilen tam genel origin, örneğin `https://game.example.com`. Joker karakter kullanılmaz. |
+| `NODE_ENV` | Üretimde | `production`, statik dosya sunmayı ve üretim origin kontrolünü açar. |
+| `ALLOWED_ORIGINS` | Hayır | Staging alan adları için virgülle ayrılmış ek tam origin'ler. |
+| `PORT` | Hayır | HTTP portu, varsayılan `3001`. |
+| `MATAH_REDIS_URL` | Hayır | `redis://` ya da `rediss://` adresi. Odaların kaydı buraya alınır, böylece oyunlar yeniden başlatmadan sağ çıkar. Bir sır gibi sakla. |
+| `MATAH_SNAPSHOT_FILE` | Hayır | Aynı kayıtlar için bir dosya yolu; kalıcı diski olan sunucular içindir. İkisi de ayarlıysa `MATAH_REDIS_URL` kullanılır. |
+| `MATAH_SNAPSHOT_KEY` | Hayır | Kaydın Redis anahtarı, varsayılan `matah:snapshot`. |
+| `MATAH_SNAPSHOT_INTERVAL_MS` | Hayır | Değişen odaların ne sıklıkla kaydedileceği, varsayılan `15000`, en az `1000`. |
+
+On bir `MATAH_RL_*` değişkeni hız sınırlarını, bağlantı ve oda tavanlarını
+ayarlar. Varsayılanlar tek bir adresin arkasındaki bütün bir ev için
+hesaplanmıştır; tam liste ve her varsayılanın gerekçesi
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rate-limiting) içinde.
+
+Tam olarak bir instance çalıştır. Odalar o sürecin belleğinde yaşar; iki
+instance ne odaları paylaşır ne de aynı kayıt anahtarını güvenle kullanabilir.
+Render'ın ücretsiz planı ve çoğu konteyner deploy sırasında diskini kaybeder,
+bu yüzden orada kayıt dosyası yerine Redis kullan. Yeniden başlatma kalıcılığı
+Redis 7'ye karşı test edildi; `AUTH`, `SELECT`, `GET` ve `SET` komutlarını kabul
+eden Redis uyumlu bir servis de aynı şekilde çalışmalı. Kayıtların, sürelerin
+ve devam anahtarlarının yeniden başlatmadan nasıl sağ çıktığı
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#surviving-a-restart) içinde anlatılıyor.
+
+### Katkı
+
+Issue ve pull request'lere açığız. Çalışma akışı ve önce çalıştırılacak
+kontroller [CONTRIBUTING.md](CONTRIBUTING.md) içinde, değişikliklerin kaydı
+[CHANGELOG.md](CHANGELOG.md) içinde. Redis testleri, `MATAH_TEST_REDIS_URL`
+tek kullanımlık bir Redis'i göstermedikçe kendini atlar.
+
+Depo üç paketten oluşan bir npm workspace: `shared/` tipleri ve Socket.IO olay
+sözleşmelerini, `server/` her oyun modu için bir motorla birlikte Express ve
+Socket.IO sunucusunu, `client/` ise React ile yazılmış host ve telefon
+arayüzünü tutar.
+
+### Lisans
+
+MIT © 𝓐.𝓒.𝓑. Ayrıntılar [LICENSE](LICENSE) dosyasında.
+
+[⬆ Başa Dön](#top)

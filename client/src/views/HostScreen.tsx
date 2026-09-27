@@ -6,9 +6,15 @@ import type {
   RoomState,
 } from "../../../shared/src/index";
 import {
+  BLUFF_QUESTIONS,
   DEFAULT_TOTAL_ROUNDS,
+  MAX_BLUFF_QUESTIONS,
+  MAX_CUSTOM_PROMPTS,
+  MAX_PLAYERS,
+  MAX_PROMPT_LEN,
   MAX_QUESTIONS,
   MAX_ROUNDS,
+  MIN_BLUFF_QUESTIONS,
   MIN_PLAYERS,
   MIN_QUESTIONS,
   MIN_ROUNDS,
@@ -22,12 +28,30 @@ import { TopBar } from "../components/Controls";
 import { Confetti } from "../components/Confetti";
 import { ReactionOverlay } from "../components/Reactions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { QuiplashIcon, TriviaIcon } from "../components/GameIcons";
+import { BluffIcon, QuiplashIcon, TriviaIcon } from "../components/GameIcons";
 import { Avatar } from "../components/Avatar";
-import { IconCheck, IconClose, IconCopy, Medal, PartyIcon } from "../components/icons";
+import { CreditRow, Highlights, SessionStandings, ShareButton } from "../components/Results";
+import {
+  IconCheck,
+  IconClose,
+  IconCopy,
+  IconPause,
+  IconPlay,
+  IconSeatDown,
+  IconSeatUp,
+  Medal,
+  PartyIcon,
+} from "../components/icons";
 import { playSfx } from "../sound";
 
-const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
+const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+
+/** Per-mode length bounds: quiplash rounds, trivia or bluff questions. */
+const LENGTH_BOUNDS: Record<GameType, { min: number; max: number; def: number }> = {
+  quiplash: { min: MIN_ROUNDS, max: MAX_ROUNDS, def: DEFAULT_TOTAL_ROUNDS },
+  trivia: { min: MIN_QUESTIONS, max: MAX_QUESTIONS, def: TRIVIA_QUESTIONS },
+  bluff: { min: MIN_BLUFF_QUESTIONS, max: MAX_BLUFF_QUESTIONS, def: BLUFF_QUESTIONS },
+};
 
 interface Props {
   code: string;
@@ -52,7 +76,7 @@ export function HostScreen({
   const pendingRef = useRef(false);
 
   const runCommand = useCallback(
-    async (name: string, action: () => Promise<ClientResult<null>>) => {
+    async <T,>(name: string, action: () => Promise<ClientResult<T>>) => {
       if (pendingRef.current) return false;
       pendingRef.current = true;
       setPending(name);
@@ -92,6 +116,30 @@ export function HostScreen({
     await runCommand("language", () =>
       emitAck<null>("room:setLanguage", { language, phaseId: state.phaseId })
     );
+  };
+  const setSeat = async (playerId: string, audience: boolean) => {
+    if (!state) return;
+    const ok = await runCommand("seat", () =>
+      emitAck<null>("player:setSeat", { playerId, audience, phaseId: state.phaseId })
+    );
+    if (ok) playSfx("click");
+  };
+  const saveCustomPrompts = (prompts: string[]) =>
+    state
+      ? runCommand("prompts", () =>
+          emitAck<{ count: number }>("room:setCustomPrompts", {
+            prompts,
+            phaseId: state.phaseId,
+          })
+        )
+      : Promise.resolve(false);
+  const togglePause = async () => {
+    if (!state) return;
+    const event = state.pausedRemainingMs === null ? "game:pause" : "game:resume";
+    const ok = await runCommand("pause", () =>
+      emitAck<null>(event, { phaseId: state.phaseId })
+    );
+    if (ok) playSfx("click");
   };
   // Confirmations run through a styled dialog; `confirming` holds which one.
   const [confirming, setConfirming] = useState<"end" | "leave" | null>(null);
@@ -152,6 +200,11 @@ export function HostScreen({
     state.totalRounds > 0 &&
     state.round >= state.totalRounds &&
     (state.phase === "answering" || state.phase === "voting");
+  const paused = state.pausedRemainingMs !== null;
+  const canPause =
+    state.phase !== "lobby" &&
+    state.phase !== "gameover" &&
+    (paused || state.phaseEndsAt !== null);
 
   return (
     <main className="screen host">
@@ -196,12 +249,22 @@ export function HostScreen({
         <div className="host-header-spacer" />
         {secondsLeft !== null && (
           <div
-            className={`timer ${secondsLeft <= 5 ? "danger" : ""}`}
+            className={`timer ${secondsLeft <= 5 && !paused ? "danger" : ""} ${paused ? "paused" : ""}`}
             role="timer"
             aria-label={t("secondsLeft", { n: secondsLeft })}
           >
             {secondsLeft}
           </div>
+        )}
+        {canPause && (
+          <button
+            className="btn ghost pause-btn"
+            onClick={() => void togglePause()}
+            disabled={pending !== null}
+            aria-pressed={paused}
+          >
+            {paused ? <IconPlay /> : <IconPause />} {paused ? t("resume") : t("pause")}
+          </button>
         )}
         {(state.phase === "answering" ||
           state.phase === "voting" ||
@@ -221,9 +284,15 @@ export function HostScreen({
         </div>
       )}
 
-      {isFinalRound && (
+      {paused && (
+        <div className="pause-banner pop-in" role="status">
+          <IconPause /> {t("pausedTitle")}
+        </div>
+      )}
+
+      {isFinalRound && !paused && (
         <div className="final-banner pop-in">
-          {state.gameType === "trivia" ? t("finalQuestion") : t("finalRound")}
+          {state.gameType === "quiplash" ? t("finalRound") : t("finalQuestion")}
         </div>
       )}
 
@@ -233,7 +302,9 @@ export function HostScreen({
           pending={pending !== null}
           onStart={start}
           onKick={kick}
+          onSeat={setSeat}
           onLanguage={setGameLanguage}
+          onCustomPrompts={saveCustomPrompts}
         />
       )}
 
@@ -261,6 +332,18 @@ export function HostScreen({
 
       {state.phase === "results" && state.gameType === "trivia" && (
         <TriviaResultsView state={state} />
+      )}
+
+      {state.phase === "answering" && state.gameType === "bluff" && (
+        <BluffWritingView state={state} />
+      )}
+
+      {state.phase === "voting" && state.gameType === "bluff" && (
+        <BluffPickView state={state} />
+      )}
+
+      {state.phase === "results" && state.gameType === "bluff" && (
+        <BluffRevealView state={state} />
       )}
 
       {(state.phase === "scoreboard" || state.phase === "gameover") && (
@@ -370,30 +453,36 @@ function LobbyView({
   pending,
   onStart,
   onKick,
+  onSeat,
   onLanguage,
+  onCustomPrompts,
 }: {
   state: RoomState;
   pending: boolean;
   onStart: (g: GameType, rounds: number) => void;
   onKick: (playerId: string) => void;
+  onSeat: (playerId: string, audience: boolean) => void;
   onLanguage: (language: Language) => void;
+  onCustomPrompts: (prompts: string[]) => Promise<boolean>;
 }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<GameType>("quiplash");
-  // Length bounds & default depend on the selected mode (rounds vs questions).
-  const bounds =
-    selected === "trivia"
-      ? { min: MIN_QUESTIONS, max: MAX_QUESTIONS, def: TRIVIA_QUESTIONS }
-      : { min: MIN_ROUNDS, max: MAX_ROUNDS, def: DEFAULT_TOTAL_ROUNDS };
+  const bounds = LENGTH_BOUNDS[selected];
   const [length, setLength] = useState(bounds.def);
-  const enough = state.players.length >= MIN_PLAYERS;
+  // Mirror Room.start: it counts connected players after seating connected
+  // spectators in any free seats. Counting offline players offered a start
+  // button the server would always refuse.
+  const freeSeats = Math.max(0, MAX_PLAYERS - state.players.length);
+  const ready =
+    state.players.filter((p) => p.connected).length +
+    Math.min(freeSeats, state.audience.filter((a) => a.connected).length);
+  const enough = ready >= MIN_PLAYERS;
 
   const pickMode = (g: GameType) => {
     setSelected(g);
-    setLength(
-      g === "trivia" ? TRIVIA_QUESTIONS : DEFAULT_TOTAL_ROUNDS
-    );
+    setLength(LENGTH_BOUNDS[g].def);
   };
+  const seatFree = state.players.length < MAX_PLAYERS;
   const clampedLength = Math.min(bounds.max, Math.max(bounds.min, length));
 
   return (
@@ -431,6 +520,18 @@ function LobbyView({
             className={`lobby-player ${!p.connected ? "off" : ""}`}
           >
             <Avatar id={p.avatar} className="lobby-avatar" /> {p.name}
+            {state.gamesPlayed > 0 && (
+              <span className="lobby-session">{p.sessionScore}</span>
+            )}
+            <button
+              className="kick-btn"
+              onClick={() => onSeat(p.id, true)}
+              disabled={pending}
+              aria-label={t("moveToAudience", { name: p.name })}
+              title={t("moveToAudience", { name: p.name })}
+            >
+              <IconSeatDown />
+            </button>
             <button
               className="kick-btn"
               onClick={() => onKick(p.id)}
@@ -443,6 +544,29 @@ function LobbyView({
           </div>
         ))}
       </div>
+
+      {state.audience.length > 0 && (
+        <div className="lobby-audience" role="group" aria-label={t("audienceTitle")}>
+          <span className="length-label">{t("audienceTitle")}</span>
+          {state.audience.map((member) => (
+            <span
+              key={member.id}
+              className={`chip audience-chip ${member.connected ? "" : "off"}`}
+            >
+              <Avatar id={member.avatar} /> {member.name}
+              <button
+                className="kick-btn"
+                onClick={() => onSeat(member.id, false)}
+                disabled={pending || !seatFree}
+                aria-label={t("seatPlayer", { name: member.name })}
+                title={t("seatPlayer", { name: member.name })}
+              >
+                <IconSeatUp />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="game-picker">
         <GameCard
@@ -459,11 +583,26 @@ function LobbyView({
           desc={t("gameTriviaDesc")}
           onClick={() => pickMode("trivia")}
         />
+        <GameCard
+          active={selected === "bluff"}
+          icon={<BluffIcon />}
+          title={t("gameBluff")}
+          desc={t("gameBluffDesc")}
+          onClick={() => pickMode("bluff")}
+        />
       </div>
 
-      <div className="length-picker" role="group" aria-label={t(selected === "trivia" ? "questionsLabel" : "roundsLabel")}>
+      {selected === "quiplash" && (
+        <CustomPromptsPanel
+          count={state.customPromptCount}
+          pending={pending}
+          onSave={onCustomPrompts}
+        />
+      )}
+
+      <div className="length-picker" role="group" aria-label={t(selected === "quiplash" ? "roundsLabel" : "questionsLabel")}>
         <span className="length-label">
-          {t(selected === "trivia" ? "questionsLabel" : "roundsLabel")}
+          {t(selected === "quiplash" ? "roundsLabel" : "questionsLabel")}
         </span>
         <button
           className="length-step"
@@ -490,9 +629,85 @@ function LobbyView({
         disabled={!enough || pending}
       >
         {enough
-          ? t("startGame", { n: state.players.length })
+          ? t("startGame", { n: ready })
           : t("needPlayers", { min: MIN_PLAYERS })}
       </button>
+    </div>
+  );
+}
+
+/**
+ * The host's own Quiplash prompts, one per line. Lines are trimmed to the
+ * server's limits here so a full pack always fits in one socket frame.
+ */
+function CustomPromptsPanel({
+  count,
+  pending,
+  onSave,
+}: {
+  count: number;
+  pending: boolean;
+  onSave: (prompts: string[]) => Promise<boolean>;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const lines = text
+    .split("\n")
+    .map((line) => Array.from(line.trim()).slice(0, MAX_PROMPT_LEN).join(""))
+    .filter(Boolean);
+  const tooMany = lines.length > MAX_CUSTOM_PROMPTS;
+
+  return (
+    <div className="custom-prompts">
+      <button
+        type="button"
+        className="btn link custom-prompts-toggle"
+        aria-expanded={open}
+        aria-controls="custom-prompts-body"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {t("customPrompts")}
+        {count > 0 ? ` · ${t("customPromptsCount", { n: count })}` : ""}
+      </button>
+      {open && (
+        <div id="custom-prompts-body" className="custom-prompts-body">
+          <label className="field-label" htmlFor="custom-prompts-input">
+            {t("customPrompts")}
+          </label>
+          <p className="hint">{t("customPromptsHint", { max: MAX_CUSTOM_PROMPTS })}</p>
+          <textarea
+            id="custom-prompts-input"
+            className="input custom-prompts-input"
+            rows={6}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <div className="custom-prompts-actions">
+            <span className={`custom-prompts-counter ${tooMany ? "danger" : ""}`}>
+              {lines.length}/{MAX_CUSTOM_PROMPTS}
+            </span>
+            {count > 0 && (
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={pending}
+                onClick={() => void onSave([])}
+              >
+                {t("customPromptsClear")}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn primary"
+              disabled={pending || lines.length === 0 || tooMany}
+              onClick={() => void onSave(lines)}
+            >
+              {t("customPromptsSave")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -657,6 +872,10 @@ function QuiplashResultsView({
                     }`}
                   >
                     <span className="ra-text">{a.text}</span>
+                    <CreditRow
+                      credits={a.voters}
+                      label={t("votedBy", { names: a.voters.map((v) => v.name).join(", ") })}
+                    />
                     <span className="ra-meta">
                       {a.playerName} · {a.votes} {t("voteUnit")} · +
                       {a.pointsAwarded}
@@ -747,6 +966,91 @@ function TriviaResultsView({ state }: { state: RoomState }) {
   );
 }
 
+function BluffWritingView({ state }: { state: RoomState }) {
+  const { t } = useI18n();
+  const view = state.bluff;
+  const q = view?.question;
+  if (!view || !q) return null;
+  return (
+    <div className="host-body center" key={`bw-${q.id}`}>
+      <div className="vs-badge">
+        {t("triviaQuestion", { n: view.questionIndex + 1, total: view.totalQuestions })}
+      </div>
+      <h2 className="prompt-big">{q.text}</h2>
+      <p className="hint">{t("bluffWriteHint")}</p>
+      <PlayerChips state={state} flag="hasSubmitted" />
+    </div>
+  );
+}
+
+function BluffPickView({ state }: { state: RoomState }) {
+  const { t } = useI18n();
+  const view = state.bluff;
+  const q = view?.question;
+  if (!view || !q || !view.options) return null;
+  return (
+    <div className="host-body center" key={`bp-${q.id}`}>
+      <h2 className="prompt-big">{q.text}</h2>
+      <p className="hint">{t("bluffPickHint")}</p>
+      <div className="bluff-options host">
+        {view.options.map((option, i) => (
+          <div key={option.optionId} className="bluff-option pop-in" style={{ animationDelay: `${i * 0.06}s` }}>
+            <span className="opt-letter">{OPTION_LETTERS[i]}</span>
+            <span className="opt-text">{option.text}</span>
+          </div>
+        ))}
+      </div>
+      <PlayerChips state={state} flag="hasVoted" />
+    </div>
+  );
+}
+
+function BluffRevealView({ state }: { state: RoomState }) {
+  const { t } = useI18n();
+  const view = state.bluff;
+  const q = view?.question;
+  const reveal = view?.reveal;
+  if (!view || !q || !reveal) return null;
+  // Lies first, the truth last: the room gets to groan before it cheers.
+  const ordered = [...reveal.options].sort((a, b) => Number(a.isTruth) - Number(b.isTruth));
+  return (
+    <div className="host-body center" key={`br-${q.id}`}>
+      <h2 className="prompt-big">{q.text}</h2>
+      <div className="bluff-options host">
+        {ordered.map((option, i) => (
+          <div
+            key={option.optionId}
+            className={`bluff-option reveal pop-in ${option.isTruth ? "truth" : "lie"}`}
+            style={{ animationDelay: `${i * 0.25}s` }}
+          >
+            <span className="opt-text">{option.text}</span>
+            <span className="bluff-credit">
+              {option.isTruth
+                ? t("bluffTruth")
+                : option.authors.length > 0
+                  ? t("bluffLieBy", { name: option.authors.map((a) => a.name).join(", ") })
+                  : t("bluffHouseLie")}
+            </span>
+            <CreditRow
+              credits={option.pickers}
+              label={t("votedBy", { names: option.pickers.map((p) => p.name).join(", ") })}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="round-points">
+        {reveal.pointsThisRound
+          .filter((p) => p.points > 0)
+          .map((p) => (
+            <span key={p.playerId} className="chip done">
+              {p.playerName} +{p.points}
+            </span>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 function ScoreboardView({
   state,
   pending,
@@ -790,6 +1094,8 @@ function ScoreboardView({
           </div>
         ))}
       </div>
+      <Highlights highlights={state.highlights} />
+      <SessionStandings players={state.players} gamesPlayed={state.gamesPlayed} />
       <div className="scoreboard-actions">
         <button
           className="btn primary"
@@ -798,6 +1104,7 @@ function ScoreboardView({
         >
           {t("playAgain")}
         </button>
+        <ShareButton state={state} />
         <button className="btn ghost" onClick={onChangeSettings} disabled={pending}>
           {t("backToMenu")}
         </button>

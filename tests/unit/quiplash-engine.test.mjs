@@ -183,3 +183,17 @@ test('voting skips abandoned matchups and reaches results without a voter', () =
   h.fireTimeout();
   assert.equal(h.engine.serialize().quiplash.activeMatchup, null);
 });
+
+test('a lone connected author is not left owing a second answer to themselves', () => {
+  // Cyclic pairing seats one player opposite themselves, so they author the
+  // round's only matchup twice over. Counting both seats meant their single
+  // answer never marked them done and the round always ran out the clock.
+  const h = harness();
+  h.players[1].connected = false;
+  h.players[2].connected = false;
+  h.engine.start();
+  const [prompt] = h.assignments.get('p1').prompts;
+  assert.equal(h.engine.handleAnswer('p1', prompt.matchupId, 'solo'), true);
+  assert.equal(h.players[0].hasSubmitted, true);
+  assert.notEqual(h.engine.serialize().quiplash.lastResults, null, 'round should close early');
+});

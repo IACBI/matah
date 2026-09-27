@@ -1,6 +1,9 @@
 import type {
+  ApiErrorCode,
+  BluffView,
   GamePhase,
   GameType,
+  Highlight,
   Language,
   Player,
   PlayerAssignment,
@@ -38,7 +41,10 @@ export interface EngineContext {
   resetFlags(): void;
   /** Show the final scoreboard, then end the game. */
   toScoreboard(seconds: number): void;
-  /** Monotonic milliseconds for gameplay timing. */
+  /**
+   * Monotonic milliseconds for gameplay timing. The clock stops while the room
+   * is paused, so elapsed-time scoring never counts a pause against anyone.
+   */
   now(): number;
 }
 
@@ -47,6 +53,13 @@ export interface EngineView {
   totalRounds: number;
   quiplash?: QuiplashView;
   trivia?: TriviaView;
+  bluff?: BluffView;
+}
+
+/** Plain JSON an engine can be rebuilt from after a server restart. */
+export interface EngineSnapshot {
+  type: GameType;
+  data: unknown;
 }
 
 /** A playable game mode. Optional handlers are ignored if the mode doesn't use them. */
@@ -60,13 +73,19 @@ export interface GameEngine {
     questionId: string,
     optionIndex: number
   ): boolean;
+  /** Bluff: a player's lie. Null on success, otherwise why it was refused. */
+  handleLie?(playerId: string, questionId: string, text: string): ApiErrorCode | null;
+  handlePick?(playerId: string, questionId: string, optionId: string): boolean;
   /** The per-player data to (re)send, e.g. after a reconnect. Null if none. */
   currentAssignment?(playerId: string): PlayerAssignment | null;
   /**
-   * A player went offline mid-game. Lets the engine re-check its
-   * "everyone done?" conditions so a dropped player doesn't stall the round.
+   * Re-check the "everyone done?" conditions. Called when a player goes
+   * offline mid-game, so a dropped player doesn't stall the round, and when a
+   * paused game resumes, since nothing advanced while it was frozen.
    */
   handlePlayerDisconnect?(): void;
+  /** The room froze its clock: cancel any engine-owned timers. */
+  pause?(): void;
   /**
    * A player was removed from the room entirely (kicked). Unlike a disconnect,
    * they are never coming back, so the engine must purge any state they left
@@ -74,5 +93,14 @@ export interface GameEngine {
    */
   handlePlayerRemoved?(playerId: string): void;
   serialize(): EngineView;
+  /** The game's best moments, for the scoreboard. */
+  highlights?(): Highlight[];
+  /**
+   * What the room's phase timer should run for the engine's current phase.
+   * Timers are closures and cannot be saved, so a restored engine hands its
+   * room the callback to re-arm.
+   */
+  timeoutHandler(): (() => void) | null;
+  snapshot(): EngineSnapshot;
   dispose(): void;
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerAssignment, RoomState } from "../../../shared/src/index";
-import { MAX_ANSWER_LEN } from "../../../shared/src/index";
+import { MAX_ANSWER_LEN, MAX_LIE_LEN } from "../../../shared/src/index";
 import { emitAck } from "../socket";
 import { useI18n } from "../i18n";
 import { errorKey } from "../i18n/translations";
@@ -8,10 +8,11 @@ import { TopBar } from "../components/Controls";
 import { ReactionBar } from "../components/Reactions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Avatar } from "../components/Avatar";
+import { ShareButton } from "../components/Results";
 import { IconBack, IconTimer, VerdictRight, VerdictWrong } from "../components/icons";
 import { haptic, playSfx } from "../sound";
 
-const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
+const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
 const DRAFT_PREFIX = "matah.drafts.";
 
 function draftKey(code: string, playerId: string): string {
@@ -133,6 +134,11 @@ export function PlayerScreen({
           <div className="badge warn">{t("reconnecting")}</div>
         </div>
       )}
+      {connected && state.pausedRemainingMs !== null && (
+        <div className="reconnect-overlay paused-overlay" role="status">
+          <div className="badge warn">{t("pausedHint")}</div>
+        </div>
+      )}
       {confirmingLeave && (
         <ConfirmDialog
           message={t("leaveConfirm")}
@@ -196,13 +202,34 @@ export function PlayerScreen({
             code={code}
             playerId={myPlayerId}
           />
+        ) : state.gameType === "bluff" ? (
+          <BluffWriteView state={state} assignment={assignment} submitted={me?.hasSubmitted} />
         ) : (
           <TriviaAnswerView state={state} submitted={me?.hasSubmitted} />
         ))}
 
-      {state.phase === "voting" && (
+      {state.phase === "voting" && state.gameType === "quiplash" && (
         <VotingView state={state} assignment={assignment} myPlayerId={myPlayerId} />
       )}
+
+      {state.phase === "voting" &&
+        state.gameType === "bluff" &&
+        (isAudience ? (
+          <AudienceWaitView />
+        ) : (
+          <BluffPickView state={state} assignment={assignment} voted={me?.hasVoted} />
+        ))}
+
+      {state.phase === "results" &&
+        state.gameType === "bluff" &&
+        (isAudience ? (
+          <div className="player-body center fade-in">
+            <h2>{t("resultsOnScreen")}</h2>
+            <p className="hint">{t("lookAtTv")}</p>
+          </div>
+        ) : (
+          <BluffPlayerResult state={state} assignment={assignment} myPlayerId={myPlayerId} />
+        ))}
 
       {state.phase === "results" &&
         state.gameType === "trivia" &&
@@ -226,8 +253,14 @@ export function PlayerScreen({
             <>
               <p className="big-score bounce-in">{me?.score ?? 0}</p>
               <p className="hint">{t("youScored")}</p>
+              {state.gamesPlayed >= 2 && (
+                <p className="hint session-total">
+                  {t("sessionTotal", { n: me?.sessionScore ?? 0 })}
+                </p>
+              )}
             </>
           )}
+          <ShareButton state={state} />
           {state.phase === "gameover" && state.controllerPlayerId === myPlayerId && !isAudience && (
             <>
               <p className="hint">{t("hostGone")}</p>
@@ -591,6 +624,235 @@ function TriviaAnswerView({
   );
 }
 
+/** Bluff: write a lie good enough to fool the room. */
+function BluffWriteView({
+  state,
+  assignment,
+  submitted,
+}: {
+  state: RoomState;
+  assignment: PlayerAssignment | null;
+  submitted?: boolean;
+}) {
+  const { t } = useI18n();
+  const q = state.bluff?.question ?? null;
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setText("");
+    setSent(false);
+    setError("");
+  }, [q?.id]);
+
+  if (!q) {
+    return (
+      <div className="player-body center">
+        <div className="badge warn">…</div>
+      </div>
+    );
+  }
+
+  const serverSays =
+    assignment?.bluff?.questionId === q.id && assignment.bluff.submitted;
+  if (sent || submitted || serverSays) {
+    return (
+      <div className="player-body center fade-in">
+        <h2>{t("sentWaiting")}</h2>
+        <p className="hint">{t("waitingOthersAnswer")}</p>
+        <div className="pulse-dot" />
+      </div>
+    );
+  }
+
+  const send = async () => {
+    const lie = text.trim();
+    if (!lie || busy) return;
+    setBusy(true);
+    setError("");
+    const res = await emitAck("bluff:lie", { questionId: q.id, text: lie });
+    setBusy(false);
+    if (res.ok) {
+      playSfx("submit");
+      haptic();
+      setSent(true);
+    } else {
+      setError(t(errorKey(res.error)));
+    }
+  };
+
+  return (
+    <form
+      className="player-body fade-in"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void send();
+      }}
+    >
+      <h2 className="answer-title">{t("bluffWriteTitle")}</h2>
+      <div className="answer-prompt">{q.text}</div>
+      <input
+        className="input answer-input"
+        placeholder={t("yourLie")}
+        aria-label={t("yourLie")}
+        maxLength={MAX_LIE_LEN}
+        value={text}
+        autoComplete="off"
+        enterKeyHint="send"
+        onChange={(event) => setText(event.target.value)}
+      />
+      <button type="submit" className="btn primary" disabled={busy || !text.trim()}>
+        {t("send")}
+      </button>
+      {error && <div className="badge error shake" role="alert">{error}</div>}
+    </form>
+  );
+}
+
+/** Bluff: hunt for the real answer among everyone's lies. */
+function BluffPickView({
+  state,
+  assignment,
+  voted,
+}: {
+  state: RoomState;
+  assignment: PlayerAssignment | null;
+  voted?: boolean;
+}) {
+  const { t } = useI18n();
+  const view = state.bluff;
+  const q = view?.question ?? null;
+  const [picked, setPicked] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setPicked(null);
+    setError("");
+  }, [q?.id]);
+
+  if (!q || !view?.options) {
+    return (
+      <div className="player-body center fade-in">
+        <h2>{t("tallyingVotes")}</h2>
+        <div className="pulse-dot" />
+      </div>
+    );
+  }
+
+  const mine = assignment?.bluff?.questionId === q.id ? assignment.bluff : null;
+  if (picked || mine?.pickedOptionId || voted) {
+    return (
+      <div className="player-body center fade-in">
+        <h2>{t("bluffPicked")}</h2>
+        <p className="hint">{t("waitingOthers")}</p>
+        <div className="pulse-dot" />
+      </div>
+    );
+  }
+
+  const own = new Set(mine?.ownOptionIds ?? []);
+  const pick = async (optionId: string) => {
+    setPicked(optionId);
+    setError("");
+    playSfx("vote");
+    haptic();
+    const res = await emitAck("bluff:pick", { questionId: q.id, optionId });
+    if (!res.ok) {
+      setPicked(null);
+      setError(t(errorKey(res.error)));
+    }
+  };
+
+  return (
+    <div className="player-body fade-in">
+      <div className="answer-prompt center">{q.text}</div>
+      <p className="hint center">{t("bluffPickTitle")}</p>
+      <div className="bluff-options player">
+        {view.options.map((option, i) => {
+          const isOwn = own.has(option.optionId);
+          return (
+            <button
+              key={option.optionId}
+              className={`bluff-option ${isOwn ? "own" : ""}`}
+              onClick={() => void pick(option.optionId)}
+              disabled={isOwn}
+              aria-label={t("ariaOption", { letter: OPTION_LETTERS[i], text: option.text })}
+            >
+              <span className="opt-letter">{OPTION_LETTERS[i]}</span>
+              <span className="opt-text">{option.text}</span>
+              {isOwn && <span className="bluff-credit">{t("bluffYourLie")}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {error && <div className="badge error shake" role="alert">{error}</div>}
+    </div>
+  );
+}
+
+/** Bluff: did you find the truth, and whose lie got you if not? */
+function BluffPlayerResult({
+  state,
+  assignment,
+  myPlayerId,
+}: {
+  state: RoomState;
+  assignment: PlayerAssignment | null;
+  myPlayerId: string;
+}) {
+  const { t } = useI18n();
+  const view = state.bluff;
+  const reveal = view?.reveal ?? null;
+  const q = view?.question ?? null;
+  const pickedId =
+    assignment?.bluff && q && assignment.bluff.questionId === q.id
+      ? assignment.bluff.pickedOptionId
+      : null;
+  const picked = reveal?.options.find((option) => option.optionId === pickedId) ?? null;
+  const points =
+    reveal?.pointsThisRound.find((entry) => entry.playerId === myPlayerId)?.points ?? 0;
+  const foundTruth = picked?.isTruth ?? false;
+  const revealKey = reveal ? (q?.id ?? "") : null;
+
+  useEffect(() => {
+    if (revealKey !== null) playSfx(foundTruth ? "correct" : "wrong");
+  }, [revealKey, foundTruth]);
+
+  if (!reveal) {
+    return (
+      <div className="player-body center fade-in">
+        <h2>{t("resultsOnScreen")}</h2>
+        <p className="hint">{t("lookAtTv")}</p>
+      </div>
+    );
+  }
+
+  const truth = reveal.options.find((option) => option.isTruth);
+  return (
+    <div className={`player-body center fade-in result-${foundTruth ? "right" : "wrong"}`}>
+      <div className="verdict-emoji bounce-in">
+        {foundTruth ? <VerdictRight /> : <VerdictWrong />}
+      </div>
+      <h2>{foundTruth ? t("bluffFoundTruth") : t("bluffFooled")}</h2>
+      {picked && !picked.isTruth && (
+        <p className="hint">
+          {picked.authors.length > 0
+            ? t("bluffLieBy", { name: picked.authors.map((a) => a.name).join(", ") })
+            : t("bluffHouseLie")}
+        </p>
+      )}
+      {!foundTruth && truth && (
+        <p className="hint">
+          {t("bluffTruth")}: <b>{truth.text}</b>
+        </p>
+      )}
+      {points > 0 && <p className="big-score bounce-in">+{points}</p>}
+    </div>
+  );
+}
+
 function TriviaPlayerResult({
   state,
   myPlayerId,
@@ -604,10 +866,14 @@ function TriviaPlayerResult({
   // A correct trivia answer always scores > 0, a wrong/missed one scores 0.
   const mine = reveal?.pointsThisRound.find((p) => p.playerId === myPlayerId);
   const correct = (mine?.points ?? 0) > 0;
+  // Every broadcast delivers a fresh `reveal` object — a reconnect or a late
+  // audience join during results would replay the jingle — so key the sound on
+  // which question was revealed instead.
+  const revealedId = reveal ? (question?.id ?? "") : null;
 
   useEffect(() => {
-    if (reveal) playSfx(correct ? "correct" : "wrong");
-  }, [reveal, correct]);
+    if (revealedId !== null) playSfx(correct ? "correct" : "wrong");
+  }, [revealedId, correct]);
 
   if (!reveal) {
     return (

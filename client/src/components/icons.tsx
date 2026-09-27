@@ -114,6 +114,13 @@ export const IconSound = ({ on, className }: IconProps & { on: boolean }) =>
   );
 
 export const IconChevron = ({ className }: IconProps) => wrap(<path d="M6 9l6 6 6-6" />, className);
+export const IconPause = ({ className }: IconProps) => wrap(<><path d="M9 5v14" /><path d="M15 5v14" /></>, className);
+export const IconPlay = ({ className }: IconProps) => wrap(<path d="M7 5l12 7-12 7z" />, className);
+/** Send to the audience: a seat with an arrow leaving it. */
+export const IconSeatDown = ({ className }: IconProps) => wrap(<><path d="M12 4v10" /><path d="M8 10l4 4 4-4" /><path d="M5 20h14" /></>, className);
+/** Give a seat: an arrow rising onto the stage. */
+export const IconSeatUp = ({ className }: IconProps) => wrap(<><path d="M12 14V4" /><path d="M8 8l4-4 4 4" /><path d="M5 20h14" /></>, className);
+export const IconShare = ({ className }: IconProps) => wrap(<><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6" /></>, className);
 
 /* ---------------- Verdicts & accents (filled, animated) ---------------- */
 

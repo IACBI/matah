@@ -4,6 +4,7 @@ import type {
   RoomState,
   SessionResult,
 } from "../../shared/src/index";
+import { ROOM_CODE_LENGTH } from "../../shared/src/index";
 import { Home } from "./views/Home";
 import { emitAck, socket } from "./socket";
 import { errorKey, type TKey } from "./i18n/translations";
@@ -34,6 +35,7 @@ type RoomRole = Exclude<Role, "home">;
 export type Link = "connecting" | "restoring" | "live" | "unreachable";
 
 const SESSION_KEY = "matah.session";
+const STORED_CODE = new RegExp(`^[A-Z]{${ROOM_CODE_LENGTH}}$`);
 /** How long a restore may run before we admit the server is not answering. */
 const RESTORE_TIMEOUT_MS = 8_000;
 
@@ -59,7 +61,7 @@ function readSession(): StoredSession | null {
     if (
       (value.role !== "host" && value.role !== "player") ||
       typeof value.code !== "string" ||
-      !/^[A-Z]{4}$/.test(value.code) ||
+      !STORED_CODE.test(value.code) ||
       typeof value.playerId !== "string" ||
       value.playerId.length === 0 ||
       typeof value.resumeToken !== "string" ||
@@ -291,6 +293,9 @@ export function App() {
       activeMatchup: roomState?.quiplash?.activeMatchup ?? null,
       triviaQuestion: roomState?.trivia?.question ?? null,
       triviaReveal: roomState?.trivia?.reveal ?? null,
+      bluff: roomState?.bluff ?? null,
+      pausedRemainingMs: roomState?.pausedRemainingMs ?? null,
+      gamesPlayed: roomState?.gamesPlayed ?? 0,
     });
 
   useEffect(() => {

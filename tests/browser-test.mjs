@@ -62,6 +62,14 @@ async function waitForState(page, predicate, label, timeout = 15_000) {
 }
 
 async function audit(page, label) {
+  // Audit what the user ends up seeing. Mid-way through a fade-in, text is
+  // still nearly transparent and axe reports the blended colour as a contrast
+  // failure. Looping animations never finish, so only finite ones are awaited.
+  await page.evaluate(() => Promise.all(
+    document.getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+      .map((animation) => animation.finished.catch(() => undefined)),
+  ));
   const result = await page.evaluate(async () => window.axe.run(document, {
     resultTypes: ['violations'],
   }));
@@ -280,6 +288,83 @@ async function playQuiplash(host, players) {
   assert.equal(rematch.totalRounds, 1);
 }
 
+async function pauseAndEndEarly(host, players) {
+  // The quiplash rematch is running: freeze it, check every phone says so.
+  await host.getByRole('button', { name: /^pause$/i }).click();
+  const paused = await waitForState(host, (state) => state.pausedRemainingMs !== null, 'paused game');
+  assert.equal(paused.phase, 'answering');
+  await players[0].page.getByRole('status').filter({ hasText: /paused/i }).waitFor();
+  await audit(host, 'paused');
+  await screenshot(host, 'paused-1366x768');
+  await host.getByRole('button', { name: /resume/i }).click();
+  await waitForState(host, (state) => state.pausedRemainingMs === null, 'resumed game');
+
+  // Ending early still banks the game into the session standings.
+  await host.getByRole('button', { name: /end game/i }).click();
+  await host.getByRole('button', { name: /^yes$/i }).click();
+  const scoreboard = await waitForState(host, (state) => state.phase === 'scoreboard', 'early scoreboard');
+  assert.equal(scoreboard.gamesPlayed, 3, 'trivia, quiplash and the ended rematch');
+  await host.getByRole('region', { name: /session standings/i }).waitFor();
+  await host.getByRole('button', { name: /share results/i }).waitFor();
+  await audit(host, 'scoreboard-session');
+  await screenshot(host, 'scoreboard-session-1366x768');
+}
+
+async function playBluff(host, players) {
+  await host.getByRole('button', { name: /back to menu/i }).click();
+  await waitForState(host, (state) => state.phase === 'lobby', 'bluff lobby');
+  await host.getByRole('button', { name: /bluff/i }).click();
+  const questions = host.getByRole('group', { name: /questions/i });
+  for (let index = 0; index < 2; index += 1) {
+    await questions.getByRole('button', { name: /one fewer/i }).click();
+  }
+  await host.getByRole('button', { name: /start game/i }).click();
+
+  for (let question = 0; question < 2; question += 1) {
+    const writing = await waitForState(
+      host,
+      (state) => state.phase === 'answering' && state.gameType === 'bluff' && state.bluff?.question,
+      `bluff question ${question + 1}`,
+    );
+    assert.equal(writing.bluff.options, null, 'no options while lies are being written');
+    for (const [index, { page }] of players.entries()) {
+      await page.getByLabel(/your lie/i).fill(`Browser lie ${question + 1}-${index + 1}`);
+      await page.getByRole('button', { name: /^send$/i }).click();
+    }
+    const picking = await waitForState(host, (state) => state.phase === 'voting' && state.bluff?.options, 'bluff picking');
+    assert.equal(picking.bluff.options.length, 4, 'the truth plus three lies');
+    if (question === 0) {
+      await audit(host, 'bluff-picking');
+      await audit(players[0].page, 'bluff-picking-player');
+      await screenshot(host, 'bluff-picking-1366x768');
+      await screenshot(players[0].page, 'bluff-picking-player-390x844');
+    }
+    for (const { page } of players) {
+      // Each phone greys out its own lie; any other option is a legal pick.
+      assert.equal(await page.locator('button.bluff-option[disabled]').count(), 1);
+      await page.locator('button.bluff-option:not([disabled])').first().click();
+    }
+    const reveal = await waitForState(host, (state) => state.phase === 'results' && state.bluff?.reveal, 'bluff reveal');
+    assert.equal(reveal.bluff.reveal.options.filter((o) => o.isTruth).length, 1);
+    await players[0].page.locator('.verdict-emoji').waitFor();
+    if (question === 0) {
+      await audit(host, 'bluff-reveal');
+      await screenshot(host, 'bluff-reveal-1366x768');
+      await screenshot(players[0].page, 'bluff-reveal-player-390x844');
+    }
+    await host.getByRole('button', { name: /^pause$/i }).waitFor();
+    if (question === 0) {
+      // Skip the reveal timer the same way the host would.
+      await waitForState(host, (state) => state.phase === 'answering', 'next bluff question', 15_000);
+    }
+  }
+  const scoreboard = await waitForState(host, (state) => state.phase === 'scoreboard', 'bluff scoreboard', 15_000);
+  assert.equal(scoreboard.gamesPlayed, 4);
+  assert.equal(scoreboard.players.reduce((sum, p) => sum + p.score, 0) > 0, true, 'every pick scores someone');
+  await audit(host, 'bluff-scoreboard');
+  await screenshot(host, 'bluff-scoreboard-1366x768');
+}
+
 const app = await startApp();
 const browser = await chromium.launch({ headless: true });
 const contexts = [];
@@ -322,10 +407,12 @@ try {
 
   await playTrivia(host, players);
   await playQuiplash(host, players);
+  await pauseAndEndEarly(host, players);
+  await playBluff(host, players);
 
   assert.deepEqual(consoleErrors, [], 'host page emitted console errors');
   assert.equal(app.getLog().includes('socket event failed'), false, app.getLog());
-  console.log('Browser multiplayer, responsive, RTL, rematch, and axe checks passed.');
+  console.log('Browser multiplayer, responsive, RTL, rematch, pause, bluff, and axe checks passed.');
 } finally {
   for (const context of contexts.reverse()) await context.close().catch(() => {});
   await browser.close();
