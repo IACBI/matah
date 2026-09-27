@@ -4,13 +4,14 @@ import test from 'node:test';
 import { LANGUAGES, MAX_PLAYERS, MAX_ROUNDS } from '../../shared/src/index.ts';
 import { pickPromptsForSlots, promptPool, pickSafetyAnswer } from '../../server/src/content/prompts.ts';
 import { pickTrivia, triviaPool } from '../../server/src/content/trivia.ts';
+import { answerKey } from '../../server/src/engines/bluff.ts';
 import { QuiplashEngine } from '../../server/src/engines/quiplash.ts';
 import { participant } from '../helpers/room.mjs';
 
 // Minimums, not exact counts, so a language can be topped up on its own
 // without every other language having to match in the same commit.
-const MIN_PROMPTS = 28;
-const MIN_TRIVIA = 20;
+const MIN_PROMPTS = 40;
+const MIN_TRIVIA = 32;
 const TRIVIA_OPTIONS = 4;
 
 const wellFormed = (value) =>
@@ -114,4 +115,29 @@ test('no player is ever handed a prompt they have already written for', () => {
     Array.from({ length: MAX_PLAYERS }, () => MAX_ROUNDS * 2),
     'every player should author exactly two prompts per round',
   );
+});
+
+test('bluff can always tell a trivia answer from its wrong options', () => {
+  // Bluff compares answers loosely (case, accents, punctuation), so two
+  // options that only differ that way would make the truth ambiguous.
+  for (const language of LANGUAGES) {
+    for (const question of triviaPool(language)) {
+      const keys = question.options.map(answerKey);
+      assert.ok(keys.every(Boolean), `${language} has an option with no letters or digits: ${question.text}`);
+      assert.equal(new Set(keys).size, keys.length, `${language} options collide loosely in: ${question.text}`);
+    }
+  }
+});
+
+test('custom prompts are played first, but never at the cost of the per-author rule', () => {
+  const custom = ['Custom A', 'Custom B'];
+  const slots = [{ authors: ['p1', 'p2'] }, { authors: ['p2', 'p3'] }, { authors: ['p3', 'p1'] }];
+  const picked = pickPromptsForSlots('en', slots, new Set(), new Map(), custom);
+  assert.ok(custom.every((prompt) => picked.includes(prompt)), 'both custom prompts are used');
+  assert.equal(new Set(picked).size, 3, 'the third slot falls back to a built-in prompt');
+
+  // p1 has already written for Custom A, so it cannot be handed to p1 again.
+  const seen = new Map([['Custom A', new Set(['p1'])]]);
+  const [first] = pickPromptsForSlots('en', [{ authors: ['p1', 'p2'] }], new Set(), seen, custom);
+  assert.equal(first, 'Custom B');
 });

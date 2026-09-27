@@ -10,6 +10,7 @@ import type {
   Capability,
   GamePhase,
   GameType,
+  Highlight,
   Language,
   Player,
   PlayerAssignment,
@@ -17,20 +18,27 @@ import type {
   SessionResult,
 } from "../../shared/src/index.js";
 import {
+  BLUFF_QUESTIONS,
   clampLength,
   DEFAULT_AVATAR,
   DEFAULT_TOTAL_ROUNDS,
+  GAME_TYPES,
   MAX_AUDIENCE,
+  MAX_BLUFF_QUESTIONS,
+  MAX_CUSTOM_PROMPTS,
   MAX_NAME_LEN,
   MAX_PLAYERS,
+  MAX_PROMPT_LEN,
   MAX_QUESTIONS,
   MAX_ROUNDS,
+  MIN_BLUFF_QUESTIONS,
   MIN_PLAYERS,
   MIN_QUESTIONS,
   MIN_ROUNDS,
   TRIVIA_QUESTIONS,
 } from "../../shared/src/index.js";
-import type { EngineContext, GameEngine } from "./engine.js";
+import type { EngineContext, EngineSnapshot, GameEngine } from "./engine.js";
+import { BluffEngine } from "./engines/bluff.js";
 import { QuiplashEngine } from "./engines/quiplash.js";
 import { TriviaEngine } from "./engines/trivia.js";
 import { sanitizeUserText } from "./util.js";
@@ -40,16 +48,53 @@ type AssignmentSender = (socketId: string, assignment: PlayerAssignment) => void
 
 export const DEFAULT_MEMBER_EXPIRY_MS = 120_000;
 export const DEFAULT_CONTROLLER_FAILOVER_MS = 10_000;
+/**
+ * Extra time a restored game gives its phase: every phone has to notice the
+ * restart and reconnect before anyone can act again.
+ */
+export const DEFAULT_RESTORE_GRACE_MS = 15_000;
+/** Bumped whenever `RoomSnapshot` changes shape; older snapshots are ignored. */
+export const ROOM_SNAPSHOT_VERSION = 1;
 
 export interface RoomLifecycleOptions {
   memberExpiryMs?: number;
   controllerFailoverMs?: number;
+  restoreGraceMs?: number;
   wallNow?: () => number;
   monotonicNow?: () => number;
 }
 
+/**
+ * Plain JSON a room can be rebuilt from after a restart. Resume credentials
+ * are stored only as the SHA-256 hashes the room already keeps, so a leaked
+ * snapshot does not hand anyone a way into a session.
+ */
+export interface RoomSnapshot {
+  version: number;
+  code: string;
+  language: Language;
+  players: Player[];
+  sessionSecrets: [string, string][];
+  phase: GamePhase;
+  phaseId: number;
+  /** Time left on the phase clock, running or paused; null without a timer. */
+  remainingMs: number | null;
+  paused: boolean;
+  gameType: GameType | null;
+  lastGameConfig: LastGameConfig | null;
+  recentContent: Record<GameType, string[]>;
+  customPrompts: string[];
+  benched: string[];
+  gamesPlayed: number;
+  gameSettled: boolean;
+  highlights: Highlight[] | null;
+  finalView: { round: number; totalRounds: number } | null;
+  engine: EngineSnapshot | null;
+}
+
 /** Capabilities the elected stand-in controller does *not* inherit. */
-const HOST_ONLY_CAPABILITIES = new Set<Capability>(["kick"]);
+const HOST_ONLY_CAPABILITIES = new Set<Capability>(["kick", "seat", "content"]);
+const TIMED_PHASES = new Set<GamePhase>(["answering", "voting", "results", "scoreboard"]);
 
 const FALLBACK_NAMES: Record<Language, string> = {
   tr: "Oyuncu",
@@ -104,16 +149,33 @@ export class Room {
   private recentContent: Record<GameType, Set<string>> = {
     quiplash: new Set(),
     trivia: new Set(),
+    bluff: new Set(),
   };
+  /** Host-written Quiplash prompts, already sanitized. */
+  private customPrompts: string[] = [];
+  /** Players the host sent to the audience; seat promotion skips them. */
+  private benched = new Set<string>();
+  private gamesPlayed = 0;
+  /** Whether the current game's scores are banked into the session yet. */
+  private gameSettled = true;
+  private highlights: Highlight[] | null = null;
 
   private timerHandle: NodeJS.Timeout | null = null;
   private onTimeout: (() => void) | null = null;
+  /** Monotonic deadline of the running phase timer. */
+  private deadlineMono: number | null = null;
+  /** Frozen time left while paused; null while the clock runs. */
+  private pausedRemainingMs: number | null = null;
+  private pausedAtMono = 0;
+  /** Paused time so far, subtracted from the game clock engines read. */
+  private pausedTotalMs = 0;
   private controllerPlayerId: string | null = null;
   private controllerTimer: NodeJS.Timeout | null = null;
   private hostDisconnectedAt: number | null = null;
   private lastActivity: number;
   private readonly memberExpiryMs: number;
   private readonly controllerFailoverMs: number;
+  private readonly restoreGraceMs: number;
   private readonly wallNow: () => number;
   private readonly monotonicNow: () => number;
 
@@ -129,6 +191,7 @@ export class Room {
     this.memberExpiryMs = options.memberExpiryMs ?? DEFAULT_MEMBER_EXPIRY_MS;
     this.controllerFailoverMs =
       options.controllerFailoverMs ?? DEFAULT_CONTROLLER_FAILOVER_MS;
+    this.restoreGraceMs = options.restoreGraceMs ?? DEFAULT_RESTORE_GRACE_MS;
     this.wallNow = options.wallNow ?? Date.now;
     this.monotonicNow = options.monotonicNow ?? (() => performance.now());
     this.lastActivity = this.wallNow();
@@ -280,6 +343,8 @@ export class Room {
       hasSubmitted: false,
       hasVoted: false,
       streak: 0,
+      sessionScore: 0,
+      wins: 0,
     };
   }
 
@@ -326,11 +391,6 @@ export class Room {
     return !HOST_ONLY_CAPABILITIES.has(capability);
   }
 
-  /** Back-compat alias for "may drive the game at all". */
-  canControl(playerId: string): boolean {
-    return this.can(playerId, "advance");
-  }
-
   controlError(
     playerId: string,
     expectedPhaseId: unknown,
@@ -369,7 +429,8 @@ export class Room {
     if (player.isHost) {
       this.beginControllerFailover();
     } else {
-      this.engine?.handlePlayerDisconnect?.();
+      // A paused game must not advance; resume() re-checks instead.
+      if (!this.isPaused()) this.engine?.handlePlayerDisconnect?.();
       if (this.controllerPlayerId === playerId) {
         this.controllerPlayerId = null;
         this.electController();
@@ -408,6 +469,7 @@ export class Room {
     this.players.delete(playerId);
     this.unbindPlayer(playerId);
     this.sessionSecrets.delete(playerId);
+    this.benched.delete(playerId);
     if (!player.isHost) this.engine?.handlePlayerRemoved?.(playerId);
     if (player.isHost) {
       this.beginControllerFailover();
@@ -513,9 +575,12 @@ export class Room {
     if (this.connectedRealPlayers.length < MIN_PLAYERS) {
       return "not_enough_players";
     }
-    const count = gameType === "trivia"
-      ? clampLength(rounds, MIN_QUESTIONS, MAX_QUESTIONS, TRIVIA_QUESTIONS)
-      : clampLength(rounds, MIN_ROUNDS, MAX_ROUNDS, DEFAULT_TOTAL_ROUNDS);
+    const count =
+      gameType === "trivia"
+        ? clampLength(rounds, MIN_QUESTIONS, MAX_QUESTIONS, TRIVIA_QUESTIONS)
+        : gameType === "bluff"
+          ? clampLength(rounds, MIN_BLUFF_QUESTIONS, MAX_BLUFF_QUESTIONS, BLUFF_QUESTIONS)
+          : clampLength(rounds, MIN_ROUNDS, MAX_ROUNDS, DEFAULT_TOTAL_ROUNDS);
     this.startGame(gameType, count, false);
     return null;
   }
@@ -525,6 +590,8 @@ export class Room {
     this.engine?.dispose();
     this.gameType = gameType;
     this.finalView = null;
+    this.highlights = null;
+    this.gameSettled = false;
     this.lastGameConfig = { gameType, rounds };
     for (const player of this.players.values()) {
       player.score = 0;
@@ -540,9 +607,13 @@ export class Room {
     const recordContent = (key: string): void => {
       selectedContent.add(key);
     };
-    this.engine = gameType === "trivia"
-      ? new TriviaEngine(this.engineContext(), rounds, previousContent, recordContent)
-      : new QuiplashEngine(this.engineContext(), rounds, previousContent, recordContent);
+    const ctx = this.engineContext();
+    this.engine =
+      gameType === "trivia"
+        ? new TriviaEngine(ctx, rounds, previousContent, recordContent)
+        : gameType === "bluff"
+          ? new BluffEngine(ctx, rounds, previousContent, recordContent)
+          : new QuiplashEngine(ctx, rounds, previousContent, recordContent, this.customPrompts);
     this.touch();
     this.engine.start();
   }
@@ -581,16 +652,40 @@ export class Room {
     ) {
       return "invalid_phase";
     }
-    // Keep the round counters for the scoreboard header, then drop the engine
-    // so its abandoned mid-round results stop being serialized.
+    // Bank the scores while the engine can still name its highlights, keep
+    // the round counters for the scoreboard header, then drop the engine so
+    // its abandoned mid-round results stop being serialized.
+    this.settleGame();
     const view = this.engine?.serialize();
     this.finalView = view
       ? { round: view.round, totalRounds: view.totalRounds }
       : null;
     this.engine?.dispose();
     this.engine = null;
-    this.setPhase("scoreboard", 15, () => this.gameOver());
+    this.showScoreboard(15);
     return null;
+  }
+
+  private showScoreboard(seconds: number): void {
+    this.settleGame();
+    this.setPhase("scoreboard", seconds, () => this.gameOver());
+  }
+
+  /**
+   * Bank a finished game into the session standings, exactly once. An early
+   * end still counts: those points were earned.
+   */
+  private settleGame(): void {
+    if (this.gameSettled) return;
+    this.gameSettled = true;
+    this.highlights = this.engine?.highlights?.() ?? [];
+    const seated = this.realPlayers;
+    const top = Math.max(0, ...seated.map((player) => player.score));
+    for (const player of seated) {
+      player.sessionScore += player.score;
+      if (top > 0 && player.score === top) player.wins += 1;
+    }
+    this.gamesPlayed += 1;
   }
 
   /**
@@ -608,6 +703,8 @@ export class Room {
       return "invalid_phase";
     }
     const callback = this.onTimeout;
+    // Skipping ahead also ends a pause: the next phase starts on a live clock.
+    this.endPause();
     this.clearTimer();
     callback();
     this.touch();
@@ -621,6 +718,7 @@ export class Room {
     this.engine = null;
     this.gameType = null;
     this.finalView = null;
+    this.highlights = null;
     this.promoteAudienceToSeats();
     for (const player of this.players.values()) {
       player.score = 0;
@@ -642,11 +740,107 @@ export class Room {
     if (seated >= MAX_PLAYERS) return;
     for (const player of this.players.values()) {
       if (seated >= MAX_PLAYERS) break;
-      if (player.connected && player.isAudience) {
+      if (player.connected && player.isAudience && !this.benched.has(player.id)) {
         player.isAudience = false;
         seated += 1;
       }
     }
+  }
+
+  /**
+   * Lobby only: move a player to the audience or give a spectator a seat.
+   * Someone sent to the audience stays there across games until seated again,
+   * rather than being promoted straight back at the next start.
+   */
+  setSeat(targetPlayerId: string, audience: boolean): ApiErrorCode | null {
+    if (this.phase !== "lobby") return "invalid_phase";
+    const target = this.players.get(targetPlayerId);
+    if (!target || target.isHost) return "invalid_target";
+    if (target.isAudience === audience) return null;
+    if (audience) {
+      if (this.isAudienceFull()) return "room_full";
+      this.benched.add(targetPlayerId);
+    } else {
+      if (this.isFull()) return "room_full";
+      this.benched.delete(targetPlayerId);
+    }
+    target.isAudience = audience;
+    this.bumpRevision();
+    return null;
+  }
+
+  /**
+   * Lobby only: replace the host's Quiplash prompt pack. Each line gets the
+   * same sanitizing as any other user text; blanks and repeats are dropped.
+   */
+  setCustomPrompts(raw: unknown): { error: ApiErrorCode } | { count: number } {
+    if (this.phase !== "lobby") return { error: "invalid_phase" };
+    if (!Array.isArray(raw) || raw.length > MAX_CUSTOM_PROMPTS) {
+      return { error: "invalid_prompts" };
+    }
+    const seen = new Set<string>();
+    const prompts: string[] = [];
+    for (const line of raw) {
+      const clean = sanitizeUserText(line, MAX_PROMPT_LEN);
+      const key = clean.toLocaleLowerCase();
+      if (!clean || seen.has(key)) continue;
+      seen.add(key);
+      prompts.push(clean);
+    }
+    this.customPrompts = prompts;
+    this.bumpRevision();
+    return { count: prompts.length };
+  }
+
+  // ---- pause ----
+
+  isPaused(): boolean {
+    return this.pausedRemainingMs !== null;
+  }
+
+  /**
+   * Freeze the phase clock. Gameplay submissions are refused until resume, so
+   * nothing can complete a phase behind a frozen timer.
+   */
+  pause(): ApiErrorCode | null {
+    if (this.isPaused() || !this.timerHandle || !this.onTimeout || this.deadlineMono === null) {
+      return "invalid_phase";
+    }
+    const now = this.monotonicNow();
+    this.pausedRemainingMs = Math.max(0, this.deadlineMono - now);
+    this.pausedAtMono = now;
+    clearTimeout(this.timerHandle);
+    this.timerHandle = null;
+    this.deadlineMono = null;
+    this.phaseEndsAt = null;
+    this.engine?.pause?.();
+    this.bumpRevision();
+    return null;
+  }
+
+  resume(): ApiErrorCode | null {
+    const remaining = this.pausedRemainingMs;
+    const callback = this.onTimeout;
+    if (remaining === null || !callback) return "invalid_phase";
+    this.endPause();
+    this.armTimer(remaining, callback);
+    this.bumpRevision();
+    // Players who dropped while paused, or everyone having finished, were not
+    // acted on while frozen.
+    this.engine?.handlePlayerDisconnect?.();
+    return null;
+  }
+
+  private endPause(): void {
+    if (this.pausedRemainingMs === null) return;
+    this.pausedTotalMs += this.monotonicNow() - this.pausedAtMono;
+    this.pausedRemainingMs = null;
+  }
+
+  /** The clock engines see: monotonic time with every pause cut out. */
+  private gameNow(): number {
+    const now = this.isPaused() ? this.pausedAtMono : this.monotonicNow();
+    return now - this.pausedTotalMs;
   }
 
   getReactionSender(
@@ -685,6 +879,20 @@ export class Room {
     return accepted;
   }
 
+  submitLie(playerId: string, questionId: string, text: string): ApiErrorCode | null {
+    if (this.phase !== "answering" || !this.engine?.handleLie) return "submit_failed";
+    const error = this.engine.handleLie(playerId, questionId, text);
+    if (!error) this.touch();
+    return error;
+  }
+
+  submitPick(playerId: string, questionId: string, optionId: string): boolean {
+    if (this.phase !== "voting") return false;
+    const accepted = this.engine?.handlePick?.(playerId, questionId, optionId) ?? false;
+    if (accepted) this.touch();
+    return accepted;
+  }
+
   // ---- engine context and phase deadline ----
 
   private engineContext(): EngineContext {
@@ -716,9 +924,8 @@ export class Room {
           player.hasVoted = false;
         }
       },
-      toScoreboard: (seconds) =>
-        this.setPhase("scoreboard", seconds, () => this.gameOver()),
-      now: this.monotonicNow,
+      toScoreboard: (seconds) => this.showScoreboard(seconds),
+      now: () => this.gameNow(),
     };
   }
 
@@ -731,22 +938,29 @@ export class Room {
     seconds: number | null,
     onTimeout: (() => void) | null
   ): void {
+    // Anything that moves the game on — a kick, the player floor, a skip —
+    // starts the new phase on a live clock.
+    this.endPause();
     this.clearTimer();
     this.phase = phase;
     this.phaseId += 1;
     this.phaseBumpPending = false;
-    this.phaseEndsAt = seconds === null ? null : this.wallNow() + seconds * 1000;
     this.onTimeout = onTimeout;
+    if (seconds !== null && onTimeout) this.armTimer(seconds * 1000, onTimeout);
     this.emit();
+  }
 
-    if (seconds !== null && onTimeout) {
-      this.timerHandle = setTimeout(() => {
-        const callback = this.onTimeout;
-        this.clearTimer();
-        callback?.();
-      }, seconds * 1000);
-      this.timerHandle.unref();
-    }
+  private armTimer(ms: number, onTimeout: () => void): void {
+    if (this.timerHandle) clearTimeout(this.timerHandle);
+    this.onTimeout = onTimeout;
+    this.deadlineMono = this.monotonicNow() + ms;
+    this.phaseEndsAt = this.wallNow() + ms;
+    this.timerHandle = setTimeout(() => {
+      const callback = this.onTimeout;
+      this.clearTimer();
+      callback?.();
+    }, ms);
+    this.timerHandle.unref();
   }
 
   /**
@@ -765,6 +979,7 @@ export class Room {
   private clearTimer(): void {
     if (this.timerHandle) clearTimeout(this.timerHandle);
     this.timerHandle = null;
+    this.deadlineMono = null;
     this.phaseEndsAt = null;
     this.onTimeout = null;
   }
@@ -821,8 +1036,16 @@ export class Room {
       serverNow: this.wallNow(),
       controllerPlayerId: this.controllerPlayerId,
       progress,
+      pausedRemainingMs: this.pausedRemainingMs,
+      gamesPlayed: this.gamesPlayed,
+      customPromptCount: this.customPrompts.length,
+      highlights:
+        this.phase === "scoreboard" || this.phase === "gameover"
+          ? this.highlights
+          : null,
       quiplash: view?.quiplash,
       trivia: view?.trivia,
+      bluff: view?.bluff,
     };
   }
 
@@ -862,6 +1085,119 @@ export class Room {
     const idleMs = this.wallNow() - this.lastActivity;
     if (idleMs > maxIdleMs) return true;
     return this.isEmpty() && idleMs > abandonedIdleMs;
+  }
+
+  // ---- restart persistence ----
+
+  /** Everything needed to rebuild this room in a fresh process. */
+  toSnapshot(): RoomSnapshot {
+    const remainingMs = this.isPaused()
+      ? this.pausedRemainingMs
+      : this.deadlineMono === null
+        ? null
+        : Math.max(0, this.deadlineMono - this.monotonicNow());
+    return {
+      version: ROOM_SNAPSHOT_VERSION,
+      code: this.code,
+      language: this.language,
+      players: [...this.players.values()].map((player) => ({ ...player })),
+      sessionSecrets: [...this.sessionSecrets].map(([id, hash]) => [id, hash.toString("hex")]),
+      phase: this.phase,
+      phaseId: this.phaseId,
+      remainingMs,
+      paused: this.isPaused(),
+      gameType: this.gameType,
+      lastGameConfig: this.lastGameConfig,
+      recentContent: {
+        quiplash: [...this.recentContent.quiplash],
+        trivia: [...this.recentContent.trivia],
+        bluff: [...this.recentContent.bluff],
+      },
+      customPrompts: [...this.customPrompts],
+      benched: [...this.benched],
+      gamesPlayed: this.gamesPlayed,
+      gameSettled: this.gameSettled,
+      highlights: this.highlights,
+      finalView: this.finalView,
+      engine: this.engine?.snapshot() ?? null,
+    };
+  }
+
+  /**
+   * Rebuild a room saved by `toSnapshot()` in another process.
+   *
+   * Every socket died with that process, so everyone comes back disconnected
+   * and holding the usual lease: their stored resume token reattaches them,
+   * and anyone who never returns expires as after any other disconnect. A
+   * running phase gets a grace period so the room has time to reconnect.
+   */
+  static fromSnapshot(
+    snapshot: RoomSnapshot,
+    broadcast: Broadcast,
+    sendAssignment: AssignmentSender,
+    options: RoomLifecycleOptions = {}
+  ): Room {
+    if (snapshot.version !== ROOM_SNAPSHOT_VERSION) {
+      throw new Error(`unsupported room snapshot version ${snapshot.version}`);
+    }
+    const room = new Room(snapshot.code, snapshot.language, broadcast, sendAssignment, options);
+    for (const player of snapshot.players) {
+      room.players.set(player.id, { ...player, connected: false });
+    }
+    for (const [id, hex] of snapshot.sessionSecrets) {
+      if (room.players.has(id)) room.sessionSecrets.set(id, Buffer.from(hex, "hex"));
+    }
+    room.phase = snapshot.phase;
+    // Invalidate any control command a client composed before the restart.
+    room.phaseId = snapshot.phaseId + 1;
+    room.gameType = snapshot.gameType;
+    room.lastGameConfig = snapshot.lastGameConfig;
+    for (const type of GAME_TYPES) {
+      room.recentContent[type] = new Set(snapshot.recentContent[type] ?? []);
+    }
+    room.customPrompts = snapshot.customPrompts;
+    room.benched = new Set(snapshot.benched.filter((id) => room.players.has(id)));
+    room.gamesPlayed = snapshot.gamesPlayed;
+    room.gameSettled = snapshot.gameSettled;
+    room.highlights = snapshot.highlights;
+    room.finalView = snapshot.finalView;
+
+    if (snapshot.engine) {
+      const type = snapshot.engine.type;
+      const record = (key: string): void => {
+        room.recentContent[type].add(key);
+      };
+      const ctx = room.engineContext();
+      room.engine =
+        type === "trivia"
+          ? TriviaEngine.restore(ctx, snapshot.engine.data, record)
+          : type === "bluff"
+            ? BluffEngine.restore(ctx, snapshot.engine.data, record)
+            : QuiplashEngine.restore(ctx, snapshot.engine.data, record);
+    }
+
+    const callback =
+      room.phase === "scoreboard" ? () => room.gameOver() : room.engine?.timeoutHandler() ?? null;
+    if (TIMED_PHASES.has(room.phase) && snapshot.remainingMs !== null && callback) {
+      if (snapshot.paused) {
+        room.onTimeout = callback;
+        room.pausedRemainingMs = snapshot.remainingMs;
+        room.pausedAtMono = room.monotonicNow();
+      } else {
+        room.armTimer(snapshot.remainingMs + room.restoreGraceMs, callback);
+      }
+    } else if (room.phase !== "lobby" && room.phase !== "gameover") {
+      // A game phase with nothing to drive it would never end; start over.
+      room.engine?.dispose();
+      room.engine = null;
+      room.gameType = null;
+      room.phase = "lobby";
+    }
+
+    for (const playerId of room.players.keys()) room.scheduleMemberExpiry(playerId);
+    room.beginControllerFailover();
+    room.touch();
+    return room;
   }
 
   dispose(): void {

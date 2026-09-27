@@ -64,7 +64,7 @@ export function Home({
   };
 
   const joinGame = async () => {
-    if (!name.trim() || code.trim().length < 4) {
+    if (!name.trim() || code.trim().length < ROOM_CODE_LENGTH) {
       setError(t("needNameCode"));
       return;
     }

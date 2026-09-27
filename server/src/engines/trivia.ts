@@ -4,7 +4,12 @@ import {
   TRIVIA_QUESTIONS,
 } from "../../../shared/src/index.js";
 import type { TriviaView } from "../../../shared/src/index.js";
-import type { EngineContext, EngineView, GameEngine } from "../engine.js";
+import type {
+  EngineContext,
+  EngineSnapshot,
+  EngineView,
+  GameEngine,
+} from "../engine.js";
 import { pickTrivia, type TriviaQuestion } from "../content/trivia.js";
 import { sample } from "../util.js";
 
@@ -21,6 +26,18 @@ interface LoadedQuestion extends TriviaQuestion {
 interface PlayerAnswer {
   optionIndex: number;
   elapsedMs: number;
+}
+
+/** Everything `TriviaEngine` needs to be rebuilt after a restart. */
+interface TriviaSnapshot {
+  questionCount: number;
+  avoidQuestions: string[];
+  questions: LoadedQuestion[];
+  index: number;
+  questionElapsedMs: number;
+  answers: [string, PlayerAnswer][];
+  revealed: boolean;
+  lastReveal: NonNullable<TriviaView["reveal"]> | null;
 }
 
 export class TriviaEngine implements GameEngine {
@@ -160,14 +177,57 @@ export class TriviaEngine implements GameEngine {
       pointsThisRound: pointsThisRound.sort((a, b) => b.points - a.points),
     };
 
-    this.ctx.setPhase("results", RESULTS_SECONDS, () => {
-      if (isLast) {
-        this.ctx.toScoreboard(15);
-      } else {
-        this.index += 1;
-        this.beginQuestion();
-      }
-    });
+    this.ctx.setPhase("results", RESULTS_SECONDS, () => this.afterReveal());
+  }
+
+  private afterReveal(): void {
+    if (this.index >= this.questions.length - 1) {
+      this.ctx.toScoreboard(15);
+    } else {
+      this.index += 1;
+      this.beginQuestion();
+    }
+  }
+
+  timeoutHandler(): (() => void) | null {
+    if (this.questions.length === 0) return null;
+    return this.revealed ? () => this.afterReveal() : () => this.reveal();
+  }
+
+  snapshot(): EngineSnapshot {
+    const data: TriviaSnapshot = {
+      questionCount: this.questionCount,
+      avoidQuestions: [...this.avoidQuestions],
+      questions: this.questions,
+      index: this.index,
+      questionElapsedMs: this.ctx.now() - this.questionStart,
+      answers: [...this.answers],
+      revealed: this.revealed,
+      lastReveal: this.lastReveal,
+    };
+    return { type: "trivia", data };
+  }
+
+  /** Rebuild a game from `snapshot()`; the room re-arms its phase timer. */
+  static restore(
+    ctx: EngineContext,
+    raw: unknown,
+    recordQuestion: (question: string) => void = () => {},
+  ): TriviaEngine {
+    const data = raw as TriviaSnapshot;
+    const engine = new TriviaEngine(
+      ctx,
+      data.questionCount,
+      new Set(data.avoidQuestions),
+      recordQuestion,
+    );
+    engine.questions = data.questions;
+    engine.index = data.index;
+    engine.questionStart = ctx.now() - data.questionElapsedMs;
+    engine.answers = new Map(data.answers);
+    engine.revealed = data.revealed;
+    engine.lastReveal = data.lastReveal;
+    return engine;
   }
 
   serialize(): EngineView {

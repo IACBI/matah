@@ -117,3 +117,49 @@ export function TriviaIcon() {
     </svg>
   );
 }
+
+/** Bluff: a sly masquerade mask hiding a wink. */
+export function BluffIcon() {
+  return (
+    <svg
+      className="game-svg bi"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="biMask" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#ff8fc4" />
+          <stop offset="100%" stopColor="#ff6a4d" />
+        </linearGradient>
+      </defs>
+      {/* stick */}
+      <path d="M50 38 58 58" stroke="#f6bd45" strokeWidth="3" strokeLinecap="round" />
+      {/* mask */}
+      <g className="bi-mask">
+        <path
+          d="M8 22c8-6 16-6 24-2 8-4 16-4 24 2 0 10-6 18-14 18-4 0-7-2-10-5-3 3-6 5-10 5-8 0-14-8-14-18Z"
+          fill="url(#biMask)"
+          opacity="0.2"
+        />
+        <path
+          d="M8 22c8-6 16-6 24-2 8-4 16-4 24 2 0 10-6 18-14 18-4 0-7-2-10-5-3 3-6 5-10 5-8 0-14-8-14-18Z"
+          stroke="url(#biMask)"
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+        />
+        {/* one open eye, one wink */}
+        <ellipse cx="21" cy="26" rx="4.5" ry="3" fill="#f8f1e2" />
+        <path className="bi-wink" d="M38 27c2-2 6-2 8 0" stroke="#f8f1e2" strokeWidth="2.5" strokeLinecap="round" />
+      </g>
+      {/* sparkle of mischief */}
+      <path
+        className="bi-spark"
+        d="M52 8v6M49 11h6"
+        stroke="#2fd0bb"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}

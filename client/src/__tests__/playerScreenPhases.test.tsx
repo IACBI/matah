@@ -399,6 +399,27 @@ describe('PlayerScreen trivia result', () => {
     expect(screen.getByText('Mercury')).not.toBeNull();
   });
 
+  it('plays the verdict once per question, not once per broadcast', async () => {
+    const { playSfx } = vi.mocked(await import('../sound'));
+    playSfx.mockClear();
+    const { rerender } = renderPlayer(revealState(120));
+    // Someone reconnecting mid-results re-broadcasts the same reveal as a
+    // fresh object; that used to replay the jingle on every phone.
+    rerender(
+      <PlayerScreen
+        code="ABCD"
+        myPlayerId={ME}
+        state={revealState(120)}
+        assignment={null}
+        secondsLeft={null}
+        connected
+        leaving={false}
+        onLeave={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    expect(playSfx.mock.calls.filter(([name]) => name === 'correct')).toHaveLength(1);
+  });
+
   it('holds the player on a waiting screen until the reveal lands', () => {
     renderPlayer(
       roomState({

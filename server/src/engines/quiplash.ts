@@ -1,21 +1,60 @@
 import { randomInt, randomUUID } from "node:crypto";
 import type {
+  Credit,
+  Highlight,
   Matchup,
   MatchupResult,
   PlayerAssignment,
 } from "../../../shared/src/index.js";
 import {
+  DEFAULT_AVATAR,
   DEFAULT_TOTAL_ROUNDS,
   MATCHUP_POINT_POOL,
   SUBMIT_BONUS,
 } from "../../../shared/src/index.js";
-import type { EngineContext, EngineView, GameEngine } from "../engine.js";
+import type {
+  EngineContext,
+  EngineSnapshot,
+  EngineView,
+  GameEngine,
+} from "../engine.js";
 import { pickPromptsForSlots, pickSafetyAnswer } from "../content/prompts.js";
 
 const ANSWER_SECONDS = 60;
 const VOTE_SECONDS = 20;
 const MIN_VOTE_DISPLAY_SECONDS = 3;
 const RESULTS_SECONDS = 9;
+const HIGHLIGHT_COUNT = 3;
+
+/** An answer that drew votes, kept for the end-of-game highlights. */
+interface QuipCandidate {
+  prompt: string;
+  text: string;
+  author: Credit;
+  votes: number;
+  points: number;
+}
+
+/** Everything `QuiplashEngine` needs to be rebuilt after a restart. */
+interface QuiplashSnapshot {
+  round: number;
+  totalRounds: number;
+  matchups: Matchup[];
+  matchupAuthors: string[][];
+  currentMatchupIndex: number;
+  lastResults: MatchupResult[] | null;
+  votingActive: boolean;
+  answeringActive: boolean;
+  votingElapsedMs: number;
+  eligibleVoterIds: string[];
+  assignedCount: [string, number][];
+  answeredCount: [string, number][];
+  usedPrompts: string[];
+  promptSeenBy: [string, string[]][];
+  avoidPrompts: string[];
+  customPrompts: string[];
+  candidates: QuipCandidate[];
+}
 
 /**
  * Fisher-Yates over a copy. Both callers below exist to protect the anonymity
@@ -56,12 +95,14 @@ export class QuiplashEngine implements GameEngine {
   private usedPrompts = new Set<string>();
   /** prompt -> players who have already written for it, across the game. */
   private promptSeenBy = new Map<string, Set<string>>();
+  private candidates: QuipCandidate[] = [];
 
   constructor(
     private ctx: EngineContext,
     rounds = DEFAULT_TOTAL_ROUNDS,
     private avoidPrompts: ReadonlySet<string> = new Set(),
     private recordPrompt: (prompt: string) => void = () => {},
+    private customPrompts: readonly string[] = [],
   ) {
     this.totalRounds = rounds;
   }
@@ -96,6 +137,7 @@ export class QuiplashEngine implements GameEngine {
       this.matchupAuthors.map((authors) => ({ authors })),
       new Set([...this.avoidPrompts, ...this.usedPrompts]),
       this.promptSeenBy,
+      this.customPrompts,
     );
 
     this.matchups = prompts.map((prompt, i) => {
@@ -110,7 +152,8 @@ export class QuiplashEngine implements GameEngine {
     this.assignedCount.clear();
     this.answeredCount.clear();
     for (const authors of this.matchupAuthors) {
-      for (const id of authors) {
+      // A lone player is seated opposite themselves, but writes only once.
+      for (const id of new Set(authors)) {
         this.assignedCount.set(id, (this.assignedCount.get(id) ?? 0) + 1);
       }
     }
@@ -365,6 +408,10 @@ export class QuiplashEngine implements GameEngine {
    */
   private beginResults(): void {
     const bonus = SUBMIT_BONUS * this.round;
+    const credit = (id: string): Credit | null => {
+      const person = this.ctx.getParticipant(id);
+      return person ? { name: person.name, avatar: person.avatar } : null;
+    };
     const bonusFor = new Map<string, number>();
     for (const matchup of this.matchups) {
       for (const answer of matchup.answers) {
@@ -398,6 +445,19 @@ export class QuiplashEngine implements GameEngine {
               ? 0
               : Math.round((votes / totalVotes) * pool);
           this.ctx.award(a.playerId, pointsAwarded);
+          const voters = Object.entries(matchup.votes)
+            .filter(([, answerId]) => answerId === a.answerId)
+            .map(([voterId]) => credit(voterId))
+            .filter((voter): voter is Credit => voter !== null);
+          if (!a.isSafety && votes > 0) {
+            this.candidates.push({
+              prompt: matchup.prompt,
+              text: a.text,
+              author: credit(a.playerId) ?? { name: a.playerName, avatar: DEFAULT_AVATAR },
+              votes,
+              points: pointsAwarded,
+            });
+          }
           return {
             playerId: a.playerId,
             playerName: a.playerName,
@@ -406,6 +466,7 @@ export class QuiplashEngine implements GameEngine {
             votes,
             pointsAwarded,
             submitBonus: a.isSafety ? 0 : bonus,
+            voters,
           };
         }),
       });
@@ -414,11 +475,94 @@ export class QuiplashEngine implements GameEngine {
 
     this.lastResults = results;
     this.votingActive = false;
+    this.ctx.setPhase("results", RESULTS_SECONDS, () => this.afterResults());
+  }
 
-    const isLast = this.round >= this.totalRounds;
-    this.ctx.setPhase("results", RESULTS_SECONDS, () =>
-      isLast ? this.ctx.toScoreboard(15) : this.beginRound()
+  private afterResults(): void {
+    if (this.round >= this.totalRounds) this.ctx.toScoreboard(15);
+    else this.beginRound();
+  }
+
+  /** The most-voted real answers of the whole game. */
+  highlights(): Highlight[] {
+    return [...this.candidates]
+      .sort((a, b) => b.votes - a.votes || b.points - a.points)
+      .slice(0, HIGHLIGHT_COUNT)
+      .map(({ prompt, text, author, votes }) => ({
+        kind: "quip",
+        prompt,
+        text,
+        authors: [author],
+        votes,
+      }));
+  }
+
+  /** Voting keeps a timer of its own for the minimum display time. */
+  pause(): void {
+    this.clearVoteMinTimer();
+  }
+
+  timeoutHandler(): (() => void) | null {
+    if (this.answeringActive) return () => this.beginVoting();
+    if (this.votingActive) return () => this.advanceMatchup();
+    if (this.lastResults !== null) return () => this.afterResults();
+    return null;
+  }
+
+  snapshot(): EngineSnapshot {
+    const data: QuiplashSnapshot = {
+      round: this.round,
+      totalRounds: this.totalRounds,
+      matchups: this.matchups,
+      matchupAuthors: this.matchupAuthors,
+      currentMatchupIndex: this.currentMatchupIndex,
+      lastResults: this.lastResults,
+      votingActive: this.votingActive,
+      answeringActive: this.answeringActive,
+      votingElapsedMs: this.votingActive ? this.ctx.now() - this.votingStartedAt : 0,
+      eligibleVoterIds: [...this.eligibleVoterIds],
+      assignedCount: [...this.assignedCount],
+      answeredCount: [...this.answeredCount],
+      usedPrompts: [...this.usedPrompts],
+      promptSeenBy: [...this.promptSeenBy].map(([prompt, ids]) => [prompt, [...ids]]),
+      avoidPrompts: [...this.avoidPrompts],
+      customPrompts: [...this.customPrompts],
+      candidates: this.candidates,
+    };
+    return { type: "quiplash", data };
+  }
+
+  /** Rebuild a game from `snapshot()`; the room re-arms its phase timer. */
+  static restore(
+    ctx: EngineContext,
+    raw: unknown,
+    recordPrompt: (prompt: string) => void = () => {},
+  ): QuiplashEngine {
+    const data = raw as QuiplashSnapshot;
+    const engine = new QuiplashEngine(
+      ctx,
+      data.totalRounds,
+      new Set(data.avoidPrompts),
+      recordPrompt,
+      data.customPrompts,
     );
+    engine.round = data.round;
+    engine.matchups = data.matchups;
+    engine.matchupAuthors = data.matchupAuthors;
+    engine.currentMatchupIndex = data.currentMatchupIndex;
+    engine.lastResults = data.lastResults;
+    engine.votingActive = data.votingActive;
+    engine.answeringActive = data.answeringActive;
+    engine.votingStartedAt = ctx.now() - data.votingElapsedMs;
+    engine.eligibleVoterIds = new Set(data.eligibleVoterIds);
+    engine.assignedCount = new Map(data.assignedCount);
+    engine.answeredCount = new Map(data.answeredCount);
+    engine.usedPrompts = new Set(data.usedPrompts);
+    engine.promptSeenBy = new Map(
+      data.promptSeenBy.map(([prompt, ids]) => [prompt, new Set(ids)]),
+    );
+    engine.candidates = data.candidates;
+    return engine;
   }
 
   serialize(): EngineView {

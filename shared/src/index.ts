@@ -3,13 +3,13 @@
 export type Language = "tr" | "en" | "de" | "es" | "fr" | "it" | "pt" | "ru" | "ar" | "zh" | "ja" | "ko" | "hi" | "nl";
 export const LANGUAGES: Language[] = ["tr", "en", "de", "es", "fr", "it", "pt", "ru", "ar", "zh", "ja", "ko", "hi", "nl"];
 
-export type GameType = "quiplash" | "trivia";
-export const GAME_TYPES: GameType[] = ["quiplash", "trivia"];
+export type GameType = "quiplash" | "trivia" | "bluff";
+export const GAME_TYPES: GameType[] = ["quiplash", "trivia", "bluff"];
 
 export type GamePhase =
   | "lobby" // waiting for players + game selection
-  | "answering" // quiplash: typing answers / trivia: picking an option
-  | "voting" // quiplash only: vote on answer pairs
+  | "answering" // quiplash: typing answers / trivia: picking an option / bluff: writing lies
+  | "voting" // quiplash: vote on answer pairs / bluff: hunt for the truth
   | "results" // round/question results
   | "scoreboard" // final scoreboard
   | "gameover";
@@ -25,6 +25,16 @@ export interface Player {
   hasSubmitted: boolean; // answered this round/question
   hasVoted: boolean; // quiplash: voted on the active matchup
   streak: number; // trivia: consecutive correct answers
+  /** Points banked from every finished game in this room. */
+  sessionScore: number;
+  /** Finished games this player topped (ties count for everyone tied). */
+  wins: number;
+}
+
+/** A person named on a results screen: who wrote or picked something. */
+export interface Credit {
+  name: string;
+  avatar: string;
 }
 
 // ---- Quiplash ----
@@ -54,6 +64,8 @@ export interface MatchupResult {
     pointsAwarded: number;
     /** Flat reward for having written anything; 0 for safety quips. */
     submitBonus: number;
+    /** Who voted for this answer. Voting is over, so this is no longer secret. */
+    voters: Credit[];
   }[];
 }
 
@@ -78,6 +90,15 @@ export interface PlayerAssignment {
    * reconnecting voter recovers that one bit through this private channel.
    */
   votedMatchupId: string | null;
+  /** Bluff mode: this player's own view of the current question. */
+  bluff?: {
+    questionId: string;
+    /** Whether their lie is in. */
+    submitted: boolean;
+    /** Options that are this player's own lie, which they may not pick. */
+    ownOptionIds: string[];
+    pickedOptionId: string | null;
+  };
 }
 
 // ---- Trivia ----
@@ -93,6 +114,40 @@ export interface TriviaView {
     counts: number[]; // votes per option
     pointsThisRound: { playerId: string; playerName: string; points: number }[];
   } | null;
+}
+
+// ---- Bluff ----
+
+export interface BluffOptionReveal {
+  optionId: string;
+  text: string;
+  isTruth: boolean;
+  /** Who wrote this lie; empty for the truth and for house decoys. */
+  authors: Credit[];
+  /** Who picked this option. */
+  pickers: Credit[];
+}
+
+export interface BluffView {
+  questionIndex: number;
+  totalQuestions: number;
+  question: { id: string; text: string } | null;
+  /** Shuffled once per question; present while picking and on the reveal. */
+  options: { optionId: string; text: string }[] | null;
+  reveal: {
+    options: BluffOptionReveal[];
+    pointsThisRound: { playerId: string; playerName: string; points: number }[];
+  } | null;
+}
+
+/** A standout moment of a finished game, shown on the scoreboard. */
+export interface Highlight {
+  kind: "quip" | "lie";
+  prompt: string;
+  text: string;
+  authors: Credit[];
+  /** Votes for a quip; players fooled by a lie. */
+  votes: number;
 }
 
 // ---- Public room state broadcast to everyone ----
@@ -125,8 +180,20 @@ export interface RoomState {
    * covers connected players; `voted` covers connected players and audience.
    */
   progress: { submitted: number; voted: number };
+  /**
+   * Time left on the frozen clock while the game is paused; null when it is
+   * running. `phaseEndsAt` is null while paused.
+   */
+  pausedRemainingMs: number | null;
+  /** Games finished in this room; session standings are shown from 2 on. */
+  gamesPlayed: number;
+  /** How many host-written Quiplash prompts are loaded. */
+  customPromptCount: number;
+  /** The best moments of the game just finished; null outside the scoreboard. */
+  highlights: Highlight[] | null;
   quiplash?: QuiplashView;
   trivia?: TriviaView;
+  bluff?: BluffView;
 }
 
 // ---- Socket.IO event contracts ----
@@ -193,6 +260,32 @@ export interface ClientToServerEvents {
     payload: { emoji: string },
     cb: (res: ApiResult<null>) => void
   ) => void;
+  "game:pause": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  "game:resume": (
+    payload: { phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  /** Lobby only: move a player to the audience (`audience: true`) or back. */
+  "player:setSeat": (
+    payload: { playerId: string; audience: boolean; phaseId: number },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  /** Lobby only: replace the room's custom Quiplash prompts; [] clears them. */
+  "room:setCustomPrompts": (
+    payload: { prompts: string[]; phaseId: number },
+    cb: (res: ApiResult<{ count: number }>) => void
+  ) => void;
+  "bluff:lie": (
+    payload: { questionId: string; text: string },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
+  "bluff:pick": (
+    payload: { questionId: string; optionId: string },
+    cb: (res: ApiResult<null>) => void
+  ) => void;
 }
 
 export interface Reaction {
@@ -221,10 +314,13 @@ export interface SessionResult {
 
 export type ApiErrorCode =
   | "already_started"
+  | "answer_is_truth"
+  | "game_paused"
   | "host_only"
   | "invalid_game"
   | "invalid_language"
   | "invalid_phase"
+  | "invalid_prompts"
   | "invalid_reaction"
   | "invalid_target"
   | "name_required"
@@ -248,9 +344,9 @@ export type ApiResult<T> =
  * What a control command needs permission to do.
  *
  * The connected host holds every capability. When the host drops, the room
- * elects a player controller so the game can continue — but `kick` stays
- * host-only, because it is the one irreversible action aimed at another
- * person. Everything else is game flow the room can recover from.
+ * elects a player controller so the game can continue — but the stand-in never
+ * gets `kick`, `seat` or `content`: those act on other people or put words on
+ * everyone's screen. Everything else is game flow the room can recover from.
  */
 export type Capability =
   | "start"
@@ -259,7 +355,10 @@ export type Capability =
   | "restart"
   | "rematch"
   | "language"
-  | "kick";
+  | "pause"
+  | "kick"
+  | "seat"
+  | "content";
 
 // ---- Tunables ----
 
@@ -291,8 +390,14 @@ export const SUBMIT_BONUS = 100;
 // Host-configurable game length, clamped per mode (see Room.start).
 export const MIN_ROUNDS = 1; // quiplash rounds
 export const MAX_ROUNDS = 5;
-export const MIN_QUESTIONS = 3; // trivia questions (pool has 20 per language)
+export const MIN_QUESTIONS = 3; // trivia questions (pool has 32 per language)
 export const MAX_QUESTIONS = 10;
+export const BLUFF_QUESTIONS = 4;
+export const MIN_BLUFF_QUESTIONS = 2;
+export const MAX_BLUFF_QUESTIONS = 8;
+/** Bluff scoring, doubled on the final question. */
+export const BLUFF_TRUTH_POINTS = 500;
+export const BLUFF_FOOL_POINTS = 250;
 
 /** Clamp a requested length into [min, max], falling back to a default. */
 export function clampLength(
@@ -310,6 +415,10 @@ export function clampLength(
 // Validation limits (shared so client and server agree).
 export const MAX_NAME_LEN = 16;
 export const MAX_ANSWER_LEN = 120;
+export const MAX_LIE_LEN = 60;
+/** Custom prompt packs: sized so a full pack fits one Socket.IO frame. */
+export const MAX_CUSTOM_PROMPTS = 30;
+export const MAX_PROMPT_LEN = 90;
 
 // Avatar ids players can pick from (rendered as animated SVGs on the client;
 // server validates against this list). See client Avatar.tsx for the art.

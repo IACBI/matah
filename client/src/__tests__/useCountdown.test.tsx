@@ -20,6 +20,10 @@ function state(overrides: Partial<RoomState> = {}): RoomState {
     serverNow: 10_000,
     controllerPlayerId: null,
     progress: { submitted: 0, voted: 0 },
+    pausedRemainingMs: null,
+    gamesPlayed: 0,
+    customPromptCount: 0,
+    highlights: null,
     ...overrides,
   };
 }
@@ -41,6 +45,15 @@ describe('useCountdown', () => {
 
     act(() => vi.advanceTimersByTime(3_000));
     expect(result.current).toBe(0);
+  });
+
+  it('holds the frozen time while the game is paused', () => {
+    const { result } = renderHook(() =>
+      useCountdown(state({ phaseEndsAt: null, pausedRemainingMs: 7_200 })),
+    );
+    expect(result.current).toBe(8);
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(result.current).toBe(8);
   });
 
   it('returns null for phases without a deadline', () => {

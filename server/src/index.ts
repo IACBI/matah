@@ -21,16 +21,18 @@ import {
   GAME_TYPES,
   LANGUAGES,
   MAX_ANSWER_LEN,
+  MAX_LIE_LEN,
   MAX_NAME_LEN,
   REACTIONS,
   ROOM_CODE_LENGTH,
 } from "../../shared/src/index.js";
+import { storeFromEnv } from "./persistence.js";
 import {
   BoundedRateLimiter,
   BoundedWindowRateLimiter,
   TokenBucket,
 } from "./rateLimiter.js";
-import { Room } from "./room.js";
+import { Room, type RoomSnapshot } from "./room.js";
 import { safeIdentifier, sanitizeUserText } from "./util.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -203,7 +205,7 @@ app.use(compression());
 app.use(
   rateLimit({
     windowMs: 60_000,
-    max: 120,
+    limit: 120,
     standardHeaders: true,
     legacyHeaders: false,
     // Fingerprinted bundles are immutable and cached for a year, and one page
@@ -243,7 +245,10 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     }
     callback(null, true);
   },
-  maxHttpBufferSize: 4096,
+  // Sized for the largest legitimate frame, a full custom prompt pack
+  // (MAX_CUSTOM_PROMPTS x MAX_PROMPT_LEN code points, up to 4 bytes each, plus
+  // JSON), and nothing more: every other event fits in a few hundred bytes.
+  maxHttpBufferSize: 16_384,
   pingTimeout: 20_000,
   connectionStateRecovery: {
     maxDisconnectionDuration: 120_000,
@@ -287,12 +292,35 @@ export function activeRoomCount(): number {
   return rooms.size;
 }
 
+/** Bumped on every broadcast and removal, so an unchanged registry is not re-saved. */
+let registryVersion = 0;
+
+/** The socket fan-out a room broadcasts through. */
+function roomHooks(code: string) {
+  return {
+    broadcast: (state: Parameters<ServerToClientEvents["room:state"]>[0]) => {
+      registryVersion += 1;
+      io.to(code).emit("room:state", state);
+    },
+    sendAssignment: (
+      socketId: string,
+      assignment: Parameters<ServerToClientEvents["player:assignment"]>[0]
+    ) => io.to(socketId).emit("player:assignment", assignment),
+  };
+}
+
+function trackOwner(code: string, owner: string): void {
+  roomOwners.set(code, owner);
+  roomsPerIp.set(owner, (roomsPerIp.get(owner) ?? 0) + 1);
+}
+
 /** The only way out of the registry, so the per-owner tally cannot drift. */
 function removeRoom(code: string): void {
   const room = rooms.get(code);
   if (!room) return;
   room.dispose();
   rooms.delete(code);
+  registryVersion += 1;
   const owner = roomOwners.get(code);
   roomOwners.delete(code);
   if (owner === undefined) return;
@@ -413,18 +441,12 @@ io.on("connection", (socket) => {
         : "tr";
       leaveCurrentRoom();
       const code = makeRoomCode();
-      const room = new Room(
-        code,
-        language,
-        (state) => io.to(code).emit("room:state", state),
-        (socketId, assignment) =>
-          io.to(socketId).emit("player:assignment", assignment)
-      );
+      const { broadcast, sendAssignment } = roomHooks(code);
+      const room = new Room(code, language, broadcast, sendAssignment);
       rooms.set(code, room);
       // Counted after leaveCurrentRoom(), which may just have released — and
       // decremented — this socket's previous room.
-      roomOwners.set(code, ip);
-      roomsPerIp.set(ip, (roomsPerIp.get(ip) ?? 0) + 1);
+      trackOwner(code, ip);
       const session = room.addHost(socket.id);
       socket.join(code);
       joinedCode = code;
@@ -601,10 +623,61 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("game:pause", (payload, callback) => {
+    guard(callback, "game:pause", () => {
+      const current = currentSession();
+      if (!current) return { ok: false, error: "no_room" };
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "pause");
+      if (controlError) return { ok: false, error: controlError };
+      const error = current.room.pause();
+      return error ? { ok: false, error } : { ok: true, data: null };
+    });
+  });
+
+  socket.on("game:resume", (payload, callback) => {
+    guard(callback, "game:resume", () => {
+      const current = currentSession();
+      if (!current) return { ok: false, error: "no_room" };
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "pause");
+      if (controlError) return { ok: false, error: controlError };
+      const error = current.room.resume();
+      return error ? { ok: false, error } : { ok: true, data: null };
+    });
+  });
+
+  socket.on("player:setSeat", (payload, callback) => {
+    guard(callback, "player:setSeat", () => {
+      const current = currentSession();
+      if (!current) return { ok: false, error: "no_room" };
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "seat");
+      if (controlError) return { ok: false, error: controlError };
+      const targetPlayerId = safeIdentifier(payload?.playerId, 64);
+      if (!targetPlayerId || typeof payload?.audience !== "boolean") {
+        return { ok: false, error: "invalid_target" };
+      }
+      const error = current.room.setSeat(targetPlayerId, payload.audience);
+      return error ? { ok: false, error } : { ok: true, data: null };
+    });
+  });
+
+  socket.on("room:setCustomPrompts", (payload, callback) => {
+    guard(callback, "room:setCustomPrompts", () => {
+      const current = currentSession();
+      if (!current) return { ok: false, error: "no_room" };
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "content");
+      if (controlError) return { ok: false, error: controlError };
+      const result = current.room.setCustomPrompts(payload?.prompts);
+      return "error" in result
+        ? { ok: false, error: result.error }
+        : { ok: true, data: { count: result.count } };
+    }, 5);
+  });
+
   socket.on("answer:submit", (payload, callback) => {
     guard(callback, "answer:submit", () => {
       const current = currentSession();
       if (!current) return { ok: false, error: "no_room" };
+      if (current.room.isPaused()) return { ok: false, error: "game_paused" };
       const accepted = current.room.submitAnswer(
         current.playerId,
         safeIdentifier(payload?.matchupId, 64),
@@ -620,6 +693,7 @@ io.on("connection", (socket) => {
     guard(callback, "vote:submit", () => {
       const current = currentSession();
       if (!current) return { ok: false, error: "no_room" };
+      if (current.room.isPaused()) return { ok: false, error: "game_paused" };
       const accepted = current.room.submitVote(
         current.playerId,
         safeIdentifier(payload?.matchupId, 64),
@@ -635,6 +709,7 @@ io.on("connection", (socket) => {
     guard(callback, "trivia:answer", () => {
       const current = currentSession();
       if (!current) return { ok: false, error: "no_room" };
+      if (current.room.isPaused()) return { ok: false, error: "game_paused" };
       if (typeof payload?.optionIndex !== "number" || !Number.isInteger(payload.optionIndex)) {
         return { ok: false, error: "submit_failed" };
       }
@@ -646,6 +721,34 @@ io.on("connection", (socket) => {
       return accepted
         ? { ok: true, data: null }
         : { ok: false, error: "submit_failed" };
+    });
+  });
+
+  socket.on("bluff:lie", (payload, callback) => {
+    guard(callback, "bluff:lie", () => {
+      const current = currentSession();
+      if (!current) return { ok: false, error: "no_room" };
+      if (current.room.isPaused()) return { ok: false, error: "game_paused" };
+      const error = current.room.submitLie(
+        current.playerId,
+        safeIdentifier(payload?.questionId, 64),
+        sanitizeUserText(payload?.text, MAX_LIE_LEN)
+      );
+      return error ? { ok: false, error } : { ok: true, data: null };
+    });
+  });
+
+  socket.on("bluff:pick", (payload, callback) => {
+    guard(callback, "bluff:pick", () => {
+      const current = currentSession();
+      if (!current) return { ok: false, error: "no_room" };
+      if (current.room.isPaused()) return { ok: false, error: "game_paused" };
+      const accepted = current.room.submitPick(
+        current.playerId,
+        safeIdentifier(payload?.questionId, 64),
+        safeIdentifier(payload?.optionId, 64)
+      );
+      return accepted ? { ok: true, data: null } : { ok: false, error: "vote_failed" };
     });
   });
 
@@ -725,8 +828,114 @@ if (isProd) {
   }
 }
 
+// ---- restart persistence ----
+
+const snapshotStore = storeFromEnv(process.env);
+const REGISTRY_SNAPSHOT_VERSION = 1;
+/** A snapshot this old describes rooms whose players have long gone. */
+const SNAPSHOT_MAX_AGE_MS = 15 * 60_000;
+const SNAPSHOT_INTERVAL_MS = (() => {
+  const raw = Number(process.env.MATAH_SNAPSHOT_INTERVAL_MS);
+  return Number.isFinite(raw) && raw >= 1_000 ? raw : 15_000;
+})();
+const VALID_CODE = new RegExp(`^[A-Z]{${ROOM_CODE_LENGTH}}$`);
+
+interface RegistrySnapshot {
+  version: number;
+  savedAt: number;
+  rooms: { owner: string; room: RoomSnapshot }[];
+}
+
+let persistenceActive = false;
+let snapshotHandle: NodeJS.Timeout | null = null;
+let savedVersion = -1;
+let saveChain: Promise<unknown> = Promise.resolve();
+
+/**
+ * Write every live room to the configured store. Saves are chained, so the
+ * periodic save and the shutdown save never interleave their writes.
+ */
+export function saveSnapshot(): Promise<number> {
+  const run = async (): Promise<number> => {
+    if (!snapshotStore) return 0;
+    const version = registryVersion;
+    const snapshot: RegistrySnapshot = {
+      version: REGISTRY_SNAPSHOT_VERSION,
+      savedAt: Date.now(),
+      rooms: [...rooms].map(([code, room]) => ({
+        owner: roomOwners.get(code) ?? "",
+        room: room.toSnapshot(),
+      })),
+    };
+    await snapshotStore.save(JSON.stringify(snapshot));
+    savedVersion = version;
+    return snapshot.rooms.length;
+  };
+  const next = saveChain.then(run, run);
+  saveChain = next.catch(() => undefined);
+  return next;
+}
+
+async function restoreSnapshot(): Promise<number> {
+  if (!snapshotStore) return 0;
+  const raw = await snapshotStore.load();
+  if (!raw) return 0;
+  const snapshot = JSON.parse(raw) as RegistrySnapshot;
+  if (snapshot?.version !== REGISTRY_SNAPSHOT_VERSION || !Array.isArray(snapshot.rooms)) {
+    console.warn("ignoring a room snapshot in an unknown format");
+    return 0;
+  }
+  if (!(Date.now() - snapshot.savedAt <= SNAPSHOT_MAX_AGE_MS)) {
+    console.warn("ignoring a room snapshot older than the restore window");
+    return 0;
+  }
+  let restored = 0;
+  for (const entry of snapshot.rooms) {
+    const code = entry?.room?.code;
+    if (typeof code !== "string" || !VALID_CODE.test(code) || rooms.has(code)) continue;
+    if (rooms.size >= MAX_ROOMS) break;
+    try {
+      const { broadcast, sendAssignment } = roomHooks(code);
+      const room = Room.fromSnapshot(entry.room, broadcast, sendAssignment);
+      rooms.set(code, room);
+      if (typeof entry.owner === "string" && entry.owner) trackOwner(code, entry.owner);
+      // Everyone is disconnected; whoever never comes back expires like after
+      // any other drop, and an emptied room is reclaimed.
+      setTimeout(() => deleteIfVacant(room), VACANT_RECHECK_MS).unref();
+      restored += 1;
+    } catch (error) {
+      console.warn("skipping a room that could not be restored", {
+        code,
+        error: (error as Error).message,
+      });
+    }
+  }
+  return restored;
+}
+
+async function startPersistence(): Promise<void> {
+  if (!snapshotStore || persistenceActive) return;
+  persistenceActive = true;
+  try {
+    const restored = await restoreSnapshot();
+    if (restored > 0) {
+      console.log(`Restored ${restored} room(s) from ${snapshotStore.describe()}`);
+    }
+  } catch (error) {
+    console.error(`Could not restore rooms from ${snapshotStore.describe()}`, (error as Error).message);
+  }
+  savedVersion = registryVersion;
+  snapshotHandle = setInterval(() => {
+    if (registryVersion === savedVersion) return;
+    saveSnapshot().catch((error: Error) =>
+      console.error(`Could not save rooms to ${snapshotStore.describe()}`, error.message)
+    );
+  }, SNAPSHOT_INTERVAL_MS);
+  snapshotHandle.unref();
+}
+
 let shuttingDown = false;
-export function startServer(port = PORT): Promise<number> {
+export async function startServer(port = PORT): Promise<number> {
   if (!sweepHandle) {
     sweepIdleRooms();
     sweepHandle = setInterval(sweepIdleRooms, SWEEP_MS);
@@ -734,8 +943,9 @@ export function startServer(port = PORT): Promise<number> {
   }
   if (httpServer.listening) {
     const address = httpServer.address();
-    return Promise.resolve(typeof address === "object" && address ? address.port : port);
+    return typeof address === "object" && address ? address.port : port;
   }
+  await startPersistence();
   return new Promise((resolve, reject) => {
     const onError = (error: Error): void => reject(error);
     httpServer.once("error", onError);
@@ -749,16 +959,29 @@ export function startServer(port = PORT): Promise<number> {
   });
 }
 
-export function stopServer(): Promise<void> {
+export async function stopServer(): Promise<void> {
   if (sweepHandle) clearInterval(sweepHandle);
   sweepHandle = null;
+  if (snapshotHandle) clearInterval(snapshotHandle);
+  snapshotHandle = null;
+  if (persistenceActive && snapshotStore) {
+    persistenceActive = false;
+    // Always written, even with no rooms, so an older snapshot is not
+    // resurrected by the next boot.
+    try {
+      const saved = await saveSnapshot();
+      console.log(`Saved ${saved} room(s) to ${snapshotStore.describe()}`);
+    } catch (error) {
+      console.error(`Could not save rooms to ${snapshotStore.describe()}`, (error as Error).message);
+    }
+  }
   for (const room of rooms.values()) room.dispose();
   rooms.clear();
   roomOwners.clear();
   roomsPerIp.clear();
   liveConnections.clear();
-  if (!httpServer.listening) return Promise.resolve();
-  return new Promise((resolve) => io.close(() => resolve()));
+  if (!httpServer.listening) return;
+  await new Promise<void>((resolve) => io.close(() => resolve()));
 }
 
 const shutdown = (signal: string): void => {

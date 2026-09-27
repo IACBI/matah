@@ -171,7 +171,8 @@ describe('HostScreen lobby', () => {
     const user = userEvent.setup();
     renderHost(lobby());
 
-    await user.click(screen.getByRole('button', { name: /P1/ }));
+    // Each player chip also has a "move to the audience" button now.
+    await user.click(screen.getByRole('button', { name: 'Remove P1' }));
     expect(emitAck).toHaveBeenCalledWith('player:kick', {
       playerId: 'p1',
       phaseId: 1,
@@ -193,6 +194,14 @@ describe('HostScreen lobby', () => {
   it('flags a disconnected player instead of dropping them from the list', () => {
     renderHost(lobby([player('p1', { connected: false }), player('p2'), player('p3')]));
     expect(screen.getByText(/P1/)).not.toBeNull();
+  });
+
+  it('does not offer a start the server would refuse for an offline player', () => {
+    // The server counts connected players only; an enabled button here just
+    // produced a "not enough players" error on click.
+    renderHost(lobby([player('p1', { connected: false }), player('p2'), player('p3')]));
+    const start = screen.getByRole('button', { name: /at least 3 players/i }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
   });
 });
 

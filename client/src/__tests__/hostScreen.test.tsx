@@ -115,6 +115,10 @@ describe('HostScreen', () => {
                   votes: 2,
                   pointsAwarded: 1333,
                   submitBonus: 200,
+                  voters: [
+                    { name: 'P3', avatar: 'cat' },
+                    { name: 'A1', avatar: 'frog' },
+                  ],
                 },
                 {
                   playerId: 'p2',
@@ -124,6 +128,7 @@ describe('HostScreen', () => {
                   votes: 1,
                   pointsAwarded: 667,
                   submitBonus: 200,
+                  voters: [{ name: 'P1', avatar: 'fox' }],
                 },
               ],
             },
@@ -133,6 +138,9 @@ describe('HostScreen', () => {
     );
     expect(screen.getByText(/points ×2 this round/i)).not.toBeNull();
     expect(screen.getAllByText(/\+200 bonus/i)).toHaveLength(2);
+    // Voting is over, so the room finally sees who backed which answer.
+    expect(screen.getByRole('img', { name: 'Votes from P3, A1' })).not.toBeNull();
+    expect(screen.getByRole('img', { name: 'Votes from P1' })).not.toBeNull();
   });
 
   it('asks before ending a game early', async () => {
@@ -146,6 +154,31 @@ describe('HostScreen', () => {
     expect(emitAck).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: /^yes$/i }));
     expect(emitAck).toHaveBeenCalledWith('game:end', { phaseId: 1 });
+  });
+
+  it('keeps focus where the user put it while the countdown ticks', async () => {
+    // The dialog used to re-focus "Yes" on every parent render, so a host who
+    // tabbed to "Cancel" was moved back within a second and Enter ended the game.
+    const user = userEvent.setup();
+    const state = roomState({ phase: 'answering', gameType: 'trivia', players: THREE });
+    const { rerender } = renderHost(state, { secondsLeft: 10 });
+    const host = (secondsLeft: number) => (
+      <HostScreen
+        code="ABCD"
+        state={state}
+        secondsLeft={secondsLeft}
+        connected
+        leaving={false}
+        onLeave={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /end game/i }));
+    const cancel = screen.getByRole('button', { name: /^cancel$/i });
+    await user.tab();
+    expect(document.activeElement).toBe(cancel);
+    rerender(host(9));
+    expect(document.activeElement).toBe(cancel);
   });
 
   it('surfaces a refused command rather than failing silently', async () => {

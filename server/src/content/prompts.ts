@@ -32,6 +32,18 @@ const PROMPTS: Record<Language, string[]> = {
     "Bir büyücünün izin gününde yaptığı şey",
     "İlk randevuda söylenecek en kötü şey",
     "Çocuk doğum günü partisi için berbat bir tema",
+    "Pilotunuzdan duymak isteyeceğiniz son şey",
+    "Bir parfüm için berbat bir isim",
+    "Kapı kapanınca buzdolabının ışığı ne yapıyor",
+    "Bir düğünde çalınabilecek en kötü şarkı",
+    "Reddedilmiş bir olimpiyat sporu",
+    "Dinozorların neslinin tükenmesinin asıl sebebi",
+    "Hamburgerinizde bulabileceğiniz en kötü şey",
+    "Kimsenin istemediği bir fal kurabiyesi mesajı",
+    "Siz evde yokken evcil hayvanınızın yaptıkları",
+    "Bir spor salonu için berbat bir slogan",
+    "Kütüphanede bağırılabilecek en kötü şey",
+    "Otobiyografinizin adı",
   ],
   en: [
     "A line a superhero should never say",
@@ -62,6 +74,18 @@ const PROMPTS: Record<Language, string[]> = {
     "What a wizard does on his day off",
     "The worst thing to say on a first date",
     "A terrible theme for a kids' birthday party",
+    "The worst thing to hear from your pilot",
+    "A terrible name for a perfume",
+    "What the fridge light does when the door is closed",
+    "The worst song to play at a wedding",
+    "A rejected Olympic sport",
+    "The real reason the dinosaurs died out",
+    "The worst thing to find in your burger",
+    "A fortune cookie message nobody wants",
+    "What your pet gets up to when you're out",
+    "A terrible slogan for a gym",
+    "The worst thing to shout in a library",
+    "The title of your autobiography",
   ],
   de: [
     "Ein Satz, den ein Superheld niemals sagen sollte",
@@ -92,6 +116,18 @@ const PROMPTS: Record<Language, string[]> = {
     "Was ein Zauberer an seinem freien Tag macht",
     "Das Schlimmste, was man beim ersten Date sagt",
     "Ein furchtbares Motto für einen Kindergeburtstag",
+    "Das Letzte, was du von deinem Piloten hören willst",
+    "Ein schrecklicher Name für ein Parfüm",
+    "Was das Kühlschranklicht macht, wenn die Tür zu ist",
+    "Das schlimmste Lied für eine Hochzeit",
+    "Eine abgelehnte olympische Sportart",
+    "Der wahre Grund, warum die Dinosaurier ausgestorben sind",
+    "Das Schlimmste, was man in seinem Burger finden kann",
+    "Eine Glückskeks-Botschaft, die niemand will",
+    "Was dein Haustier treibt, wenn du nicht da bist",
+    "Ein schrecklicher Slogan für ein Fitnessstudio",
+    "Das Schlimmste, was man in einer Bibliothek rufen kann",
+    "Der Titel deiner Autobiografie",
   ],
   es: [
     "Una frase que un superhéroe nunca debería decir",
@@ -122,6 +158,18 @@ const PROMPTS: Record<Language, string[]> = {
     "Lo que hace un mago en su día libre",
     "Lo peor que decir en una primera cita",
     "Un tema terrible para una fiesta de cumpleaños infantil",
+    "Lo último que quieres oír de tu piloto",
+    "Un nombre horrible para un perfume",
+    "Qué hace la luz de la nevera cuando cierras la puerta",
+    "La peor canción para poner en una boda",
+    "Un deporte olímpico rechazado",
+    "La verdadera razón por la que se extinguieron los dinosaurios",
+    "Lo peor que puedes encontrar en tu hamburguesa",
+    "Un mensaje de galleta de la fortuna que nadie quiere",
+    "Lo que hace tu mascota cuando no estás en casa",
+    "Un eslogan horrible para un gimnasio",
+    "Lo peor que se puede gritar en una biblioteca",
+    "El título de tu autobiografía",
   ],
   fr: [
     "Une réplique qu'un super-héros ne devrait jamais dire",
@@ -152,6 +200,18 @@ const PROMPTS: Record<Language, string[]> = {
     "Ce qu'un magicien fait pendant son jour de repos",
     "La pire chose à dire lors d'un premier rendez-vous",
     "Un thème catastrophique pour une fête d'anniversaire d'enfant",
+    "La dernière chose que tu veux entendre de ton pilote",
+    "Un nom affreux pour un parfum",
+    "Ce que fait la lumière du frigo quand la porte est fermée",
+    "La pire chanson à passer à un mariage",
+    "Un sport olympique refusé",
+    "La vraie raison de la disparition des dinosaures",
+    "La pire chose à trouver dans ton burger",
+    "Un message de fortune cookie dont personne ne veut",
+    "Ce que fait ton animal quand tu n'es pas là",
+    "Un slogan affreux pour une salle de sport",
+    "La pire chose à crier dans une bibliothèque",
+    "Le titre de ton autobiographie",
   ],
   it: [
     "Una frase che un supereroe non dovrebbe mai dire",
@@ -182,6 +242,18 @@ const PROMPTS: Record<Language, string[]> = {
     "Cosa fa un mago nel suo giorno libero",
     "La cosa peggiore da dire a un primo appuntamento",
     "Un tema terribile per la festa di compleanno di un bambino",
+    "L'ultima cosa che vuoi sentire dal tuo pilota",
+    "Un nome terribile per un profumo",
+    "Cosa fa la luce del frigo quando lo sportello è chiuso",
+    "La peggior canzone da mettere a un matrimonio",
+    "Uno sport olimpico bocciato",
+    "Il vero motivo per cui i dinosauri si sono estinti",
+    "La cosa peggiore da trovare nel tuo hamburger",
+    "Il messaggio di un biscotto della fortuna che nessuno vuole",
+    "Cosa combina il tuo animale quando non sei a casa",
+    "Uno slogan terribile per una palestra",
+    "La cosa peggiore da urlare in una biblioteca",
+    "Il titolo della tua autobiografia",
   ],
   pt: [
     "Uma frase que um super-herói nunca devia dizer",
@@ -212,6 +284,18 @@ const PROMPTS: Record<Language, string[]> = {
     "O que um feiticeiro faz no seu dia de folga",
     "A pior coisa para dizer num primeiro encontro",
     "Um tema horrível para uma festa de anos de criança",
+    "A última coisa que queres ouvir do teu piloto",
+    "Um nome horrível para um perfume",
+    "O que faz a luz do frigorífico quando a porta está fechada",
+    "A pior música para pôr num casamento",
+    "Um desporto olímpico rejeitado",
+    "A verdadeira razão da extinção dos dinossauros",
+    "A pior coisa para encontrar no teu hambúrguer",
+    "Uma mensagem de bolinho da sorte que ninguém quer",
+    "O que o teu animal faz quando não estás em casa",
+    "Um slogan horrível para um ginásio",
+    "A pior coisa para gritar numa biblioteca",
+    "O título da tua autobiografia",
   ],
   ru: [
     "Фраза, которую супергерой не должен говорить никогда",
@@ -242,6 +326,18 @@ const PROMPTS: Record<Language, string[]> = {
     "Чем волшебник занимается в выходной",
     "Худшее, что можно сказать на первом свидании",
     "Ужасная тема для детского дня рождения",
+    "Последнее, что хочется услышать от пилота",
+    "Ужасное название для духов",
+    "Что делает лампочка в холодильнике, когда дверца закрыта",
+    "Худшая песня для свадьбы",
+    "Отвергнутый олимпийский вид спорта",
+    "Настоящая причина вымирания динозавров",
+    "Худшее, что можно найти в своём бургере",
+    "Предсказание из печенья, которое никто не хочет получить",
+    "Чем занимается ваш питомец, пока вас нет дома",
+    "Ужасный слоган для спортзала",
+    "Худшее, что можно крикнуть в библиотеке",
+    "Название вашей автобиографии",
   ],
   ar: [
     "جملة لا ينبغي لبطل خارق أن يقولها أبدًا",
@@ -272,6 +368,18 @@ const PROMPTS: Record<Language, string[]> = {
     "ماذا يفعل ساحر في يوم عطلته",
     "أسوأ شيء تقوله في موعد غرامي أول",
     "موضوع فظيع لحفلة عيد ميلاد أطفال",
+    "آخر شيء تريد سماعه من قائد الطائرة",
+    "اسم فظيع لعطر",
+    "ماذا يفعل ضوء الثلاجة عندما يُغلق الباب",
+    "أسوأ أغنية يمكن تشغيلها في حفل زفاف",
+    "رياضة أولمبية تم رفضها",
+    "السبب الحقيقي لانقراض الديناصورات",
+    "أسوأ شيء قد تجده في البرغر",
+    "رسالة في كعكة الحظ لا يريدها أحد",
+    "ماذا يفعل حيوانك الأليف حين تكون خارج المنزل",
+    "شعار فظيع لنادٍ رياضي",
+    "أسوأ شيء يمكن الصراخ به في مكتبة",
+    "عنوان سيرتك الذاتية",
   ],
   zh: [
     "超级英雄绝不该说的一句话",
@@ -302,6 +410,18 @@ const PROMPTS: Record<Language, string[]> = {
     "巫师在休息日做什么",
     "第一次约会时最不该说的话",
     "儿童生日派对最糟糕的主题",
+    "最不想从机长那里听到的一句话",
+    "一个糟糕透顶的香水名字",
+    "冰箱门关上后，冰箱灯在干什么",
+    "婚礼上最不该放的歌",
+    "被奥运会拒绝的运动项目",
+    "恐龙灭绝的真正原因",
+    "汉堡里最不想吃到的东西",
+    "谁都不想抽到的幸运饼干签语",
+    "你不在家时宠物都在干什么",
+    "一句糟糕的健身房广告语",
+    "在图书馆里最不该喊的一句话",
+    "你的自传标题",
   ],
   ja: [
     "スーパーヒーローが絶対に言ってはいけないセリフ",
@@ -332,6 +452,18 @@ const PROMPTS: Record<Language, string[]> = {
     "魔法使いが休日にすること",
     "初デートで言ってはいけない最悪なひと言",
     "子どもの誕生日パーティーのひどいテーマ",
+    "機長から一番聞きたくないアナウンス",
+    "香水のひどい名前",
+    "扉が閉まっている間、冷蔵庫のライトがしていること",
+    "結婚式で流すべきではない曲",
+    "オリンピックで却下された競技",
+    "恐竜が絶滅した本当の理由",
+    "ハンバーガーの中に入っていたら最悪なもの",
+    "誰ももらいたくないフォーチュンクッキーのお告げ",
+    "留守中にペットがしていること",
+    "ジムのひどいキャッチコピー",
+    "図書館で叫んではいけない言葉",
+    "あなたの自伝のタイトル",
   ],
   ko: [
     "슈퍼히어로가 절대 하면 안 되는 대사",
@@ -362,6 +494,18 @@ const PROMPTS: Record<Language, string[]> = {
     "마법사가 쉬는 날에 하는 일",
     "첫 데이트에서 하면 안 되는 최악의 말",
     "어린이 생일 파티에 끔찍한 테마",
+    "기장에게서 가장 듣고 싶지 않은 말",
+    "향수에 붙이면 최악인 이름",
+    "문이 닫혀 있을 때 냉장고 불빛이 하는 일",
+    "결혼식에서 틀면 안 되는 최악의 노래",
+    "올림픽에서 거절당한 종목",
+    "공룡이 멸종한 진짜 이유",
+    "햄버거 속에서 발견하면 최악인 것",
+    "아무도 원하지 않는 포춘쿠키 메시지",
+    "당신이 집에 없을 때 반려동물이 하는 일",
+    "헬스장의 최악의 슬로건",
+    "도서관에서 외치면 최악인 말",
+    "당신 자서전의 제목",
   ],
   hi: [
     "एक ऐसी लाइन जो किसी सुपरहीरो को कभी नहीं कहनी चाहिए",
@@ -392,6 +536,18 @@ const PROMPTS: Record<Language, string[]> = {
     "एक जादूगर अपनी छुट्टी के दिन क्या करता है",
     "पहली डेट पर कहने के लिए सबसे ख़राब बात",
     "बच्चों की बर्थडे पार्टी के लिए एक घटिया थीम",
+    "पायलट से सुनने वाली सबसे बुरी बात",
+    "किसी परफ़्यूम के लिए सबसे बेकार नाम",
+    "दरवाज़ा बंद होने पर फ़्रिज की लाइट क्या करती है",
+    "शादी में बजाने के लिए सबसे बुरा गाना",
+    "ओलंपिक से ठुकराया गया खेल",
+    "डायनासोर के ख़त्म होने की असली वजह",
+    "बर्गर में मिलने वाली सबसे बुरी चीज़",
+    "फ़ॉर्च्यून कुकी का ऐसा संदेश जो कोई नहीं चाहता",
+    "आपके घर से बाहर होने पर आपका पालतू क्या करता है",
+    "किसी जिम के लिए सबसे बेकार स्लोगन",
+    "लाइब्रेरी में चिल्लाने वाली सबसे बुरी बात",
+    "आपकी आत्मकथा का नाम",
   ],
   nl: [
     "Een zin die een superheld nooit zou mogen zeggen",
@@ -422,6 +578,18 @@ const PROMPTS: Record<Language, string[]> = {
     "Wat een tovenaar op zijn vrije dag doet",
     "Het slechtste om te zeggen op een eerste date",
     "Een vreselijk thema voor een kinderfeestje",
+    "Het laatste wat je van je piloot wilt horen",
+    "Een vreselijke naam voor een parfum",
+    "Wat het koelkastlampje doet als de deur dicht is",
+    "Het slechtste nummer om op een bruiloft te draaien",
+    "Een afgewezen olympische sport",
+    "De echte reden dat de dinosaurussen uitstierven",
+    "Het ergste wat je in je hamburger kunt vinden",
+    "Een gelukskoekjesboodschap die niemand wil",
+    "Wat je huisdier uitspookt als je niet thuis bent",
+    "Een vreselijke slogan voor een sportschool",
+    "Het ergste wat je in een bibliotheek kunt roepen",
+    "De titel van je autobiografie",
   ],
 };
 
@@ -450,14 +618,23 @@ export interface PromptSlot {
  *   2. unseen by both authors
  *   3. unseen by one author
  *   4. anything left
+ *
+ * Host-written `custom` prompts join the pool and win ties within a tier, so a
+ * pack is played through before the built-in prompts fill the gaps, without
+ * ever outranking the per-author rule above.
  */
 export function pickPromptsForSlots(
   language: Language,
   slots: readonly PromptSlot[],
   usedThisGame: ReadonlySet<string>,
   seenBy: ReadonlyMap<string, ReadonlySet<string>>,
+  custom: readonly string[] = [],
 ): string[] {
-  const pool = PROMPTS[language] ?? PROMPTS.en;
+  const builtIn = PROMPTS[language] ?? PROMPTS.en;
+  const customSet = new Set(custom);
+  const pool = customSet.size > 0
+    ? [...customSet, ...builtIn.filter((prompt) => !customSet.has(prompt))]
+    : builtIn;
   const takenNow = new Set<string>();
   const chosen: string[] = [];
 
@@ -465,18 +642,25 @@ export function pickPromptsForSlots(
     authors.filter((id) => !seenBy.get(prompt)?.has(id)).length;
 
   for (const slot of slots) {
-    const available = pool.filter((prompt) => !takenNow.has(prompt));
-    // Rank rather than filter, so a tier is never empty and no slot goes unfilled.
-    const ranked = available
-      .map((prompt) => {
-        const unseen = unseenCount(prompt, slot.authors);
-        const fresh = !usedThisGame.has(prompt);
-        return { prompt, tier: unseen * 2 + (fresh && unseen === slot.authors.length ? 1 : 0) };
-      })
-      .sort((a, b) => b.tier - a.tier);
-    const best = ranked.length > 0 ? ranked[0].tier : 0;
-    const bestTier = ranked.filter((entry) => entry.tier === best);
-    const pick = bestTier.length > 0 ? sample(bestTier, 1)[0].prompt : pool[0];
+    // Rank rather than filter, so a tier is never empty and no slot goes
+    // unfilled. Only the best rank matters, so track it in one pass.
+    let best = -1;
+    let bestTier: string[] = [];
+    for (const prompt of pool) {
+      if (takenNow.has(prompt)) continue;
+      const unseen = unseenCount(prompt, slot.authors);
+      const fresh = !usedThisGame.has(prompt);
+      const tier =
+        (unseen * 2 + (fresh && unseen === slot.authors.length ? 1 : 0)) * 2 +
+        (customSet.has(prompt) ? 1 : 0);
+      if (tier > best) {
+        best = tier;
+        bestTier = [prompt];
+      } else if (tier === best) {
+        bestTier.push(prompt);
+      }
+    }
+    const pick = bestTier.length > 0 ? sample(bestTier, 1)[0] : pool[0];
     takenNow.add(pick);
     chosen.push(pick);
   }

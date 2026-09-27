@@ -19,12 +19,18 @@ export function ConfirmDialog({
   const { t } = useI18n();
   const panel = useRef<HTMLDivElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
+  // Callers pass an inline arrow, and the host screen re-renders every
+  // countdown tick. Depending on it re-ran the effect each second, which pulled
+  // focus back to "Yes" from wherever the user had tabbed — Enter then
+  // confirmed the action they were declining.
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
 
   useEffect(() => {
     confirmButton.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onCancel();
+        cancelRef.current();
         return;
       }
       if (event.key !== "Tab" || !panel.current) return;
@@ -43,7 +49,7 @@ export function ConfirmDialog({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onCancel]);
+  }, []);
 
   return (
     // Dismissal is Escape or the cancel button. A click-to-close backdrop

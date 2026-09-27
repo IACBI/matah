@@ -6,6 +6,10 @@ export default defineConfig({
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     setupFiles: ['src/__tests__/setup.ts'],
     restoreMocks: true,
+    // user-event flows take ~1 s alone but have hit the 5 s default when every
+    // worker boots jsdom at once on a loaded machine. Headroom, not a crutch:
+    // a hung test still fails.
+    testTimeout: 15_000,
     coverage: {
       provider: 'v8',
       // Everything the tests can meaningfully reach. The exclusions are data

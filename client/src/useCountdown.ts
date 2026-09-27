@@ -5,9 +5,13 @@ const TICK_MS = 250;
 /** Only re-sync the clock when the drift is larger than a tick is worth. */
 const DRIFT_TOLERANCE_MS = 1_000;
 
-/** Derives a smooth countdown from a server deadline without per-second broadcasts. */
+/**
+ * Derives a smooth countdown from a server deadline without per-second
+ * broadcasts. A paused game shows its frozen time left instead.
+ */
 export function useCountdown(state: RoomState | null): number | null {
   const phaseEndsAt = state?.phaseEndsAt ?? null;
+  const pausedRemainingMs = state?.pausedRemainingMs ?? null;
   const serverNow = state?.serverNow;
   const [seconds, setSeconds] = useState<number | null>(null);
   // Refs, not a memo: serverNow changes on every broadcast, and deriving the
@@ -46,12 +50,13 @@ export function useCountdown(state: RoomState | null): number | null {
       }
     };
 
-    setSeconds(remainingNow());
-    if (remainingNow() > 0) handle = window.setInterval(update, TICK_MS);
+    const initial = remainingNow();
+    setSeconds(initial);
+    if (initial > 0) handle = window.setInterval(update, TICK_MS);
     return () => {
       if (handle) window.clearInterval(handle);
     };
   }, [phaseEndsAt]);
 
-  return seconds;
+  return pausedRemainingMs === null ? seconds : Math.ceil(pausedRemainingMs / 1_000);
 }
