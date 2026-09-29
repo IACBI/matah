@@ -201,7 +201,11 @@ operational tuning as the limits above.
 - Room create and join limits use fixed, bounded IP windows. Gameplay uses a
   bounded per-socket limiter; reactions also have socket and room limits.
 - Names and answers are NFC-normalized, stripped of control/bidirectional
-  formatting characters, and truncated on Unicode code-point boundaries.
+  formatting characters, and truncated on Unicode code-point boundaries. The
+  one exception is a zero-width joiner or non-joiner between two characters it
+  can join, which is kept: emoji sequences (👩‍💻, 🏳️‍🌈) and Persian or Indic
+  words depend on it. A joiner with nothing on either side is dropped like any
+  other invisible character.
 - Quiplash vote payloads expose random answer IDs and text only, in an order
   shuffled once per matchup so that neither submission order nor the canned
   safety quips sitting last identifies an author. Round pairings are shuffled

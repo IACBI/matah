@@ -30,16 +30,34 @@ export function sampleAvoiding<T>(
   return sample(candidates, count);
 }
 
+const JOINABLE = String.raw`[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}]`;
+
+/**
+ * Every control and format character (bidi overrides, zero-width spaces, tag
+ * characters) except a joiner sitting between two characters it can join.
+ * ZWJ holds an emoji sequence (a family, a rainbow flag) together and ZWNJ is
+ * part of how Persian and some Indic words are spelled, so dropping them
+ * rewrites what people typed. A joiner with nothing to join would only make an
+ * invisible name.
+ */
+const INVISIBLE = new RegExp(
+  String.raw`((?<=${JOINABLE})[\u200C\u200D](?=${JOINABLE}))|[\p{Cc}\p{Cf}]`,
+  "gu"
+);
+
 /** Normalizes one-line user text and limits Unicode code points, not UTF-16 units. */
 export function sanitizeUserText(raw: unknown, maxCodePoints: number): string {
   if (typeof raw !== "string") return "";
   const normalized = raw
     .normalize("NFC")
-    // Strip control and formatting characters, including bidi overrides.
-    .replace(/[\p{Cc}\p{Cf}]/gu, "")
+    .replace(INVISIBLE, (_match, joiner?: string) => joiner ?? "")
     .replace(/\s+/gu, " ")
     .trim();
-  return Array.from(normalized).slice(0, maxCodePoints).join("");
+  // Cutting a sequence short can strand a joiner that used to have a neighbour.
+  return Array.from(normalized)
+    .slice(0, maxCodePoints)
+    .join("")
+    .replace(/[\u200C\u200D]+$/u, "");
 }
 
 /** Strictly limits protocol identifiers to their ASCII representation. */

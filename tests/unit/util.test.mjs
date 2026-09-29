@@ -14,6 +14,56 @@ test('sanitizeUserText normalizes Unicode, strips controls, and counts code poin
   assert.equal(sanitizeUserText(42, 10), '');
 });
 
+test('sanitizeUserText keeps the joiners that emoji sequences and Persian/Indic words need', () => {
+  const sequences = {
+    'woman technologist': '\u{1F469}\u200D\u{1F4BB}',
+    'with a skin tone': '\u{1F469}\u{1F3FD}\u200D\u{1F4BB}',
+    'rainbow flag': '\u{1F3F3}️\u200D\u{1F308}',
+    'heart on fire': '❤️\u200D\u{1F525}',
+    'family of four': '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}',
+    'Persian half-space (ZWNJ)': 'می\u200Cخواهم',
+    'Devanagari conjunct (ZWJ)': 'र्\u200Dय',
+  };
+  for (const [label, text] of Object.entries(sequences)) {
+    assert.equal(sanitizeUserText(text, 16), text, `${label} was rewritten`);
+  }
+});
+
+test('sanitizeUserText still removes invisible and directional characters', () => {
+  assert.equal(sanitizeUserText('Al\u200Bi', 16), 'Ali', 'zero-width space');
+  assert.equal(sanitizeUserText('a\u2060b', 16), 'ab', 'word joiner');
+  assert.equal(sanitizeUserText('\uFEFFab', 16), 'ab', 'byte order mark');
+  assert.equal(sanitizeUserText('a\u00ADb', 16), 'ab', 'soft hyphen');
+  assert.equal(sanitizeUserText('a\u202Eb', 16), 'ab', 'bidi override');
+  assert.equal(sanitizeUserText('a\u2066b\u2069', 16), 'ab', 'bidi isolates');
+  assert.equal(
+    sanitizeUserText('\u{1F3F4}\u{E0067}\u{E0062}\u{E007F}', 16),
+    '\u{1F3F4}',
+    'tag characters'
+  );
+});
+
+test('sanitizeUserText drops a joiner that has nothing to join', () => {
+  // Left in, these would make a name that is blank on screen yet not empty.
+  assert.equal(sanitizeUserText('\u200D\u200C\u200D', 16), '');
+  assert.equal(sanitizeUserText('\u200Dab', 16), 'ab', 'leading');
+  assert.equal(sanitizeUserText('ab\u200D', 16), 'ab', 'trailing');
+  assert.equal(sanitizeUserText('a \u200D b', 16), 'a b', 'beside spaces');
+  assert.equal(sanitizeUserText('a\u200D\u200Db', 16), 'ab', 'doubled');
+  assert.equal(sanitizeUserText('a\u200B\u200Db', 16), 'ab', 'behind another invisible');
+});
+
+test('sanitizeUserText leaves no stranded joiner when it cuts a sequence short', () => {
+  // Five code points: man, joiner, woman, joiner, girl.
+  const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+  assert.equal(sanitizeUserText(family, 5), family);
+  assert.equal(sanitizeUserText(family, 4), '\u{1F468}\u200D\u{1F469}', 'cut right after a joiner');
+  assert.equal(sanitizeUserText(family, 3), '\u{1F468}\u200D\u{1F469}');
+  assert.equal(sanitizeUserText(family, 2), '\u{1F468}', 'cut right after the first joiner');
+  const once = sanitizeUserText(`ab${family}`, 5);
+  assert.equal(sanitizeUserText(once, 5), once, 'sanitizing twice must change nothing');
+});
+
 test('safeIdentifier rejects punctuation instead of partially accepting it', () => {
   assert.equal(safeIdentifier('valid_ID-7', 32), 'valid_ID-7');
   assert.equal(safeIdentifier('../room', 32), '');
