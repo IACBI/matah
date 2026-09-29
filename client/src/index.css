@@ -2029,7 +2029,7 @@ button.trivia-opt:active {
 .lobby-session {
   font-family: var(--font-mono);
   font-size: 14px;
-  opacity: 0.75;
+  opacity: 0.9; /* 0.75 blended dark text into the coral chip at 4.2:1 */
 }
 .lobby-audience {
   display: flex;
