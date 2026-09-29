@@ -103,6 +103,14 @@ Notable project changes are recorded here. Matah follows the structure of
   answer rather than always running out the clock.
 - The browser accessibility audit waits for entrance animations to finish,
   instead of reporting half-faded text as a contrast failure.
+- Names, answers and custom prompts keep a zero-width joiner or non-joiner
+  that sits between two characters it can join. Stripping every formatting
+  character split emoji sequences apart (👩‍💻 became 👩💻, 🏳️‍🌈 became 🏳️🌈) and
+  removed the half-space Persian words need. Every other invisible or
+  directional character, and a joiner with nothing to join, is still removed.
+- A damaged resume hash in a restored snapshot no longer makes rejoin fail for
+  every player in that room; the entry is skipped and only its owner loses the
+  session.
 
 ### Security
 

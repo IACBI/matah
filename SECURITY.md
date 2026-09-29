@@ -53,6 +53,13 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
   security results before deployment.
 - Run the supplied container as its non-root user and preserve the `/health`
   check.
+- In production the per-address limits and ceilings key on the right-most
+  `X-Forwarded-For` entry, so the server must sit behind exactly one proxy
+  that appends the real client address. With no proxy in front, a client can
+  send its own header and take a fresh budget on every connection; with two,
+  every visitor shares the outer proxy's address and the per-address ceilings
+  apply to the whole audience at once. Check what your host's edge actually
+  forwards before relying on either.
 - Matah keeps active rooms in process memory. Use one application instance
   unless shared state and a Socket.IO-compatible scaling design have been
   implemented.
