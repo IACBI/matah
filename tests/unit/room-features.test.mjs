@@ -347,3 +347,20 @@ test('a paused game comes back paused, and a lobby comes back as a lobby', async
   back.dispose();
   lobby.dispose();
 });
+
+test('a corrupt stored resume hash cannot break rejoin for the rest of the room', () => {
+  const h = seated(3);
+  const [first, second] = h.players;
+  const snapshot = JSON.parse(JSON.stringify(h.room.toSnapshot()));
+  // The host's entry is first in the map, so every lookup would compare
+  // against it before reaching anyone else's.
+  const hostEntry = snapshot.sessionSecrets.find(([id]) => id === h.host.playerId);
+  hostEntry[1] = 'abcd';
+
+  const restored = Room.fromSnapshot(snapshot, () => {}, () => {});
+  assert.ok(restored.rejoin(second.resumeToken, 'second-socket'), 'an intact hash still resumes');
+  assert.equal(restored.rejoin(h.host.resumeToken, 'host-socket'), null, 'the damaged one cannot');
+  assert.ok(restored.rejoin(first.resumeToken, 'first-socket'));
+  restored.dispose();
+  h.dispose();
+});

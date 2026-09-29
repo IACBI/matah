@@ -92,6 +92,8 @@ export interface RoomSnapshot {
   engine: EngineSnapshot | null;
 }
 
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
 /** Capabilities the elected stand-in controller does *not* inherit. */
 const HOST_ONLY_CAPABILITIES = new Set<Capability>(["kick", "seat", "content"]);
 const TIMED_PHASES = new Set<GamePhase>(["answering", "voting", "results", "scoreboard"]);
@@ -1145,7 +1147,11 @@ export class Room {
       room.players.set(player.id, { ...player, connected: false });
     }
     for (const [id, hex] of snapshot.sessionSecrets) {
-      if (room.players.has(id)) room.sessionSecrets.set(id, Buffer.from(hex, "hex"));
+      // timingSafeEqual throws on a length mismatch, and rejoin compares against
+      // every stored hash, so one damaged entry would fail it for the whole room.
+      if (room.players.has(id) && SHA256_HEX.test(hex)) {
+        room.sessionSecrets.set(id, Buffer.from(hex, "hex"));
+      }
     }
     room.phase = snapshot.phase;
     // Invalidate any control command a client composed before the restart.
