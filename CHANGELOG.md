@@ -44,6 +44,21 @@ Notable project changes are recorded here. Matah follows the structure of
 - Quiplash results show who voted for each answer.
 - 12 more trivia questions and 12 more Quiplash prompts in every language
   (32 questions and 40 prompts each).
+- **Custom trivia packs** for Trivia and Bluff: the host loads up to 12
+  questions of their own, one per line as
+  `question | right answer | wrong | wrong | wrong` (a row pasted from a
+  spreadsheet works too), played before the built-in ones. The editor names
+  the first unusable line and holds Save back until it is fixed, using the same
+  checker as the server. Answers made only of symbols (an infinity sign, a
+  comparison) are kept distinct from one another, in the editor and in Bluff.
+  Packs survive a restart.
+- `MATAH_TRUST_PROXY_HOPS` says how many proxies sit in front of the server
+  (default `1`, as before; `0` for clients that connect directly), so the
+  per-address limits no longer assume one particular hosting layout. A value
+  that is not a whole number from 0 to 10 stops the boot.
+- `GET /stats`, off unless `MATAH_STATS_TOKEN` is set: room, player and
+  connection counts, memory and the last snapshot time behind a bearer token,
+  with no room code, name or address in the response.
 
 ### Changed
 
@@ -111,6 +126,10 @@ Notable project changes are recorded here. Matah follows the structure of
 - A damaged resume hash in a restored snapshot no longer makes rejoin fail for
   every player in that room; the entry is skipped and only its owner loses the
   session.
+- The session score beside a player's name in the lobby, shown from the second
+  game on, was too faint against its background (4.2:1, where 4.5:1 is the
+  minimum); it now has room to spare. The browser accessibility audit had
+  never looked at the lobby in that state and now does.
 
 ### Security
 
@@ -135,6 +154,10 @@ Notable project changes are recorded here. Matah follows the structure of
 - Quiplash shuffles each matchup's answers and each round's pairing, so that
   neither the order answers are displayed in nor a matchup's position in the
   round leaks who wrote what while voting is open.
+- The Redis reply parser refuses a length that is not a whole number or that
+  announces more than 128 MiB, instead of buffering for as long as the peer
+  keeps sending, and a TLS connection to a bare IP address no longer sends an
+  SNI name (RFC 6066).
 - Quiplash no longer broadcasts per-player answer and vote flags while a round
   is being written or judged. Whoever has not answered is the author of the
   canned quip on screen, and the players yet to vote on a matchup are the two

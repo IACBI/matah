@@ -36,12 +36,14 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
 - Control authority is scoped by capability, not an all-or-nothing host flag.
   If the host disconnects, an elected player controller can keep the game
   moving and may pause it, but `kick`, moving players between seats and the
-  audience, and loading custom prompts are reserved to the connected host and
-  are never granted to a stand-in.
-- Custom prompts are host-written text shown to every player. They pass
-  through the same sanitizer as names and answers (control and bidi
-  characters stripped, length capped by code point) and are rendered as text,
-  never as HTML.
+  audience, and loading custom prompts or questions are reserved to the
+  connected host and are never granted to a stand-in.
+- Custom prompts and trivia questions are host-written text shown to every
+  player. They pass through the same sanitizer as names and answers (control
+  and bidi characters stripped, length capped by code point) and are rendered
+  as text, never as HTML. A question line is split into its columns before
+  sanitizing and judged afterwards, and a line that cannot be played is
+  dropped rather than repaired.
 - The server validates all game actions and phase transitions. UI restrictions
   are convenience controls, not authorization boundaries.
 
@@ -53,13 +55,21 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
   security results before deployment.
 - Run the supplied container as its non-root user and preserve the `/health`
   check.
-- In production the per-address limits and ceilings key on the right-most
-  `X-Forwarded-For` entry, so the server must sit behind exactly one proxy
-  that appends the real client address. With no proxy in front, a client can
-  send its own header and take a fresh budget on every connection; with two,
-  every visitor shares the outer proxy's address and the per-address ceilings
-  apply to the whole audience at once. Check what your host's edge actually
-  forwards before relying on either.
+- In production the per-address limits and ceilings key on the client address
+  taken from `X-Forwarded-For`, counted from the right by
+  `MATAH_TRUST_PROXY_HOPS` (default `1`: exactly one proxy that appends the
+  real address, as on most platforms). Set it to the real number of proxies in
+  front of the process, and to `0` when clients connect directly, so that a
+  header they wrote themselves is ignored. Wrong in one direction, a client can
+  send its own header and take a fresh budget on every connection; wrong in the
+  other, every visitor shares the outer proxy's address and the per-address
+  ceilings apply to the whole audience at once. Check what your host's edge
+  actually forwards. A malformed value stops the boot.
+- `MATAH_STATS_TOKEN` (at least 24 characters) turns on `GET /stats`, which
+  reports room, player and connection counts, memory and the last snapshot
+  time to a caller sending `Authorization: Bearer <token>`. It names no room,
+  player or address. Without the variable the route does not exist. Set it as a
+  platform secret like the Redis URL.
 - Matah keeps active rooms in process memory. Use one application instance
   unless shared state and a Socket.IO-compatible scaling design have been
   implemented.

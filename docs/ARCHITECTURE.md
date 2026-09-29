@@ -39,7 +39,7 @@ back, so a deploy or a crash costs at most the last few seconds of play.
 
 - **What is saved.** Each `Room.toSnapshot()` is plain JSON: members, phase,
   time left on the phase clock (running or paused), session standings, custom
-  prompts, and the engine's own `snapshot()`. Resume credentials are stored
+  prompts and questions, and the engine's own `snapshot()`. Resume credentials are stored
   only as the SHA-256 digests the room already keeps, never as tokens.
 - **What comes back.** Every socket died with the old process, so everyone is
   restored disconnected, on the usual 120-second lease. Clients reconnect
@@ -57,7 +57,13 @@ back, so a deploy or a crash costs at most the last few seconds of play.
 The Redis store speaks the few RESP2 commands it needs (AUTH, SELECT, GET,
 SET with EX) over a short-lived connection per save, supporting `rediss://`
 for TLS. With saves every few seconds at most, a pooled client library would
-add a dependency and a reconnect state machine for no measurable gain.
+add a dependency and a reconnect state machine for no measurable gain. The
+reply parser refuses a length that is not a whole number or that announces
+more than 128 MiB, so a stuck or hostile peer cannot make the process buffer
+without bound, and a TLS connection to a bare IP address sends no SNI name.
+Restoring skips a stored resume hash that is not a 64-character digest, because
+one damaged entry would otherwise make the room's rejoin comparison throw for
+every player in it.
 
 ## Session and room lifecycle
 
@@ -141,6 +147,20 @@ really is one household, but a default has to suit the worse case.
 | `MATAH_RL_CONNECTIONS_PER_IP` | 250 | per IP | one address's share of those live sessions |
 | `MATAH_RL_ROOMS_PER_IP` | 20 | per IP | rooms one address may own at the same time |
 
+### Which address counts
+
+Behind a proxy the socket's own address is the proxy's, so the client is read
+from `X-Forwarded-For`. Each trusted proxy appends the address it received the
+connection from, which puts the client `MATAH_TRUST_PROXY_HOPS` entries from
+the right (default `1`); everything further left was written by the client and
+is never believed. `0` means clients connect directly and the header is ignored
+altogether, and an empty entry falls back to the socket address instead of
+becoming a key a client can choose. The same count is given to Express as
+`trust proxy`, so the HTTP limiter and the socket limiters agree on who a
+client is. Getting it wrong fails silently in one of two directions — a
+forgeable identity, or every visitor sharing the edge's address — so a value
+that is not a whole number from 0 to 10 stops the boot.
+
 "Per IP" means per rate-limit identity rather than per address as received: an
 IPv4-mapped IPv6 address folds to its dotted form and a native IPv6 address
 folds to its /56 network, which is what the HTTP limiter in front of them all
@@ -220,6 +240,9 @@ operational tuning as the limits above.
   keeps the per-player flags; it has no anonymous authorship to protect.
 - Unexpected handler exceptions are logged with event and socket context while
   clients receive a generic typed error.
+- `GET /stats` exists only when `MATAH_STATS_TOKEN` is set. The bearer token is
+  compared as SHA-256 digests in constant time, the route sits behind the HTTP
+  limiter, and the response holds counts only: no room code, name or address.
 
 Room codes are discoverable identifiers, not secrets. Resume tokens are bearer
 credentials and must never appear in logs, URLs, analytics, or screenshots.
@@ -240,7 +263,8 @@ streak/final multipliers. Rematches reuse settings while avoiding the
 immediately previous content when the pool allows it.
 
 Bluff reuses the trivia pool, so every language gets the mode without content
-of its own. Players write a fake answer to a question, then pick the real one
+of its own, and a host's question pack reaches it the same way it reaches
+Trivia. Players write a fake answer to a question, then pick the real one
 from the truth and everyone's lies, shuffled. Answers are compared loosely
 (case, accents, spacing and punctuation ignored): writing the truth is refused
 with `answer_is_truth`, and identical lies merge into one option credited to
@@ -260,7 +284,7 @@ nothing can complete a phase behind a frozen clock. `game:resume` re-arms the
 timer and re-checks completion for anyone who dropped while it was frozen. Any
 phase change, including a skip, starts the next phase on a live clock.
 
-### Session standings, highlights, seats and prompt packs
+### Session standings, highlights, seats and content packs
 
 Every game that reaches the scoreboard, including one ended early, banks each
 player's score into `sessionScore` and credits a win to the top score (ties
@@ -271,7 +295,26 @@ audience stays there across games, rather than being promoted straight back
 at the next start. The host can also load up to 30 Quiplash prompts of their
 own (90 code points each). These are sanitized like any user text and played
 before the built-in prompts, without breaking the per-author rule below.
-`maxHttpBufferSize` is 16 KiB so a full multi-byte pack fits in one frame.
+
+The same panel takes a trivia pack for Trivia and Bluff: up to 12 questions,
+one per line as `question | right answer | wrong | wrong | wrong` (a row pasted
+from a spreadsheet, with tabs, works too), the question up to 120 code points
+and each answer up to 40. The client and server share one checker
+(`checkQuestionParts` in `shared/`), so the editor names the first unusable
+line — wrong number of columns, too long, or a repeated answer, judged loosely
+like Bluff does — and holds Save back until it is fixed, while the server drops
+any line that still fails. Each column is sanitized on its own, the right
+answer is the first one written and the engines shuffle it into place, and the
+host's questions are played before the built-in ones; a game longer than the
+pack fills up from the language's pool, and one shorter plays a subset.
+Answers made only of symbols (an infinity sign, a comparison) stay distinct from
+one another rather than collapsing into the same empty key. Packs are saved
+with the room and survive a restart; a snapshot written before packs existed
+still restores.
+
+`maxHttpBufferSize` is 16 KiB so a full pack of either kind fits in one frame
+even at four bytes a character: 12 questions at their limits come to about
+13.5 kB (13,464 bytes measured), the most any single event carries.
 
 ### Quiplash scoring
 
@@ -347,6 +390,11 @@ multi-stage image prunes development dependencies, runs as the unprivileged
 `node` user, and exposes `/health`. SIGTERM/SIGINT stop room timers and close the
 HTTP/Socket.IO server, saving a room snapshot first when persistence is
 configured.
+
+With `MATAH_STATS_TOKEN` set, `GET /stats` gives an operator the numbers that
+matter for capacity and health without reading logs: rooms (in lobby, in game,
+and the ceiling), connected players, live sockets against their ceiling and how
+many addresses hold them, memory, and when the last snapshot reached the store.
 
 `PUBLIC_ORIGIN` is also injected into canonical and social metadata by the
 server when it serves the built HTML, keeping deploy metadata and the handshake

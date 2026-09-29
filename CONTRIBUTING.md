@@ -17,6 +17,43 @@ The development server runs on port `3001`; Vite runs on `5173` and proxies
 Socket.IO traffic to the server. Use the network URL printed by Vite when
 testing with phones on the same local network.
 
+## Where things live
+
+| Path | What is there |
+|------|---------------|
+| `shared/src/index.ts` | Types, Socket.IO event contracts, limits, and the small pure checks the client and server share |
+| `server/src/index.ts` | HTTP, Socket.IO handlers, rate limits, persistence wiring |
+| `server/src/room.ts` | One room: membership, timers, control authority, snapshot and restore |
+| `server/src/engines/` | One engine per game mode, behind `GameEngine` in `engine.ts` |
+| `server/src/content/` | The built-in Quiplash prompts and trivia questions, per language |
+| `client/src/views/`, `client/src/components/` | The host and player screens and the pieces they share |
+| `client/src/i18n/translations.ts` | Every interface string, in all 14 languages |
+| `tests/` | `unit/` and `integration/` (`node:test`), plus the smoke, browser and load scripts |
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how these fit together
+and why the odd-looking parts are the way they are. Read it before touching
+timers, resume tokens or the rate limits.
+
+## Adding content, a language or a game mode
+
+- **A prompt or a trivia question.** Add it to `server/src/content/` for the
+  language it is written in. `tests/unit/content.test.mjs` checks that every
+  language stays well-formed and above its minimum, and that a trivia
+  question's options stay distinct once case, accents and punctuation are
+  ignored, since Bluff has to tell the truth from a lie.
+- **An interface string.** Add the key to every language in
+  `translations.ts`. `translations.test.ts` fails on a missing key or a
+  `{placeholder}` that differs from English.
+- **A language.** Add it to `LANGUAGES` in `shared/`; TypeScript then lists
+  each table that still needs an entry (the labels, the flag, the interface
+  strings, the prompts, the safety quips, the trivia questions and the
+  fallback player name). Add it to `RTL_LANGS` in `client/src/i18n/index.tsx`
+  if it reads right to left.
+- **A game mode.** Implement `GameEngine`, register it in `GAME_TYPES` and in
+  `Room.startGame`, and add its views, strings and tests. Engines talk to the
+  room only through `EngineContext`, which is what lets tests drive them with
+  a fake clock.
+
 ## Making a change
 
 1. Create a branch from the latest `main`.

@@ -44,7 +44,7 @@ phone that drops and comes back picks up exactly where it was.
 - Dropped connections recover their seat, their vote and a half-written answer through a private, single-use resume token.
 - Games survive a server restart when a snapshot store is configured. Rooms are saved on shutdown and every few seconds, so a deploy or a crash costs at most the last moments of play.
 - Host tools: pause and resume, skip ahead, end early, set the game length, remove a player, and move players between seats and the audience.
-- Custom Quiplash prompt packs: the host pastes up to 30 prompts of their own, played before the built-in ones.
+- Custom content packs: the host pastes up to 30 Quiplash prompts, or up to 12 trivia questions for Trivia and Bluff, and they are played before the built-in ones. A question is one line, `question | right answer | wrong | wrong | wrong`, and a row copied from a spreadsheet works as it is.
 - Latecomers and anyone joining a full room watch as the audience and still vote in Quiplash.
 - The scoreboard shows the game's best moments and running session standings, and a share button sends a text recap to the phone's share sheet or the clipboard.
 - Quiplash results show who voted for which answer. Emoji reactions fly across the host screen.
@@ -108,6 +108,8 @@ also needs Chromium: `npx playwright install chromium`.
 | `MATAH_SNAPSHOT_FILE` | No | A file path for the same snapshots, for hosts with a persistent disk. `MATAH_REDIS_URL` wins if both are set. |
 | `MATAH_SNAPSHOT_KEY` | No | Redis key for the snapshot, default `matah:snapshot`. |
 | `MATAH_SNAPSHOT_INTERVAL_MS` | No | How often a changed registry is saved, default `15000`, minimum `1000`. |
+| `MATAH_TRUST_PROXY_HOPS` | No | How many proxies sit between the internet and the server, default `1`. Use `0` when clients connect directly, so a forged `X-Forwarded-For` is ignored. The per-address limits depend on it; see [SECURITY.md](SECURITY.md#deployment-guidance). |
+| `MATAH_STATS_TOKEN` | No | At least 24 characters. Turns on `GET /stats` (counts and memory only, no room, player or address) for a caller sending `Authorization: Bearer <token>`. Treat it as a secret. |
 
 Eleven `MATAH_RL_*` variables tune the rate limits and the connection and room
 ceilings. The defaults are sized for a whole household behind one address; the
@@ -165,7 +167,7 @@ bağlantısı kopan bir telefon geri döndüğünde tam kaldığı yerden devam 
 - Bağlantısı kopan oyuncu, kişiye özel ve tek kullanımlık bir devam anahtarıyla koltuğunu, oyunu ve yarım kalan cevabını geri alır.
 - Bir kayıt deposu ayarlandığında oyunlar sunucunun yeniden başlamasından sağ çıkar. Odalar kapanışta ve birkaç saniyede bir kaydedilir; bir deploy ya da çökme en fazla son birkaç anı kaybettirir.
 - Host araçları: duraklatma ve devam ettirme, sonraki aşamaya geçme, oyunu erken bitirme, oyun uzunluğunu ayarlama, oyuncu çıkarma ve oyuncuları koltuk ile izleyiciler arasında taşıma.
-- Özel Quiplash soru paketleri: host en fazla 30 kendi sorusunu yapıştırır, bunlar hazır sorulardan önce oynanır.
+- Özel içerik paketleri: host en fazla 30 Quiplash sorusu ya da Bilgi Yarışması ve Blöf için en fazla 12 bilgi sorusu yapıştırır; bunlar hazır sorulardan önce oynanır. Bir bilgi sorusu tek satırdır: `soru | doğru cevap | yanlış | yanlış | yanlış`. Tablodan kopyalanan bir satır olduğu gibi çalışır.
 - Geç gelenler ve dolu odaya katılanlar izleyici olarak oyunu takip eder, Quiplash'te yine oy kullanır.
 - Skor tablosu oyunun en iyi anlarını ve oturum boyunca biriken sıralamayı gösterir; paylaş butonu kısa bir özeti telefonun paylaşım menüsüne ya da panoya gönderir.
 - Quiplash sonuçları kimin hangi cevaba oy verdiğini gösterir. Emoji tepkileri host ekranında uçuşur.
@@ -229,6 +231,8 @@ Chromium da gerekir: `npx playwright install chromium`.
 | `MATAH_SNAPSHOT_FILE` | Hayır | Aynı kayıtlar için bir dosya yolu; kalıcı diski olan sunucular içindir. İkisi de ayarlıysa `MATAH_REDIS_URL` kullanılır. |
 | `MATAH_SNAPSHOT_KEY` | Hayır | Kaydın Redis anahtarı, varsayılan `matah:snapshot`. |
 | `MATAH_SNAPSHOT_INTERVAL_MS` | Hayır | Değişen odaların ne sıklıkla kaydedileceği, varsayılan `15000`, en az `1000`. |
+| `MATAH_TRUST_PROXY_HOPS` | Hayır | İnternet ile sunucu arasında kaç proxy olduğu, varsayılan `1`. İstemciler doğrudan bağlanıyorsa `0` kullan; böylece sahte bir `X-Forwarded-For` yok sayılır. Adres başına sınırlar buna dayanır; bkz. [SECURITY.md](SECURITY.md#deployment-guidance). |
+| `MATAH_STATS_TOKEN` | Hayır | En az 24 karakter. `Authorization: Bearer <token>` gönderen çağıranlar için `GET /stats` ucunu açar (yalnızca sayılar ve bellek; oda, oyuncu ya da adres yok). Bir sır gibi sakla. |
 
 On bir `MATAH_RL_*` değişkeni hız sınırlarını, bağlantı ve oda tavanlarını
 ayarlar. Varsayılanlar tek bir adresin arkasındaki bütün bir ev için
