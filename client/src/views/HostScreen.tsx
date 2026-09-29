@@ -10,6 +10,7 @@ import {
   DEFAULT_TOTAL_ROUNDS,
   MAX_BLUFF_QUESTIONS,
   MAX_CUSTOM_PROMPTS,
+  MAX_CUSTOM_QUESTIONS,
   MAX_PLAYERS,
   MAX_PROMPT_LEN,
   MAX_QUESTIONS,
@@ -20,6 +21,8 @@ import {
   MIN_ROUNDS,
   TRIVIA_QUESTIONS,
   LANGUAGES,
+  checkQuestionParts,
+  splitQuestionLine,
 } from "../../../shared/src/index";
 import { emitAck, type ClientResult } from "../socket";
 import { useI18n } from "../i18n";
@@ -129,6 +132,15 @@ export function HostScreen({
       ? runCommand("prompts", () =>
           emitAck<{ count: number }>("room:setCustomPrompts", {
             prompts,
+            phaseId: state.phaseId,
+          })
+        )
+      : Promise.resolve(false);
+  const saveCustomQuestions = (questions: string[]) =>
+    state
+      ? runCommand("questions", () =>
+          emitAck<{ count: number }>("room:setCustomQuestions", {
+            questions,
             phaseId: state.phaseId,
           })
         )
@@ -305,6 +317,7 @@ export function HostScreen({
           onSeat={setSeat}
           onLanguage={setGameLanguage}
           onCustomPrompts={saveCustomPrompts}
+          onCustomQuestions={saveCustomQuestions}
         />
       )}
 
@@ -456,6 +469,7 @@ function LobbyView({
   onSeat,
   onLanguage,
   onCustomPrompts,
+  onCustomQuestions,
 }: {
   state: RoomState;
   pending: boolean;
@@ -464,6 +478,7 @@ function LobbyView({
   onSeat: (playerId: string, audience: boolean) => void;
   onLanguage: (language: Language) => void;
   onCustomPrompts: (prompts: string[]) => Promise<boolean>;
+  onCustomQuestions: (questions: string[]) => Promise<boolean>;
 }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<GameType>("quiplash");
@@ -592,11 +607,17 @@ function LobbyView({
         />
       </div>
 
-      {selected === "quiplash" && (
+      {selected === "quiplash" ? (
         <CustomPromptsPanel
           count={state.customPromptCount}
           pending={pending}
           onSave={onCustomPrompts}
+        />
+      ) : (
+        <CustomQuestionsPanel
+          count={state.customQuestionCount}
+          pending={pending}
+          onSave={onCustomQuestions}
         />
       )}
 
@@ -637,6 +658,113 @@ function LobbyView({
 }
 
 /**
+ * A host-written pack: a textarea, what it would send, and Save / Clear. The
+ * text belongs to the caller, which turns it into lines and says what is wrong
+ * with them, so each pack keeps its own rules.
+ */
+function PackEditor({
+  idBase,
+  title,
+  hint,
+  placeholder,
+  countLabel,
+  saveLabel,
+  clearLabel,
+  count,
+  max,
+  text,
+  onText,
+  lines,
+  problem,
+  pending,
+  onSave,
+}: {
+  /** Stem for element ids; the styles are written for the custom-prompts markup. */
+  idBase: string;
+  title: string;
+  hint: string;
+  placeholder?: string;
+  /** Shown beside the title once a pack is loaded. */
+  countLabel: string;
+  saveLabel: string;
+  clearLabel: string;
+  count: number;
+  max: number;
+  text: string;
+  onText: (text: string) => void;
+  /** What Save would send. */
+  lines: string[];
+  /** Why Save is refused, in words for the host; null when the text is fine. */
+  problem: string | null;
+  pending: boolean;
+  onSave: (lines: string[]) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const tooMany = lines.length > max;
+
+  return (
+    <div className="custom-prompts">
+      <button
+        type="button"
+        className="btn link custom-prompts-toggle"
+        aria-expanded={open}
+        aria-controls={`${idBase}-body`}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {title}
+        {count > 0 ? ` · ${countLabel}` : ""}
+      </button>
+      {open && (
+        <div id={`${idBase}-body`} className="custom-prompts-body">
+          <label className="field-label" htmlFor={`${idBase}-input`}>
+            {title}
+          </label>
+          <p className="hint">{hint}</p>
+          <textarea
+            id={`${idBase}-input`}
+            className="input custom-prompts-input"
+            rows={6}
+            value={text}
+            placeholder={placeholder}
+            aria-invalid={problem !== null}
+            aria-describedby={problem ? `${idBase}-problem` : undefined}
+            onChange={(event) => onText(event.target.value)}
+          />
+          {problem && (
+            <p id={`${idBase}-problem`} className="custom-prompts-problem" role="status">
+              {problem}
+            </p>
+          )}
+          <div className="custom-prompts-actions">
+            <span className={`custom-prompts-counter ${tooMany ? "danger" : ""}`}>
+              {lines.length}/{max}
+            </span>
+            {count > 0 && (
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={pending}
+                onClick={() => void onSave([])}
+              >
+                {clearLabel}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn primary"
+              disabled={pending || lines.length === 0 || tooMany || problem !== null}
+              onClick={() => void onSave(lines)}
+            >
+              {saveLabel}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * The host's own Quiplash prompts, one per line. Lines are trimmed to the
  * server's limits here so a full pack always fits in one socket frame.
  */
@@ -650,65 +778,76 @@ function CustomPromptsPanel({
   onSave: (prompts: string[]) => Promise<boolean>;
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const lines = text
     .split("\n")
     .map((line) => Array.from(line.trim()).slice(0, MAX_PROMPT_LEN).join(""))
     .filter(Boolean);
-  const tooMany = lines.length > MAX_CUSTOM_PROMPTS;
 
   return (
-    <div className="custom-prompts">
-      <button
-        type="button"
-        className="btn link custom-prompts-toggle"
-        aria-expanded={open}
-        aria-controls="custom-prompts-body"
-        onClick={() => setOpen((value) => !value)}
-      >
-        {t("customPrompts")}
-        {count > 0 ? ` · ${t("customPromptsCount", { n: count })}` : ""}
-      </button>
-      {open && (
-        <div id="custom-prompts-body" className="custom-prompts-body">
-          <label className="field-label" htmlFor="custom-prompts-input">
-            {t("customPrompts")}
-          </label>
-          <p className="hint">{t("customPromptsHint", { max: MAX_CUSTOM_PROMPTS })}</p>
-          <textarea
-            id="custom-prompts-input"
-            className="input custom-prompts-input"
-            rows={6}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-          />
-          <div className="custom-prompts-actions">
-            <span className={`custom-prompts-counter ${tooMany ? "danger" : ""}`}>
-              {lines.length}/{MAX_CUSTOM_PROMPTS}
-            </span>
-            {count > 0 && (
-              <button
-                type="button"
-                className="btn ghost"
-                disabled={pending}
-                onClick={() => void onSave([])}
-              >
-                {t("customPromptsClear")}
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn primary"
-              disabled={pending || lines.length === 0 || tooMany}
-              onClick={() => void onSave(lines)}
-            >
-              {t("customPromptsSave")}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+    <PackEditor
+      idBase="custom-prompts"
+      title={t("customPrompts")}
+      hint={t("customPromptsHint", { max: MAX_CUSTOM_PROMPTS })}
+      countLabel={t("customPromptsCount", { n: count })}
+      saveLabel={t("customPromptsSave")}
+      clearLabel={t("customPromptsClear")}
+      count={count}
+      max={MAX_CUSTOM_PROMPTS}
+      text={text}
+      onText={setText}
+      lines={lines}
+      problem={null}
+      pending={pending}
+      onSave={onSave}
+    />
+  );
+}
+
+/**
+ * The host's own trivia questions for Trivia and Bluff, one per line as
+ * "question | right answer | wrong | wrong | wrong". A line is checked with the
+ * same rules the server applies, and Save waits until every line passes, so
+ * nothing is silently dropped on the way.
+ */
+function CustomQuestionsPanel({
+  count,
+  pending,
+  onSave,
+}: {
+  count: number;
+  pending: boolean;
+  onSave: (questions: string[]) => Promise<boolean>;
+}) {
+  const { t } = useI18n();
+  const [text, setText] = useState("");
+  const lines: string[] = [];
+  let problem: string | null = null;
+  text.split("\n").forEach((line, index) => {
+    if (!line.trim()) return;
+    const parts = splitQuestionLine(line);
+    if (checkQuestionParts(parts) === null) lines.push(parts.join(" | "));
+    else problem ??= t("customQuestionsInvalid", { n: index + 1 });
+  });
+
+  return (
+    <PackEditor
+      idBase="custom-questions"
+      title={t("customQuestions")}
+      hint={t("customQuestionsHint", { max: MAX_CUSTOM_QUESTIONS })}
+      placeholder={t("customQuestionsPlaceholder")}
+      countLabel={t("customQuestionsCount", { n: count })}
+      saveLabel={t("customQuestionsSave")}
+      clearLabel={t("customQuestionsClear")}
+      count={count}
+      max={MAX_CUSTOM_QUESTIONS}
+      text={text}
+      onText={setText}
+      lines={lines}
+      problem={problem}
+      pending={pending}
+      onSave={onSave}
+    />
   );
 }
 

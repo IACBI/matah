@@ -42,6 +42,7 @@ export function roomState(overrides: Partial<RoomState> = {}): RoomState {
     pausedRemainingMs: null,
     gamesPlayed: 0,
     customPromptCount: 0,
+    customQuestionCount: 0,
     highlights: null,
     ...overrides,
   };

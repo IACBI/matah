@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { LANGUAGES, MAX_PLAYERS, MAX_ROUNDS } from '../../shared/src/index.ts';
+import {
+  LANGUAGES,
+  MAX_OPTION_LEN,
+  MAX_PLAYERS,
+  MAX_QUESTION_LEN,
+  MAX_ROUNDS,
+} from '../../shared/src/index.ts';
 import { pickPromptsForSlots, promptPool, pickSafetyAnswer } from '../../server/src/content/prompts.ts';
-import { pickTrivia, triviaPool } from '../../server/src/content/trivia.ts';
+import {
+  parseCustomQuestion,
+  parseCustomQuestions,
+  pickTrivia,
+  triviaPool,
+} from '../../server/src/content/trivia.ts';
 import { answerKey } from '../../server/src/engines/bluff.ts';
 import { QuiplashEngine } from '../../server/src/engines/quiplash.ts';
 import { participant } from '../helpers/room.mjs';
@@ -140,4 +151,101 @@ test('custom prompts are played first, but never at the cost of the per-author r
   const seen = new Map([['Custom A', new Set(['p1'])]]);
   const [first] = pickPromptsForSlots('en', [{ authors: ['p1', 'p2'] }], new Set(), seen, custom);
   assert.equal(first, 'Custom B');
+});
+
+// ---- host-written trivia packs ----
+
+const packLine = (n) => `Question ${n}? | Right ${n} | Wrong A${n} | Wrong B${n} | Wrong C${n}`;
+
+test('a pack line becomes a question whose right answer is the first one written', () => {
+  assert.deepEqual(parseCustomQuestion(packLine(1)), {
+    text: 'Question 1?',
+    options: ['Right 1', 'Wrong A1', 'Wrong B1', 'Wrong C1'],
+    correctIndex: 0,
+  });
+});
+
+test('a pasted spreadsheet row works, and empty trailing columns are ignored', () => {
+  const row = ['Capital of France?', 'Paris', 'Rome', 'Madrid', 'Berlin'];
+  assert.deepEqual(parseCustomQuestion(row.join('\t')), parseCustomQuestion(row.join(' | ')));
+  assert.notEqual(parseCustomQuestion(`${row.join('\t')}\t\t`), null);
+  assert.notEqual(parseCustomQuestion(`${row.join(' | ')} | `), null);
+});
+
+test('a line that cannot be played is refused rather than repaired', () => {
+  const refused = {
+    'no answers': 'Just a question?',
+    'too few wrong answers': 'Q? | Right | Wrong | Wrong',
+    'too many columns': 'Q? | A | B | C | D | E',
+    'a blank answer': 'Q? | Right |  | Wrong | Wrong',
+    'a blank question': ' | Right | A | B | C',
+    'the right answer twice': 'Q? | Paris | Rome | paris! | Berlin',
+    'accents only': 'Q? | Café | Cafe | Tea | Milk',
+    'an over-long question': `${'q'.repeat(MAX_QUESTION_LEN + 1)} | A | B | C | D`,
+    'an over-long answer': `Q? | ${'a'.repeat(MAX_OPTION_LEN + 1)} | B | C | D`,
+  };
+  for (const [label, line] of Object.entries(refused)) {
+    assert.equal(parseCustomQuestion(line), null, label);
+  }
+  for (const value of [undefined, null, 42, {}, ['a']]) {
+    assert.equal(parseCustomQuestion(value), null, String(value));
+  }
+});
+
+test('the length limits are inclusive, and count code points rather than UTF-16 units', () => {
+  const question = '𠮷'.repeat(MAX_QUESTION_LEN);
+  const option = (letter) => `${letter}${'𠮷'.repeat(MAX_OPTION_LEN - 1)}`;
+  const line = [question, option('a'), option('b'), option('c'), option('d')].join(' | ');
+  assert.equal(parseCustomQuestion(line)?.text, question);
+});
+
+test('answers made only of symbols stay distinct from one another', () => {
+  const question = parseCustomQuestion('Which is bigger than 5? | > | < | = | ≠');
+  assert.deepEqual(question?.options, ['>', '<', '=', '≠']);
+  assert.equal(parseCustomQuestion('Q? | ∞ | ∞ | a | b'), null, 'the same symbol twice is still a repeat');
+});
+
+test('pack text is sanitized like any other user text', () => {
+  const zwj = '\u200D';
+  const question = parseCustomQuestion(`Who\u202E wrote\u0007 it? | 👩${zwj}💻 | A\u200Bb | C | D`);
+  assert.equal(question?.text, 'Who wrote it?', 'bidi and control characters are gone');
+  assert.equal(question?.options[0], `👩${zwj}💻`, 'an emoji sequence survives');
+  assert.equal(question?.options[1], 'Ab', 'a zero-width space is gone');
+});
+
+test('a pack keeps its order and drops blanks, repeats and unplayable lines', () => {
+  const questions = parseCustomQuestions([
+    packLine(1),
+    '',
+    'not a question',
+    packLine(2),
+    packLine(1).replace('Right 1', 'Something else'),
+    'QUESTION 2? | x | y | z | w',
+    packLine(3),
+  ]);
+  assert.deepEqual(questions.map((q) => q.text), ['Question 1?', 'Question 2?', 'Question 3?']);
+});
+
+test('trivia plays the host\'s questions first and fills the rest from the built-in pool', () => {
+  const custom = parseCustomQuestions([packLine(1), packLine(2)]);
+  const picked = pickTrivia('en', 5, new Set(), custom);
+  assert.equal(picked.length, 5);
+  assert.deepEqual(new Set(picked.slice(0, 2).map((q) => q.text)), new Set(custom.map((q) => q.text)));
+  const builtIn = new Set(triviaPool('en').map((q) => q.text));
+  assert.ok(picked.slice(2).every((q) => builtIn.has(q.text)), 'the remainder is built in');
+  assert.equal(new Set(picked.map((q) => q.text)).size, 5, 'no question twice');
+});
+
+test('a game shorter than the pack plays a subset, and never invents questions', () => {
+  const custom = parseCustomQuestions([1, 2, 3, 4].map(packLine));
+  const picked = pickTrivia('en', 2, new Set(), custom);
+  assert.equal(picked.length, 2);
+  assert.ok(picked.every((q) => custom.some((c) => c.text === q.text)), 'only the host\'s own');
+});
+
+test('a rematch prefers pack questions it has not shown yet', () => {
+  const custom = parseCustomQuestions([1, 2, 3, 4].map(packLine));
+  const first = pickTrivia('en', 2, new Set(), custom).map((q) => q.text);
+  const second = pickTrivia('en', 2, new Set(first), custom).map((q) => q.text);
+  assert.equal(second.filter((text) => first.includes(text)).length, 0);
 });

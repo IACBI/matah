@@ -2086,6 +2086,11 @@ button.trivia-opt:active {
 .custom-prompts-counter.danger {
   color: var(--danger);
 }
+.custom-prompts-problem {
+  margin: 0;
+  color: var(--danger);
+  font-size: 15px;
+}
 
 /* ---------- Bluff ---------- */
 .bi {

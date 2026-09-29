@@ -22,6 +22,7 @@ import {
   BLUFF_QUESTIONS,
   MAX_BLUFF_QUESTIONS,
   MAX_CUSTOM_PROMPTS,
+  MAX_CUSTOM_QUESTIONS,
 } from '../../../shared/src/index';
 import { HostScreen } from '../views/HostScreen';
 import { player, renderApp, roomState } from './helpers';
@@ -268,5 +269,100 @@ describe('HostScreen scoreboard extras', () => {
     renderHost(roomState({ phase: 'gameover', gameType: 'trivia', players: THREE, gamesPlayed: 1, highlights: [] }));
     expect(screen.queryByRole('region', { name: /session standings/i })).toBeNull();
     expect(screen.queryByRole('region', { name: /best of the game/i })).toBeNull();
+  });
+});
+
+describe('HostScreen custom questions', () => {
+  beforeEach(() => emitAck.mockReset().mockResolvedValue({ ok: true, data: { count: 1 } }));
+
+  const openQuestions = async (user: ReturnType<typeof userEvent.setup>, state = roomState({ players: THREE })) => {
+    renderHost(state);
+    await user.click(screen.getByRole('button', { name: /^trivia/i }));
+    await user.click(screen.getByRole('button', { name: /custom questions/i }));
+    return screen.getByLabelText(/custom questions/i);
+  };
+
+  it('offers the question pack for trivia and bluff, and the prompt pack only for quiplash', async () => {
+    const user = userEvent.setup();
+    renderHost(roomState({ players: THREE }));
+    expect(screen.queryByRole('button', { name: /custom questions/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /custom prompts/i })).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /^trivia/i }));
+    expect(screen.getByRole('button', { name: /custom questions/i })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /custom prompts/i })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /bluff/i }));
+    expect(screen.getByRole('button', { name: /custom questions/i })).not.toBeNull();
+  });
+
+  it('saves each valid line in a normalised form, skipping blank ones', async () => {
+    const user = userEvent.setup();
+    const input = await openQuestions(user);
+    await user.click(input);
+    await user.paste('  Q1? |A|  B | C|D  \n\nQ2? | 1 | 2 | 3 | 4');
+    await user.click(screen.getByRole('button', { name: /save questions/i }));
+    expect(emitAck).toHaveBeenCalledWith('room:setCustomQuestions', {
+      questions: ['Q1? | A | B | C | D', 'Q2? | 1 | 2 | 3 | 4'],
+      phaseId: 1,
+    });
+  });
+
+  it('accepts a row pasted from a spreadsheet', async () => {
+    const user = userEvent.setup();
+    const input = await openQuestions(user);
+    await user.click(input);
+    await user.paste('Capital of France?\tParis\tRome\tMadrid\tBerlin\t');
+    await user.click(screen.getByRole('button', { name: /save questions/i }));
+    expect(emitAck).toHaveBeenCalledWith('room:setCustomQuestions', {
+      questions: ['Capital of France? | Paris | Rome | Madrid | Berlin'],
+      phaseId: 1,
+    });
+  });
+
+  it('names the first unusable line and holds Save back until it is fixed', async () => {
+    const user = userEvent.setup();
+    const input = await openQuestions(user);
+    await user.click(input);
+    await user.paste('Q1? | A | B | C | D\nQ2? | only | two');
+    expect(screen.getByRole('status').textContent).toMatch(/line 2 can't be used/i);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    const save = screen.getByRole('button', { name: /save questions/i }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    await user.clear(input);
+    await user.paste('Q1? | A | B | C | D');
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(save.disabled).toBe(false);
+  });
+
+  it('flags a repeated answer and an over-long one the way the server would', async () => {
+    const user = userEvent.setup();
+    const input = await openQuestions(user);
+    await user.click(input);
+    await user.paste('Q? | Paris | Rome | paris! | Berlin');
+    expect(screen.getByRole('status').textContent).toMatch(/line 1/i);
+
+    await user.clear(input);
+    await user.paste(`Q? | ${'x'.repeat(41)} | B | C | D`);
+    expect(screen.getByRole('status').textContent).toMatch(/line 1/i);
+  });
+
+  it('refuses a pack larger than the server accepts', async () => {
+    const user = userEvent.setup();
+    const input = await openQuestions(user);
+    await user.click(input);
+    await user.paste(Array.from({ length: MAX_CUSTOM_QUESTIONS + 1 }, (_, i) => `Q${i}? | A | B | C | D`).join('\n'));
+    expect(screen.getByText(`${MAX_CUSTOM_QUESTIONS + 1}/${MAX_CUSTOM_QUESTIONS}`)).not.toBeNull();
+    expect((screen.getByRole('button', { name: /save questions/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('shows how many questions are loaded and can clear them', async () => {
+    const user = userEvent.setup();
+    renderHost(roomState({ players: THREE, customQuestionCount: 3 }));
+    await user.click(screen.getByRole('button', { name: /^trivia/i }));
+    await user.click(screen.getByRole('button', { name: /custom questions in play: 3/i }));
+    await user.click(screen.getByRole('button', { name: /^clear$/i }));
+    expect(emitAck).toHaveBeenCalledWith('room:setCustomQuestions', { questions: [], phaseId: 1 });
   });
 });

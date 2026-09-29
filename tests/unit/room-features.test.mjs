@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MAX_CUSTOM_PROMPTS, MAX_PROMPT_LEN, MAX_PLAYERS } from '../../shared/src/index.ts';
+import {
+  MAX_CUSTOM_PROMPTS,
+  MAX_CUSTOM_QUESTIONS,
+  MAX_PLAYERS,
+  MAX_PROMPT_LEN,
+} from '../../shared/src/index.ts';
 import { Room } from '../../server/src/room.ts';
 import { makeRoom } from '../helpers/room.mjs';
 
@@ -362,5 +367,82 @@ test('a corrupt stored resume hash cannot break rejoin for the rest of the room'
   assert.equal(restored.rejoin(h.host.resumeToken, 'host-socket'), null, 'the damaged one cannot');
   assert.ok(restored.rejoin(first.resumeToken, 'first-socket'));
   restored.dispose();
+  h.dispose();
+});
+
+// ---- host-written trivia questions ----
+
+const packLine = (n) => `Question ${n}? | Right ${n} | Wrong A${n} | Wrong B${n} | Wrong C${n}`;
+
+test('a custom question pack is lobby-only, bounded, and reported as a count', async () => {
+  const h = seated(3);
+  assert.deepEqual(h.room.setCustomQuestions([packLine(1), 'not playable', packLine(2)]), { count: 2 });
+  assert.equal((await h.state()).customQuestionCount, 2);
+
+  assert.deepEqual(h.room.setCustomQuestions('nope'), { error: 'invalid_questions' });
+  assert.deepEqual(
+    h.room.setCustomQuestions(Array.from({ length: MAX_CUSTOM_QUESTIONS + 1 }, (_, i) => packLine(i))),
+    { error: 'invalid_questions' },
+  );
+  assert.equal((await h.state()).customQuestionCount, 2, 'a refused pack changes nothing');
+
+  assert.deepEqual(h.room.setCustomQuestions([]), { count: 0 }, 'an empty list clears the pack');
+
+  h.room.setCustomQuestions([packLine(1)]);
+  h.room.start('trivia', 3);
+  assert.deepEqual(h.room.setCustomQuestions([packLine(9)]), { error: 'invalid_phase' });
+  h.dispose();
+});
+
+test('trivia and bluff play the host\'s questions before the built-in ones', () => {
+  for (const mode of ['trivia', 'bluff']) {
+    const h = seated(3);
+    h.room.setCustomQuestions([packLine(1), packLine(2)]);
+    h.room.start(mode, mode === 'trivia' ? 4 : 3);
+    const { questions } = h.room.toSnapshot().engine.data;
+    const texts = questions.map((question) => question.text);
+    assert.deepEqual(new Set(texts.slice(0, 2)), new Set(['Question 1?', 'Question 2?']), mode);
+    assert.equal(new Set(texts).size, texts.length, `${mode}: no question twice`);
+    h.dispose();
+  }
+});
+
+test('a custom question keeps its right answer through the shuffle', () => {
+  const h = seated(3);
+  h.room.setCustomQuestions([packLine(1)]);
+  h.room.start('trivia', 3);
+  const custom = h.room.toSnapshot().engine.data.questions.find((q) => q.text === 'Question 1?');
+  assert.deepEqual([...custom.options].sort(), ['Right 1', 'Wrong A1', 'Wrong B1', 'Wrong C1']);
+  assert.equal(custom.options[custom.correctIndex], 'Right 1');
+  h.dispose();
+
+  const bluff = seated(3);
+  bluff.room.setCustomQuestions([packLine(1)]);
+  bluff.room.start('bluff', 2);
+  const truth = bluff.room.toSnapshot().engine.data.questions.find((q) => q.text === 'Question 1?');
+  assert.equal(truth.truth, 'Right 1');
+  assert.deepEqual([...truth.decoys].sort(), ['Wrong A1', 'Wrong B1', 'Wrong C1']);
+  bluff.dispose();
+});
+
+test('the pack survives a restart, and a snapshot from before packs existed still restores', () => {
+  const h = seated(3);
+  h.room.setCustomQuestions([packLine(1), packLine(2)]);
+  const snapshot = JSON.parse(JSON.stringify(h.room.toSnapshot()));
+  assert.equal(snapshot.customQuestions.length, 2);
+
+  const restored = Room.fromSnapshot(snapshot, () => {}, () => {});
+  // Everyone comes back offline; resuming is what lets the game start again.
+  h.players.forEach((player, index) => restored.rejoin(player.resumeToken, `back-${index}`));
+  restored.start('trivia', 3);
+  const first = restored.toSnapshot().engine.data.questions.slice(0, 2).map((q) => q.text);
+  assert.deepEqual(new Set(first), new Set(['Question 1?', 'Question 2?']));
+  restored.dispose();
+
+  const legacy = { ...snapshot };
+  delete legacy.customQuestions;
+  const old = Room.fromSnapshot(legacy, () => {}, () => {});
+  assert.deepEqual(old.setCustomQuestions([]), { count: 0 });
+  old.dispose();
   h.dispose();
 });

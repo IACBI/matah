@@ -245,9 +245,10 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     }
     callback(null, true);
   },
-  // Sized for the largest legitimate frame, a full custom prompt pack
-  // (MAX_CUSTOM_PROMPTS x MAX_PROMPT_LEN code points, up to 4 bytes each, plus
-  // JSON), and nothing more: every other event fits in a few hundred bytes.
+  // Sized for the largest legitimate frame, a full custom trivia pack:
+  // MAX_CUSTOM_QUESTIONS x (MAX_QUESTION_LEN + 4 x MAX_OPTION_LEN) code points at
+  // up to 4 bytes each, 13,464 bytes measured with JSON (a prompt pack is
+  // smaller). Nothing more: every other event fits in a few hundred bytes.
   maxHttpBufferSize: 16_384,
   pingTimeout: 20_000,
   connectionStateRecovery: {
@@ -667,6 +668,19 @@ io.on("connection", (socket) => {
       const controlError = current.room.controlError(current.playerId, payload?.phaseId, "content");
       if (controlError) return { ok: false, error: controlError };
       const result = current.room.setCustomPrompts(payload?.prompts);
+      return "error" in result
+        ? { ok: false, error: result.error }
+        : { ok: true, data: { count: result.count } };
+    }, 5);
+  });
+
+  socket.on("room:setCustomQuestions", (payload, callback) => {
+    guard(callback, "room:setCustomQuestions", () => {
+      const current = currentSession();
+      if (!current) return { ok: false, error: "no_room" };
+      const controlError = current.room.controlError(current.playerId, payload?.phaseId, "content");
+      if (controlError) return { ok: false, error: controlError };
+      const result = current.room.setCustomQuestions(payload?.questions);
       return "error" in result
         ? { ok: false, error: result.error }
         : { ok: true, data: { count: result.count } };

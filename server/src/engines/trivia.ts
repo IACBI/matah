@@ -55,6 +55,7 @@ export class TriviaEngine implements GameEngine {
     private questionCount = TRIVIA_QUESTIONS,
     private avoidQuestions: ReadonlySet<string> = new Set(),
     private recordQuestion: (question: string) => void = () => {},
+    private customQuestions: readonly TriviaQuestion[] = [],
   ) {}
 
   start(): void {
@@ -62,6 +63,7 @@ export class TriviaEngine implements GameEngine {
       this.ctx.language,
       this.questionCount,
       this.avoidQuestions,
+      this.customQuestions,
     ).map((q) => {
       this.recordQuestion(q.text);
       const order = sample(q.options.map((_, index) => index), q.options.length);

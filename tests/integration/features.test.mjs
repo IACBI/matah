@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 
-import { MAX_CUSTOM_PROMPTS, MAX_PROMPT_LEN } from '../../shared/src/index.ts';
+import {
+  MAX_CUSTOM_PROMPTS,
+  MAX_CUSTOM_QUESTIONS,
+  MAX_OPTION_LEN,
+  MAX_PROMPT_LEN,
+  MAX_QUESTION_LEN,
+} from '../../shared/src/index.ts';
 import { clients } from '../helpers/socket.mjs';
 
 // Same address for every socket; see room-flows.test.mjs.
@@ -208,4 +214,67 @@ test('a finished game shows highlights and session totals to everyone', async ()
     final.players.reduce((sum, p) => sum + p.score, 0),
     'the first game banks every point',
   );
+});
+
+test('custom trivia packs are host-only, fit one frame at their largest, and are played first', async () => {
+  const room = await createRoomWithPlayers(3);
+  const simple = (n) => `Custom question ${n}? | Right ${n} | Wrong A${n} | Wrong B${n} | Wrong C${n}`;
+  assert.deepEqual(
+    await ack(room.members[0].socket, 'room:setCustomQuestions', {
+      questions: [simple(1)],
+      phaseId: room.state.phaseId,
+    }),
+    { ok: false, error: 'host_only' },
+  );
+
+  // Four bytes a character, every column at its limit, the most lines allowed.
+  const heavy = Array.from({ length: MAX_CUSTOM_QUESTIONS }, (_, i) =>
+    [
+      `${String(i).padStart(2, '0')}${'𠮷'.repeat(MAX_QUESTION_LEN - 2)}`,
+      ...['a', 'b', 'c', 'd'].map((letter) => `${letter}${'𠮷'.repeat(MAX_OPTION_LEN - 1)}`),
+    ].join(' | '),
+  );
+  const counted = until(room.host, (s) => s.customQuestionCount === MAX_CUSTOM_QUESTIONS, 'full pack');
+  assert.deepEqual(
+    await ack(room.host, 'room:setCustomQuestions', { questions: heavy, phaseId: room.state.phaseId }),
+    { ok: true, data: { count: MAX_CUSTOM_QUESTIONS } },
+  );
+  await counted;
+  assert.deepEqual(
+    await ack(room.host, 'room:setCustomQuestions', {
+      questions: [...heavy, simple(99)],
+      phaseId: room.state.phaseId,
+    }),
+    { ok: false, error: 'invalid_questions' },
+  );
+
+  // A pack costs five tokens of the socket's own bucket; let it refill.
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  const cleared = until(room.host, (s) => s.customQuestionCount === 2, 'two questions');
+  assert.deepEqual(
+    await ack(room.host, 'room:setCustomQuestions', {
+      questions: [simple(1), simple(2)],
+      phaseId: room.state.phaseId,
+    }),
+    { ok: true, data: { count: 2 } },
+  );
+  await cleared;
+
+  const asking = until(room.host, (s) => s.phase === 'answering' && s.trivia?.question, 'first question');
+  assert.deepEqual(
+    await ack(room.host, 'game:start', { gameType: 'trivia', rounds: 3, phaseId: room.state.phaseId }),
+    { ok: true, data: null },
+  );
+  const { question } = (await asking).trivia;
+  const number = /^Custom question (\d)\?$/.exec(question.text)?.[1];
+  assert.ok(number, `the first question should be the host's own, got: ${question.text}`);
+  assert.deepEqual([...question.options].sort(), [`Right ${number}`, `Wrong A${number}`, `Wrong B${number}`, `Wrong C${number}`]);
+
+  const revealed = until(room.host, (s) => s.trivia?.reveal, 'reveal');
+  assert.deepEqual(
+    await ack(room.host, 'game:next', { phaseId: (await room.state).phaseId }),
+    { ok: true, data: null },
+  );
+  const { reveal } = (await revealed).trivia;
+  assert.equal(question.options[reveal.correctIndex], `Right ${number}`);
 });

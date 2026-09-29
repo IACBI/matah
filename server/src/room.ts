@@ -26,6 +26,7 @@ import {
   MAX_AUDIENCE,
   MAX_BLUFF_QUESTIONS,
   MAX_CUSTOM_PROMPTS,
+  MAX_CUSTOM_QUESTIONS,
   MAX_NAME_LEN,
   MAX_PLAYERS,
   MAX_PROMPT_LEN,
@@ -38,6 +39,7 @@ import {
   TRIVIA_QUESTIONS,
 } from "../../shared/src/index.js";
 import type { EngineContext, EngineSnapshot, GameEngine } from "./engine.js";
+import { parseCustomQuestions, type TriviaQuestion } from "./content/trivia.js";
 import { BluffEngine } from "./engines/bluff.js";
 import { QuiplashEngine } from "./engines/quiplash.js";
 import { TriviaEngine } from "./engines/trivia.js";
@@ -84,6 +86,8 @@ export interface RoomSnapshot {
   lastGameConfig: LastGameConfig | null;
   recentContent: Record<GameType, string[]>;
   customPrompts: string[];
+  /** Absent in snapshots written before host-written questions existed. */
+  customQuestions?: TriviaQuestion[];
   benched: string[];
   gamesPlayed: number;
   gameSettled: boolean;
@@ -155,6 +159,8 @@ export class Room {
   };
   /** Host-written Quiplash prompts, already sanitized. */
   private customPrompts: string[] = [];
+  /** Host-written trivia questions, already parsed and sanitized. */
+  private customQuestions: TriviaQuestion[] = [];
   /** Players the host sent to the audience; seat promotion skips them. */
   private benched = new Set<string>();
   private gamesPlayed = 0;
@@ -612,9 +618,9 @@ export class Room {
     const ctx = this.engineContext();
     this.engine =
       gameType === "trivia"
-        ? new TriviaEngine(ctx, rounds, previousContent, recordContent)
+        ? new TriviaEngine(ctx, rounds, previousContent, recordContent, this.customQuestions)
         : gameType === "bluff"
-          ? new BluffEngine(ctx, rounds, previousContent, recordContent)
+          ? new BluffEngine(ctx, rounds, previousContent, recordContent, this.customQuestions)
           : new QuiplashEngine(ctx, rounds, previousContent, recordContent, this.customPrompts);
     this.touch();
     this.engine.start();
@@ -792,6 +798,22 @@ export class Room {
     this.customPrompts = prompts;
     this.bumpRevision();
     return { count: prompts.length };
+  }
+
+  /**
+   * Lobby only: replace the host's trivia pack, which Trivia and Bluff play
+   * before their built-in questions. Every line is parsed exactly as it will be
+   * shown, and the ones that cannot be played are dropped, like blanks in a
+   * prompt pack; the count says how many survived.
+   */
+  setCustomQuestions(raw: unknown): { error: ApiErrorCode } | { count: number } {
+    if (this.phase !== "lobby") return { error: "invalid_phase" };
+    if (!Array.isArray(raw) || raw.length > MAX_CUSTOM_QUESTIONS) {
+      return { error: "invalid_questions" };
+    }
+    this.customQuestions = parseCustomQuestions(raw);
+    this.bumpRevision();
+    return { count: this.customQuestions.length };
   }
 
   // ---- pause ----
@@ -1041,6 +1063,7 @@ export class Room {
       pausedRemainingMs: this.pausedRemainingMs,
       gamesPlayed: this.gamesPlayed,
       customPromptCount: this.customPrompts.length,
+      customQuestionCount: this.customQuestions.length,
       highlights:
         this.phase === "scoreboard" || this.phase === "gameover"
           ? this.highlights
@@ -1116,6 +1139,7 @@ export class Room {
         bluff: [...this.recentContent.bluff],
       },
       customPrompts: [...this.customPrompts],
+      customQuestions: this.customQuestions.map((question) => ({ ...question })),
       benched: [...this.benched],
       gamesPlayed: this.gamesPlayed,
       gameSettled: this.gameSettled,
@@ -1162,6 +1186,7 @@ export class Room {
       room.recentContent[type] = new Set(snapshot.recentContent[type] ?? []);
     }
     room.customPrompts = snapshot.customPrompts;
+    room.customQuestions = snapshot.customQuestions ?? [];
     room.benched = new Set(snapshot.benched.filter((id) => room.players.has(id)));
     room.gamesPlayed = snapshot.gamesPlayed;
     room.gameSettled = snapshot.gameSettled;

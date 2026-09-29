@@ -189,6 +189,8 @@ export interface RoomState {
   gamesPlayed: number;
   /** How many host-written Quiplash prompts are loaded. */
   customPromptCount: number;
+  /** How many host-written trivia questions are loaded (Trivia and Bluff). */
+  customQuestionCount: number;
   /** The best moments of the game just finished; null outside the scoreboard. */
   highlights: Highlight[] | null;
   quiplash?: QuiplashView;
@@ -278,6 +280,14 @@ export interface ClientToServerEvents {
     payload: { prompts: string[]; phaseId: number },
     cb: (res: ApiResult<{ count: number }>) => void
   ) => void;
+  /**
+   * Lobby only: replace the room's custom trivia questions, one per line as
+   * `question | right answer | wrong | wrong | wrong`; [] clears them.
+   */
+  "room:setCustomQuestions": (
+    payload: { questions: string[]; phaseId: number },
+    cb: (res: ApiResult<{ count: number }>) => void
+  ) => void;
   "bluff:lie": (
     payload: { questionId: string; text: string },
     cb: (res: ApiResult<null>) => void
@@ -321,6 +331,7 @@ export type ApiErrorCode =
   | "invalid_language"
   | "invalid_phase"
   | "invalid_prompts"
+  | "invalid_questions"
   | "invalid_reaction"
   | "invalid_target"
   | "name_required"
@@ -419,6 +430,63 @@ export const MAX_LIE_LEN = 60;
 /** Custom prompt packs: sized so a full pack fits one Socket.IO frame. */
 export const MAX_CUSTOM_PROMPTS = 30;
 export const MAX_PROMPT_LEN = 90;
+/**
+ * Custom trivia packs. Sized so a full pack fits one Socket.IO frame even at four
+ * bytes a character: 12 x (120 + 4 x 40) code points is about 13.5 kB on the wire.
+ */
+export const MAX_CUSTOM_QUESTIONS = 12;
+export const MAX_QUESTION_LEN = 120;
+export const MAX_OPTION_LEN = 40;
+/** The right answer plus three wrong ones, like every built-in question. */
+export const CUSTOM_OPTION_COUNT = 4;
+
+/**
+ * Compare answers the way a person would: case, accents, spacing and
+ * punctuation do not make a different answer.
+ */
+export function answerKey(text: string): string {
+  return text
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+/**
+ * `answerKey`, except that an answer made only of symbols (an infinity sign, a
+ * comparison) keeps its own text as the key instead of collapsing into every
+ * other one.
+ */
+export function looseAnswerKey(text: string): string {
+  return answerKey(text) || text.trim().toLocaleLowerCase();
+}
+
+export type QuestionProblem = "shape" | "length" | "duplicate";
+
+/**
+ * One line of a custom pack: `question | right answer | wrong | wrong | wrong`,
+ * or the same five columns tab-separated, which is what a spreadsheet pastes.
+ * Trailing empty columns are ignored.
+ */
+export function splitQuestionLine(line: string): string[] {
+  const parts = line.split(/[|\t]/).map((part) => part.trim());
+  while (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+  return parts;
+}
+
+/** What is wrong with a split line, or null when it is a playable question. */
+export function checkQuestionParts(parts: readonly string[]): QuestionProblem | null {
+  if (parts.length !== 1 + CUSTOM_OPTION_COUNT || parts.some((part) => part === "")) {
+    return "shape";
+  }
+  const [question, ...options] = parts;
+  const tooLong =
+    Array.from(question).length > MAX_QUESTION_LEN ||
+    options.some((option) => Array.from(option).length > MAX_OPTION_LEN);
+  if (tooLong) return "length";
+  const keys = options.map(looseAnswerKey);
+  return new Set(keys).size === keys.length ? null : "duplicate";
+}
 
 // Avatar ids players can pick from (rendered as animated SVGs on the client;
 // server validates against this list). See client Avatar.tsx for the art.

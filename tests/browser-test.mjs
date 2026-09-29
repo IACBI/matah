@@ -318,6 +318,19 @@ async function playBluff(host, players) {
   for (let index = 0; index < 2; index += 1) {
     await questions.getByRole('button', { name: /one fewer/i }).click();
   }
+
+  // The host's own question pack: reachable, accessible while it is flagging a
+  // bad line, and played before the built-in questions.
+  const customQuestion = 'Which colour is the browser test sky?';
+  await host.getByRole('button', { name: /custom questions/i }).click();
+  const pack = host.getByLabel(/custom questions/i);
+  await pack.fill(`${customQuestion} | Blue | Red | Green | Purple\nnot a question`);
+  await host.getByRole('status').filter({ hasText: /line 2/i }).waitFor();
+  await audit(host, 'lobby-custom-questions');
+  await pack.fill(`${customQuestion} | Blue | Red | Green | Purple`);
+  await host.getByRole('button', { name: /save questions/i }).click();
+  await host.getByRole('button', { name: /custom questions in play: 1/i }).waitFor();
+
   await host.getByRole('button', { name: /start game/i }).click();
 
   for (let question = 0; question < 2; question += 1) {
@@ -326,6 +339,7 @@ async function playBluff(host, players) {
       (state) => state.phase === 'answering' && state.gameType === 'bluff' && state.bluff?.question,
       `bluff question ${question + 1}`,
     );
+    if (question === 0) assert.equal(writing.bluff.question.text, customQuestion);
     assert.equal(writing.bluff.options, null, 'no options while lies are being written');
     for (const [index, { page }] of players.entries()) {
       await page.getByLabel(/your lie/i).fill(`Browser lie ${question + 1}-${index + 1}`);

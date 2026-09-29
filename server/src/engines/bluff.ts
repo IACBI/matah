@@ -8,9 +8,11 @@ import type {
   PlayerAssignment,
 } from "../../../shared/src/index.js";
 import {
+  answerKey,
   BLUFF_FOOL_POINTS,
   BLUFF_QUESTIONS,
   BLUFF_TRUTH_POINTS,
+  looseAnswerKey,
   TRIVIA_FINAL_MULTIPLIER,
 } from "../../../shared/src/index.js";
 import type {
@@ -19,7 +21,11 @@ import type {
   EngineView,
   GameEngine,
 } from "../engine.js";
-import { pickTrivia } from "../content/trivia.js";
+import { pickTrivia, type TriviaQuestion } from "../content/trivia.js";
+
+// Lives in shared/ so the host's pack editor can flag repeated answers the way
+// this engine would; tests and callers still import it from here.
+export { answerKey };
 
 const WRITE_SECONDS = 45;
 const PICK_SECONDS = 25;
@@ -67,18 +73,6 @@ interface BluffSnapshot {
   candidates: LieCandidate[];
 }
 
-/**
- * Compare answers the way a person would: case, accents, spacing and
- * punctuation do not make a different answer.
- */
-export function answerKey(text: string): string {
-  return text
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]/gu, "");
-}
-
 function shuffled<T>(items: readonly T[]): T[] {
   const copy = [...items];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -111,6 +105,7 @@ export class BluffEngine implements GameEngine {
     private questionCount = BLUFF_QUESTIONS,
     private avoidQuestions: ReadonlySet<string> = new Set(),
     private recordQuestion: (question: string) => void = () => {},
+    private customQuestions: readonly TriviaQuestion[] = [],
   ) {}
 
   start(): void {
@@ -118,6 +113,7 @@ export class BluffEngine implements GameEngine {
       this.ctx.language,
       this.questionCount,
       this.avoidQuestions,
+      this.customQuestions,
     ).map((q) => {
       this.recordQuestion(q.text);
       return {
@@ -160,9 +156,8 @@ export class BluffEngine implements GameEngine {
     if (!player || this.lies.has(playerId)) return "submit_failed";
     // The socket layer already sanitized and bounded the text.
     if (!text.trim()) return "submit_failed";
-    const key = answerKey(text);
     // Telling the player is the point: they now know the truth and must lie.
-    if (key !== "" && key === answerKey(q.truth)) return "answer_is_truth";
+    if (looseAnswerKey(text) === looseAnswerKey(q.truth)) return "answer_is_truth";
 
     this.lies.set(playerId, text);
     player.hasSubmitted = true;
@@ -183,7 +178,7 @@ export class BluffEngine implements GameEngine {
     // board never shows the same text twice and both authors share the fools.
     const byKey = new Map<string, BluffOption>();
     for (const [playerId, text] of this.lies) {
-      const key = answerKey(text) || text.toLocaleLowerCase();
+      const key = looseAnswerKey(text);
       const existing = byKey.get(key);
       if (existing) existing.authorIds.push(playerId);
       else byKey.set(key, { optionId: randomUUID(), text, isTruth: false, authorIds: [playerId] });
@@ -194,8 +189,8 @@ export class BluffEngine implements GameEngine {
     ];
     for (const decoy of shuffled(q.decoys)) {
       if (options.length >= MIN_OPTIONS) break;
-      const key = answerKey(decoy);
-      if (options.some((option) => answerKey(option.text) === key)) continue;
+      const key = looseAnswerKey(decoy);
+      if (options.some((option) => looseAnswerKey(option.text) === key)) continue;
       options.push({ optionId: randomUUID(), text: decoy, isTruth: false, authorIds: [] });
     }
     this.options = shuffled(options);

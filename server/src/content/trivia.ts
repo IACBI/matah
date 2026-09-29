@@ -1,5 +1,10 @@
 import type { Language } from "../../../shared/src/index.js";
-import { sampleAvoiding } from "../util.js";
+import {
+  checkQuestionParts,
+  looseAnswerKey,
+  splitQuestionLine,
+} from "../../../shared/src/index.js";
+import { sampleAvoiding, sanitizeUserText } from "../util.js";
 
 export interface TriviaQuestion {
   text: string;
@@ -487,14 +492,53 @@ const TRIVIA: Record<Language, TriviaQuestion[]> = {
   ],
 };
 
+/**
+ * Turn one line of a host's pack into a question, or null when it cannot be
+ * played. The right answer is written first; the engines shuffle the order.
+ * Each column gets the same sanitizing as any user text, and is measured
+ * afterwards, so a line is judged by what players would actually see.
+ */
+export function parseCustomQuestion(line: unknown): TriviaQuestion | null {
+  if (typeof line !== "string") return null;
+  const parts = splitQuestionLine(line).map((part) => sanitizeUserText(part, Infinity));
+  if (checkQuestionParts(parts) !== null) return null;
+  const [text, ...options] = parts;
+  return { text, options, correctIndex: 0 };
+}
+
+/** Questions from a pack's lines: blank, unplayable and repeated ones drop out. */
+export function parseCustomQuestions(lines: readonly unknown[]): TriviaQuestion[] {
+  const seen = new Set<string>();
+  const questions: TriviaQuestion[] = [];
+  for (const line of lines) {
+    const question = parseCustomQuestion(line);
+    if (!question) continue;
+    const key = looseAnswerKey(question.text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    questions.push(question);
+  }
+  return questions;
+}
+
+/**
+ * `count` questions for a game. The host's own come first — a pack is written
+ * to be played — and the built-in pool for the room's language fills whatever
+ * they do not cover.
+ */
 export function pickTrivia(
   language: Language,
   count: number,
   excluded: ReadonlySet<string> = new Set(),
+  custom: readonly TriviaQuestion[] = [],
 ): TriviaQuestion[] {
+  const own = sampleAvoiding(custom, Math.min(count, custom.length), excluded, keyOf);
+  if (own.length >= count) return own;
   const pool = TRIVIA[language] ?? TRIVIA.en;
-  return sampleAvoiding(pool, count, excluded, (question) => question.text);
+  return [...own, ...sampleAvoiding(pool, count - own.length, excluded, keyOf)];
 }
+
+const keyOf = (question: TriviaQuestion): string => question.text;
 
 /** Every question in a language, for structural tests. */
 export function triviaPool(language: Language): readonly TriviaQuestion[] {
