@@ -20,6 +20,15 @@ updates:
       - dependency-name: "@eslint/js"
         update-types:
           - version-update:semver-major
+      # 7.x enables the React Compiler lint rules (refs, purity,
+      # set-state-in-effect) and pulls Babel, browserslist and zod into the dev
+      # tree. Against this code that is 14 errors, all in patterns it uses on
+      # purpose (latest-ref idiom, resetting state when a question id changes),
+      # for a project that does not use the Compiler. The 7.x eslint 10 support
+      # is unusable until jsx-a11y catches up anyway (see above). See #36.
+      - dependency-name: "eslint-plugin-react-hooks"
+        update-types:
+          - version-update:semver-major
     groups:
       production-dependencies:
         dependency-type: production
@@ -74,3 +83,11 @@ updates:
       day: monday
       time: "09:00"
       timezone: Europe/Istanbul
+    ignore:
+      # The image, CI (node-version) and render.yaml (NODE_VERSION) have to sit
+      # on one Node line; an image-only jump made the container run a different
+      # major than the deployment it stands in for (5bc7a56, #34). Move all
+      # three together and drop this — 26 becomes LTS in October 2026.
+      - dependency-name: "node"
+        update-types:
+          - version-update:semver-major
