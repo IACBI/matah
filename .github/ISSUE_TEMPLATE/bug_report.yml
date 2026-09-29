@@ -31,7 +31,9 @@ body:
         - Player screen
         - Quiplash
         - Trivia
-        - Reconnect or networking
+        - Bluff
+        - Host tools (pause, seats, custom packs)
+        - Reconnect, networking or restart persistence
         - Deployment or development tooling
         - Translations or content
     validations:
