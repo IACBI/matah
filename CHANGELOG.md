@@ -6,6 +6,12 @@ Notable project changes are recorded here. Matah follows the structure of
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+Bluff, pause and resume, restart persistence, session standings and custom
+content packs, plus a much wider set of limits and ceilings for running on a
+shared address.
+
 ### Added
 
 - Private resume-token sessions with explicit replacement of stale sockets.
@@ -126,6 +132,8 @@ Notable project changes are recorded here. Matah follows the structure of
 - A damaged resume hash in a restored snapshot no longer makes rejoin fail for
   every player in that room; the entry is skipped and only its owner loses the
   session.
+- The social preview image listed only Quiplash and Trivia; it now shows Bluff
+  too.
 - The session score beside a player's name in the lobby, shown from the second
   game on, was too faint against its background (4.2:1, where 4.5:1 is the
   minimum); it now has room to spare. The browser accessibility audit had
@@ -172,5 +180,6 @@ Notable project changes are recorded here. Matah follows the structure of
   interface/content languages.
 - Render, Docker, and GitHub Actions configurations.
 
-[Unreleased]: https://github.com/IACBI/matah/compare/ec2fcf5cde7ea624025e6f3f7d0936d545d39b09...HEAD
+[Unreleased]: https://github.com/IACBI/matah/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/IACBI/matah/compare/ec2fcf5cde7ea624025e6f3f7d0936d545d39b09...v0.2.0
 [0.1.0]: https://github.com/IACBI/matah/tree/ec2fcf5cde7ea624025e6f3f7d0936d545d39b09
