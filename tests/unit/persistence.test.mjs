@@ -39,6 +39,34 @@ test('RESP replies parse whole, and wait when a reply is still arriving', () => 
   assert.throws(() => parseResp(Buffer.from('?x\r\n')), /unexpected RESP type/);
 });
 
+test('a reply that announces a nonsensical length is refused, not waited for', () => {
+  for (const reply of ['$abc\r\n', '$-2\r\n', '$1.5\r\n', '$\r\n', '*-5\r\n', ':x\r\n', '$999999999999\r\n']) {
+    assert.throws(() => parseResp(Buffer.from(reply)), /invalid RESP length/, JSON.stringify(reply));
+  }
+  assert.deepEqual(parseResp(Buffer.from('$0\r\n\r\n')), { value: '', next: 6 }, 'an empty value is fine');
+});
+
+test('a TLS connection to an address sends no SNI, which RFC 6066 forbids', async () => {
+  const warnings = [];
+  const onWarning = (warning) => warnings.push(warning.code);
+  process.on('warning', onWarning);
+  try {
+    // Port 9 is closed on loopback; only the attempt matters, not the outcome.
+    await assert.rejects(new RedisSnapshotStore('rediss://127.0.0.1:9', 'k', 60, 2_000).load());
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(warnings, [], 'Node warns (DEP0123) when the servername is an IP');
+  } finally {
+    process.off('warning', onWarning);
+  }
+});
+
+test('a bracketed IPv6 literal still reaches the socket layer', async () => {
+  await assert.rejects(
+    new RedisSnapshotStore('rediss://[::1]:9', 'k', 60, 2_000).load(),
+    (error) => error.code === 'ECONNREFUSED' || error.code === 'EADDRNOTAVAIL' || error.code === 'ENETUNREACH',
+  );
+});
+
 test('the file store round-trips and replaces the snapshot atomically', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'matah-snapshot-'));
   try {

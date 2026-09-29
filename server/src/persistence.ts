@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { connect as netConnect, type Socket } from "node:net";
+import { connect as netConnect, isIP, type Socket } from "node:net";
 import path from "node:path";
 import { connect as tlsConnect } from "node:tls";
 
@@ -53,6 +53,22 @@ type RespValue = string | number | null | RespValue[];
 class RespError extends Error {}
 
 /**
+ * Larger than any snapshot this app writes, smaller than what a stuck or
+ * hostile peer could make `run()` buffer while it waits for a length it
+ * announced. Redis itself caps a value at 512 MiB.
+ */
+const MAX_REPLY_BYTES = 128 * 1024 * 1024;
+
+/** A RESP length or integer: whole, and within `min`..`max`. */
+function respInteger(line: string, min: number, max: number): number {
+  const value = Number(line);
+  if (line === "" || !Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`invalid RESP length ${JSON.stringify(line.slice(0, 32))}`);
+  }
+  return value;
+}
+
+/**
  * Parse one RESP2 reply starting at `offset`.
  *
  * Returns undefined when the buffer does not yet hold the whole reply, so the
@@ -73,9 +89,12 @@ export function parseResp(
     case "-":
       return { value: new RespError(line), next: afterLine };
     case ":":
-      return { value: Number(line), next: afterLine };
+      return {
+        value: respInteger(line, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+        next: afterLine,
+      };
     case "$": {
-      const length = Number(line);
+      const length = respInteger(line, -1, MAX_REPLY_BYTES);
       if (length === -1) return { value: null, next: afterLine };
       if (buffer.length < afterLine + length + 2) return undefined;
       return {
@@ -84,7 +103,7 @@ export function parseResp(
       };
     }
     case "*": {
-      const count = Number(line);
+      const count = respInteger(line, -1, MAX_REPLY_BYTES);
       if (count === -1) return { value: null, next: afterLine };
       const items: RespValue[] = [];
       let cursor = afterLine;
@@ -163,12 +182,14 @@ export class RedisSnapshotStore implements SnapshotStore {
     if (db && db !== "0") commands.push(["SELECT", db]);
     commands.push(command);
 
-    const host = this.url.hostname;
+    // URL keeps the brackets around an IPv6 literal. Bare, isIP() recognises it
+    // and no SNI name is sent for it.
+    const host = this.url.hostname.replace(/^\[|\]$/g, "");
     const port = Number(this.url.port || 6379);
     return new Promise((resolve, reject) => {
       const socket: Socket =
         this.url.protocol === "rediss:"
-          ? tlsConnect({ host, port, servername: host })
+          ? tlsConnect({ host, port, ...(isIP(host) ? {} : { servername: host }) })
           : netConnect({ host, port });
       let buffer: Buffer = Buffer.alloc(0);
       const replies: RespValue[] = [];
