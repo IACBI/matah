@@ -6,7 +6,13 @@ import {
   BoundedWindowRateLimiter,
   TokenBucket,
 } from '../../server/src/rateLimiter.ts';
-import { safeIdentifier, sanitizeUserText } from '../../server/src/util.ts';
+import {
+  bearerMatches,
+  digestSecret,
+  forwardedClient,
+  safeIdentifier,
+  sanitizeUserText,
+} from '../../server/src/util.ts';
 
 test('sanitizeUserText normalizes Unicode, strips controls, and counts code points', () => {
   assert.equal(sanitizeUserText('  Cafe\u0301\u202e\n  test  ', 9), 'Café test');
@@ -62,6 +68,39 @@ test('sanitizeUserText leaves no stranded joiner when it cuts a sequence short',
   assert.equal(sanitizeUserText(family, 2), '\u{1F468}', 'cut right after the first joiner');
   const once = sanitizeUserText(`ab${family}`, 5);
   assert.equal(sanitizeUserText(once, 5), once, 'sanitizing twice must change nothing');
+});
+
+test('forwardedClient counts trusted proxies from the right', () => {
+  const header = 'forged, 203.0.113.9, 10.0.0.1';
+  assert.equal(forwardedClient(header, 1, '127.0.0.1'), '10.0.0.1');
+  assert.equal(forwardedClient(header, 2, '127.0.0.1'), '203.0.113.9');
+  assert.equal(forwardedClient(header, 3, '127.0.0.1'), 'forged');
+  assert.equal(forwardedClient(header, 9, '127.0.0.1'), 'forged', 'a short header is not over-read');
+});
+
+test('forwardedClient ignores the header when no proxy is trusted or none was sent', () => {
+  assert.equal(forwardedClient('198.51.100.1', 0, '127.0.0.1'), '127.0.0.1');
+  assert.equal(forwardedClient(undefined, 1, '127.0.0.1'), '127.0.0.1');
+  assert.equal(forwardedClient(['a', 'b'], 1, '127.0.0.1'), '127.0.0.1', 'repeated headers are not parsed');
+  assert.equal(forwardedClient(undefined, 1, undefined), 'unknown');
+});
+
+test('forwardedClient never lets an empty entry become the identity', () => {
+  assert.equal(forwardedClient('203.0.113.9,', 1, '127.0.0.1'), '127.0.0.1');
+  assert.equal(forwardedClient(' , ', 1, '127.0.0.1'), '127.0.0.1');
+  assert.equal(forwardedClient('  203.0.113.9  ', 1, '127.0.0.1'), '203.0.113.9');
+});
+
+test('bearerMatches accepts exactly the configured token and nothing near it', () => {
+  const expected = digestSecret('a-long-enough-secret-token');
+  assert.equal(bearerMatches('Bearer a-long-enough-secret-token', expected), true);
+  assert.equal(bearerMatches('Bearer a-long-enough-secret-toke', expected), false, 'a prefix');
+  assert.equal(bearerMatches('Bearer a-long-enough-secret-tokenn', expected), false, 'longer');
+  assert.equal(bearerMatches('bearer a-long-enough-secret-token', expected), false, 'scheme is case-sensitive');
+  assert.equal(bearerMatches('Bearer  a-long-enough-secret-token', expected), false, 'extra space');
+  assert.equal(bearerMatches('a-long-enough-secret-token', expected), false, 'no scheme');
+  assert.equal(bearerMatches('', expected), false);
+  assert.equal(bearerMatches(undefined, expected), false);
 });
 
 test('safeIdentifier rejects punctuation instead of partially accepting it', () => {

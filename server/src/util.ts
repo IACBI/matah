@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
 /** Returns up to `count` items chosen uniformly at random, without bias. */
 export function sample<T>(pool: readonly T[], count: number): T[] {
   // Fisher–Yates over a copy: unbiased, unlike Array.sort with a random
@@ -58,6 +60,41 @@ export function sanitizeUserText(raw: unknown, maxCodePoints: number): string {
     .slice(0, maxCodePoints)
     .join("")
     .replace(/[\u200C\u200D]+$/u, "");
+}
+
+/**
+ * The address a request really came from, behind `hops` trusted proxies.
+ *
+ * Each trusted proxy appends the address it received the connection from, so
+ * the client is `hops` entries from the right; anything further left was
+ * written by the client itself and is never believed. With no trusted proxy
+ * the header is ignored altogether. An empty entry falls back to the socket
+ * address rather than becoming a key a client can choose.
+ */
+export function forwardedClient(
+  header: string | string[] | undefined,
+  hops: number,
+  socketAddress: string | undefined
+): string {
+  const fallback = socketAddress ?? "unknown";
+  if (hops <= 0 || typeof header !== "string") return fallback;
+  const entries = header.split(",");
+  return entries[Math.max(0, entries.length - hops)].trim() || fallback;
+}
+
+/** SHA-256 of a secret, the form `bearerMatches` compares against. */
+export function digestSecret(secret: string): Buffer {
+  return createHash("sha256").update(secret, "utf8").digest();
+}
+
+/**
+ * Whether an `Authorization` header carries the bearer token behind `expected`.
+ * Both sides are hashed to one length first, so the comparison neither throws
+ * on a length mismatch nor reveals how much of the token was right.
+ */
+export function bearerMatches(header: string | undefined, expected: Buffer): boolean {
+  const match = /^Bearer (\S+)$/.exec(header ?? "");
+  return match !== null && timingSafeEqual(digestSecret(match[1]), expected);
 }
 
 /** Strictly limits protocol identifiers to their ASCII representation. */

@@ -33,7 +33,13 @@ import {
   TokenBucket,
 } from "./rateLimiter.js";
 import { Room, type RoomSnapshot } from "./room.js";
-import { safeIdentifier, sanitizeUserText } from "./util.js";
+import {
+  bearerMatches,
+  digestSecret,
+  forwardedClient,
+  safeIdentifier,
+  sanitizeUserText,
+} from "./util.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const isProd = process.env.NODE_ENV === "production";
@@ -67,6 +73,22 @@ for (const origin of allowedOrigins) {
     throw new Error(`Production origins must use https: ${origin}`);
   }
 }
+
+// How many proxies sit between the internet and this process, each appending
+// the address it saw to X-Forwarded-For. One is right for Render and most
+// platforms; 0 means the process faces clients directly, where the header is
+// theirs to forge and must be ignored. A wrong value fails silently — every
+// visitor behind one edge address, or a forgeable identity — so a malformed
+// one stops the boot instead of falling back.
+const TRUSTED_PROXY_HOPS = (() => {
+  const raw = process.env.MATAH_TRUST_PROXY_HOPS?.trim();
+  if (!raw) return 1;
+  const hops = Number(raw);
+  if (!Number.isInteger(hops) || hops < 0 || hops > 10) {
+    throw new Error("MATAH_TRUST_PROXY_HOPS must be a whole number from 0 to 10");
+  }
+  return hops;
+})();
 
 /** Read a rate-limit tunable from the environment, falling back to the default. */
 function limit(name: string, fallback: number): number {
@@ -164,16 +186,15 @@ function limiterKey(address: string): string {
 }
 
 function clientAddress(request: IncomingMessage): string {
-  const forwarded = request.headers["x-forwarded-for"];
-  if (isProd && typeof forwarded === "string") {
-    // This deployment trusts exactly one edge proxy. Use the right-most hop so
-    // a client-supplied leading X-Forwarded-For value cannot rotate rate-limit
-    // identities when the edge appends the real address.
-    return limiterKey(
-      forwarded.split(",").at(-1)?.trim() || request.socket.remoteAddress || "unknown"
-    );
-  }
-  return limiterKey(request.socket.remoteAddress ?? "unknown");
+  // Counted from the right so a client-supplied leading X-Forwarded-For value
+  // cannot rotate rate-limit identities when the edge appends the real address.
+  return limiterKey(
+    forwardedClient(
+      isProd ? request.headers["x-forwarded-for"] : undefined,
+      TRUSTED_PROXY_HOPS,
+      request.socket.remoteAddress
+    )
+  );
 }
 
 function originAllowed(origin: string | undefined): boolean {
@@ -182,7 +203,7 @@ function originAllowed(origin: string | undefined): boolean {
 
 const app = express();
 app.disable("x-powered-by");
-app.set("trust proxy", 1);
+app.set("trust proxy", TRUSTED_PROXY_HOPS);
 app.use(
   // Applied in every environment: outside production this app serves only
   // /health, because the UI comes from Vite's own dev server on a separate
@@ -218,6 +239,28 @@ app.use(
   })
 );
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Operator statistics, off unless a token is configured. Counts only: no room
+// code, name or address ever appears, so a leaked token exposes load and not
+// people. The route sits behind the HTTP rate limiter above, which bounds
+// guessing; the length floor makes guessing pointless.
+const statsDigest = (() => {
+  const token = process.env.MATAH_STATS_TOKEN?.trim();
+  if (!token) return null;
+  if (token.length < 24) throw new Error("MATAH_STATS_TOKEN must be at least 24 characters");
+  return digestSecret(token);
+})();
+
+if (statsDigest) {
+  app.get("/stats", (request, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!bearerMatches(request.headers.authorization, statsDigest)) {
+      res.status(401).setHeader("WWW-Authenticate", "Bearer").json({ error: "unauthorized" });
+      return;
+    }
+    res.json(collectStats());
+  });
+}
 
 const httpServer = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
@@ -295,6 +338,37 @@ export function activeRoomCount(): number {
 
 /** Bumped on every broadcast and removal, so an unchanged registry is not re-saved. */
 let registryVersion = 0;
+
+/** Wall-clock time of the last snapshot that reached the store, if any. */
+let lastSnapshotAt: number | null = null;
+
+/** What /stats reports: load and capacity, never anything about who is playing. */
+function collectStats() {
+  let inLobby = 0;
+  let players = 0;
+  for (const room of rooms.values()) {
+    if (room.inLobby()) inLobby += 1;
+    players += room.realPlayers.filter((player) => player.connected).length;
+    players += room.audiencePlayers.filter((player) => player.connected).length;
+  }
+  const megabytes = (bytes: number) => Math.round(bytes / 1_048_576);
+  const memory = process.memoryUsage();
+  return {
+    uptimeSeconds: Math.round(process.uptime()),
+    rooms: { total: rooms.size, inLobby, inGame: rooms.size - inLobby, limit: MAX_ROOMS },
+    players,
+    connections: {
+      sockets: io.engine.clientsCount,
+      addresses: liveConnections.size,
+      limit: MAX_LIVE_CONNECTIONS,
+    },
+    memoryMb: { rss: megabytes(memory.rss), heapUsed: megabytes(memory.heapUsed) },
+    persistence: {
+      enabled: snapshotStore !== null,
+      lastSavedAt: lastSnapshotAt === null ? null : new Date(lastSnapshotAt).toISOString(),
+    },
+  };
+}
 
 /** The socket fan-out a room broadcasts through. */
 function roomHooks(code: string) {
@@ -883,6 +957,7 @@ export function saveSnapshot(): Promise<number> {
     };
     await snapshotStore.save(JSON.stringify(snapshot));
     savedVersion = version;
+    lastSnapshotAt = snapshot.savedAt;
     return snapshot.rooms.length;
   };
   const next = saveChain.then(run, run);
