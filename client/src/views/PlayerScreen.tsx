@@ -612,9 +612,8 @@ function TriviaAnswerView({
             key={i}
             className={`trivia-opt o${i}`}
             onClick={() => answer(i)}
-            aria-label={t("ariaOption", { letter: OPTION_LETTERS[i], text: opt })}
           >
-            <span className="opt-letter">{OPTION_LETTERS[i]}</span>
+            <span className="opt-letter">{OPTION_LETTERS[i]}</span>{" "}
             <span className="opt-text">{opt}</span>
           </button>
         ))}
@@ -778,9 +777,8 @@ function BluffPickView({
               className={`bluff-option ${isOwn ? "own" : ""}`}
               onClick={() => void pick(option.optionId)}
               disabled={isOwn}
-              aria-label={t("ariaOption", { letter: OPTION_LETTERS[i], text: option.text })}
             >
-              <span className="opt-letter">{OPTION_LETTERS[i]}</span>
+              <span className="opt-letter">{OPTION_LETTERS[i]}</span>{" "}
               <span className="opt-text">{option.text}</span>
               {isOwn && <span className="bluff-credit">{t("bluffYourLie")}</span>}
             </button>
