@@ -6,6 +6,25 @@ Notable project changes are recorded here. Matah follows the structure of
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-13
+
+### Fixed
+
+- The bluff and trivia answer buttons announced a label ("Option B: Blue")
+  that did not contain the text on screen, which the accessibility audit
+  flagged. The button name now comes from the visible letter and answer.
+
+### Security
+
+- The `engine.io` dependency is updated to 6.6.11, fixing a high-severity
+  Socket.IO denial-of-service advisory
+  ([GHSA-2gc4-cqfq-p2gv](https://github.com/advisories/GHSA-2gc4-cqfq-p2gv))
+  that affected 0.2.0.
+- `express` is updated to 5.3.0, which brings `proxy-addr` 2.0.8
+  ([GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h)).
+  The server's `trust proxy` setting is a hop count, which does not reach the
+  affected code path, but the production audit flagged the package.
+
 ## [0.2.0] - 2026-09-29
 
 Bluff, pause and resume, restart persistence, session standings and custom
@@ -180,6 +199,7 @@ shared address.
   interface/content languages.
 - Render, Docker, and GitHub Actions configurations.
 
-[Unreleased]: https://github.com/IACBI/matah/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/IACBI/matah/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/IACBI/matah/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/IACBI/matah/compare/ec2fcf5cde7ea624025e6f3f7d0936d545d39b09...v0.2.0
 [0.1.0]: https://github.com/IACBI/matah/tree/ec2fcf5cde7ea624025e6f3f7d0936d545d39b09
