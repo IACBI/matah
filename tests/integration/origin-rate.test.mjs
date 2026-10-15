@@ -164,8 +164,11 @@ test('one socket cannot remain authorized as two room identities', async () => {
 
   const secondRoom = await ack(player, 'room:create', { language: 'en' });
   assert.equal(secondRoom.ok, true);
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.equal(firstState.players.some((entry) => entry.id === joined.data.playerId), false);
+  const stillListed = () => firstState.players.some((entry) => entry.id === joined.data.playerId);
+  for (let attempt = 0; attempt < 100 && stillListed(); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(stillListed(), false);
 
   const oldRoomAction = await ack(player, 'room:join', {
     code: firstRoom.data.code,
@@ -177,5 +180,5 @@ test('one socket cannot remain authorized as two room identities', async () => {
     code: secondRoom.data.code,
     resumeToken: secondRoom.data.resumeToken,
   });
-  assert.equal(staleSecondSession.ok, false);
+  assert.deepEqual(staleSecondSession, { ok: false, error: 'session_not_found' });
 });

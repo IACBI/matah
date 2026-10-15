@@ -67,10 +67,11 @@ test('one address may not hold more than its share of the live sessions', async 
   for (let index = 0; index < CONNECTIONS_PER_IP; index += 1) {
     await connect('203.0.113.20');
   }
-  await assert.rejects(
-    connect('203.0.113.20'),
-    'the share is what stops one client from reaching the global ceiling alone',
-  );
+  // The share is what stops one client from reaching the global ceiling alone.
+  // A websocket client cannot read the server's refusal code (it surfaces as a
+  // bare transport error), so this checks the refusal is a transport failure
+  // rather than a timeout or a JavaScript error.
+  await assert.rejects(connect('203.0.113.20'), (error) => error.type === 'TransportError');
 
   // Another address is unaffected, which is what separates this from the
   // global ceiling: the server is nowhere near full.
