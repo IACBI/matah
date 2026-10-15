@@ -10,6 +10,7 @@ import {
   DEFAULT_AVATAR,
   DEFAULT_TOTAL_ROUNDS,
   MATCHUP_POINT_POOL,
+  MIN_PLAYERS,
   SUBMIT_BONUS,
 } from "../../../shared/src/index.js";
 import type {
@@ -25,6 +26,12 @@ const VOTE_SECONDS = 20;
 const MIN_VOTE_DISPLAY_SECONDS = 3;
 const RESULTS_SECONDS = 9;
 const HIGHLIGHT_COUNT = 3;
+/**
+ * Results screens to sit through, each RESULTS_SECONDS long, while too few
+ * players are online to play a round. Long enough to ride out a phone that
+ * drops and comes back; short enough that a room nobody returns to ends.
+ */
+const MAX_RESULTS_WAITS = 3;
 
 /** An answer that drew votes, kept for the end-of-game highlights. */
 interface QuipCandidate {
@@ -96,6 +103,8 @@ export class QuiplashEngine implements GameEngine {
   /** prompt -> players who have already written for it, across the game. */
   private promptSeenBy = new Map<string, Set<string>>();
   private candidates: QuipCandidate[] = [];
+  /** Consecutive results waits since the last round began. Transient: not snapshotted. */
+  private resultsWaits = 0;
 
   constructor(
     private ctx: EngineContext,
@@ -115,6 +124,7 @@ export class QuiplashEngine implements GameEngine {
   private beginRound(): void {
     this.round += 1;
     this.lastResults = null;
+    this.resultsWaits = 0;
     this.currentMatchupIndex = 0;
     // Size the round by who is actually online. Handing prompts to a player
     // who is holding a disconnect lease only publishes a canned safety quip
@@ -491,8 +501,25 @@ export class QuiplashEngine implements GameEngine {
   }
 
   private afterResults(): void {
-    if (this.round >= this.totalRounds) this.ctx.toScoreboard(15);
-    else this.beginRound();
+    if (this.round >= this.totalRounds) {
+      this.ctx.toScoreboard(15);
+      return;
+    }
+    // Room only ends a game once seated players fall below MIN_PLAYERS, and
+    // seated includes offline players. So with 3 seated and 2 online, a round
+    // would pair one author against themselves. Hold the results screen
+    // instead. Zero online is left alone: the idle sweep reclaims that room.
+    const online = this.ctx.connectedPlayers().length;
+    if (online > 0 && online < MIN_PLAYERS) {
+      if (this.resultsWaits >= MAX_RESULTS_WAITS) {
+        this.ctx.toScoreboard(15);
+        return;
+      }
+      this.resultsWaits += 1;
+      this.ctx.setPhase("results", RESULTS_SECONDS, () => this.afterResults());
+      return;
+    }
+    this.beginRound();
   }
 
   /** The most-voted real answers of the whole game. */

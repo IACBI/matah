@@ -18,10 +18,11 @@ function participant(id, isAudience = false) {
   };
 }
 
-function harness() {
+function harness(rounds = 1) {
   const players = [participant('p1'), participant('p2'), participant('p3')];
   const audience = [participant('a1', true), participant('a2', true)];
   const assignments = new Map();
+  const scoreboardCalls = [];
   let timeout = null;
   let now = 1_000;
   const ctx = {
@@ -41,15 +42,17 @@ function harness() {
         person.hasVoted = false;
       }
     },
-    toScoreboard: () => {},
+    toScoreboard: (seconds) => { scoreboardCalls.push(seconds); },
     now: () => now,
   };
-  const engine = new QuiplashEngine(ctx, 1);
+  const engine = new QuiplashEngine(ctx, rounds);
   return {
     engine,
+    ctx,
     players,
     audience,
     assignments,
+    scoreboardCalls,
     fireTimeout() { assert.ok(timeout); timeout(); },
     elapse(ms) { now += ms; },
   };
@@ -211,4 +214,85 @@ test('a player who reconnects mid-round, unassigned, does not hold voting open',
     }
   }
   assert.notEqual(h.engine.serialize().quiplash.activeMatchup, null, 'voting opens without the timer');
+});
+
+/** With nobody writing, every matchup is canned and skipped, so answering ends on results. */
+function playRoundToResults(h) {
+  h.fireTimeout();
+  assert.notEqual(h.engine.serialize().quiplash.lastResults, null);
+}
+
+test('a round is held on the results screen while fewer than MIN_PLAYERS are online', () => {
+  const h = harness(2);
+  h.engine.start();
+  h.players[2].connected = false;
+  playRoundToResults(h);
+  h.fireTimeout();
+  const view = h.engine.serialize();
+  assert.equal(view.round, 1, 'no round 2 while only 2 of 3 seated players are online');
+  assert.notEqual(view.quiplash.lastResults, null, 'results stay up while waiting');
+  assert.equal(h.scoreboardCalls.length, 0);
+});
+
+test('a player who returns during the results wait gets the next round', () => {
+  const h = harness(2);
+  h.engine.start();
+  h.players[2].connected = false;
+  playRoundToResults(h);
+  h.fireTimeout();
+  assert.equal(h.engine.serialize().round, 1);
+  h.players[2].connected = true;
+  h.fireTimeout();
+  const view = h.engine.serialize();
+  assert.equal(view.round, 2);
+  assert.equal(view.quiplash.lastResults, null, 'round 2 has not produced results yet');
+  assert.equal(h.scoreboardCalls.length, 0);
+});
+
+test('a room still short after the three waits ends on the scoreboard', () => {
+  const h = harness(2);
+  h.engine.start();
+  h.players[2].connected = false;
+  playRoundToResults(h);
+  for (let i = 0; i < 3; i += 1) h.fireTimeout();
+  assert.equal(h.engine.serialize().round, 1);
+  assert.deepEqual(h.scoreboardCalls, [], 'three waits are allowed before giving up');
+  h.fireTimeout();
+  assert.deepEqual(h.scoreboardCalls, [15]);
+  assert.equal(h.engine.serialize().round, 1);
+});
+
+test('an abandoned room with nobody online still moves on as before', () => {
+  const h = harness(2);
+  h.engine.start();
+  playRoundToResults(h);
+  h.players.forEach((member) => { member.connected = false; });
+  h.fireTimeout();
+  assert.equal(h.engine.serialize().round, 2);
+  assert.deepEqual(h.scoreboardCalls, []);
+});
+
+test('a full house moves straight from results into the next round', () => {
+  const h = harness(2);
+  h.engine.start();
+  playRoundToResults(h);
+  h.fireTimeout();
+  assert.equal(h.engine.serialize().round, 2);
+  assert.deepEqual(h.scoreboardCalls, []);
+});
+
+test('a restored results hold keeps a working handler with a fresh wait allowance', () => {
+  const h = harness(2);
+  h.engine.start();
+  h.players[2].connected = false;
+  playRoundToResults(h);
+  h.fireTimeout();
+  const restored = QuiplashEngine.restore(h.ctx, h.engine.snapshot().data);
+  const handler = restored.timeoutHandler();
+  assert.ok(handler, 'a restored results screen must still have a timeout');
+  for (let i = 0; i < 3; i += 1) handler();
+  assert.equal(restored.serialize().round, 1);
+  assert.deepEqual(h.scoreboardCalls, []);
+  handler();
+  assert.deepEqual(h.scoreboardCalls, [15]);
 });
