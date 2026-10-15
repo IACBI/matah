@@ -71,7 +71,7 @@ To deploy, one Node service serves both the Socket.IO server and the built
 client:
 
 - **Render:** choose **New → Blueprint** and select the repository. `render.yaml` builds both workspaces and asks for `PUBLIC_ORIGIN`.
-- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://127.0.0.1:3001 -e MATAH_TRUST_PROXY_HOPS=0 matah` With no reverse proxy in front, keep `MATAH_TRUST_PROXY_HOPS=0` so a forged `X-Forwarded-For` cannot rotate rate-limit identities.
+- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://127.0.0.1:3001 -e MATAH_TRUST_PROXY_HOPS=0 matah` runs the image for a single-machine trial: the loopback origin means only a browser on that machine can use it. For real play, put the container behind an HTTPS reverse proxy, set `PUBLIC_ORIGIN` to the public `https://` origin and `MATAH_TRUST_PROXY_HOPS=1` (use `0` only when clients reach the container directly, so a forged `X-Forwarded-For` cannot rotate rate-limit identities).
 - **Any Node host:** `npm ci`, `npm run build`, then `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
 
 ### Usage
@@ -194,7 +194,7 @@ Yayına alırken tek bir Node servisi hem Socket.IO sunucusunu hem de derlenmiş
 istemciyi sunar:
 
 - **Render:** **New → Blueprint** seçip depoyu işaretle. `render.yaml` iki workspace'i de derler ve `PUBLIC_ORIGIN` değerini sorar.
-- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://127.0.0.1:3001 -e MATAH_TRUST_PROXY_HOPS=0 matah` Önünde ters proxy yoksa `MATAH_TRUST_PROXY_HOPS=0` kalsın; böylece sahte bir `X-Forwarded-For` hız sınırı kimliğini değiştiremez.
+- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://127.0.0.1:3001 -e MATAH_TRUST_PROXY_HOPS=0 matah` imajı tek makinede denemek içindir: loopback origin yüzünden yalnızca o makinedeki tarayıcı kullanabilir. Gerçek oyun için konteyneri HTTPS bir ters proxy arkasına koy, `PUBLIC_ORIGIN` değerini herkese açık `https://` origin yap ve `MATAH_TRUST_PROXY_HOPS=1` ayarla (`0` yalnızca istemciler konteynere doğrudan bağlanıyorsa; böylece sahte bir `X-Forwarded-For` hız sınırı kimliğini değiştiremez).
 - **Herhangi bir Node sunucusu:** `npm ci`, `npm run build`, ardından `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
 
 ### Kullanım
