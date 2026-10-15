@@ -227,11 +227,24 @@ export class QuiplashEngine implements GameEngine {
     player.hasSubmitted = answered >= (this.assignedCount.get(playerId) ?? 0);
 
     this.ctx.emit();
-    // A disconnected player can't act, so don't let them stall the round:
-    // advance as soon as every still-connected player has answered.
-    if (this.ctx.players().every((p) => !p.connected || p.hasSubmitted))
-      this.beginVoting();
+    if (this.everyoneAnswered()) this.beginVoting();
     return true;
+  }
+
+  /**
+   * Whether every player who still owes an answer has given it. A player who
+   * was not assigned a matchup this round (one who joined or reconnected after
+   * it began) owes nothing and must not hold the round open.
+   */
+  private everyoneAnswered(): boolean {
+    return this.ctx
+      .players()
+      .every(
+        (p) =>
+          !p.connected ||
+          p.hasSubmitted ||
+          (this.assignedCount.get(p.id) ?? 0) === 0
+      );
   }
 
   private beginVoting(): void {
@@ -384,8 +397,7 @@ export class QuiplashEngine implements GameEngine {
     if (!this.ctx.players().some((p) => p.connected)) return;
 
     if (this.answeringActive) {
-      if (this.ctx.players().every((p) => !p.connected || p.hasSubmitted))
-        this.beginVoting();
+      if (this.everyoneAnswered()) this.beginVoting();
     } else if (this.votingActive) {
       const authors = this.matchupAuthors[this.currentMatchupIndex] ?? [];
       this.advanceWhenVotingComplete(authors);

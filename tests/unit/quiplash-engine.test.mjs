@@ -197,3 +197,18 @@ test('a lone connected author is not left owing a second answer to themselves', 
   assert.equal(h.players[0].hasSubmitted, true);
   assert.notEqual(h.engine.serialize().quiplash.lastResults, null, 'round should close early');
 });
+
+test('a player who reconnects mid-round, unassigned, does not hold voting open', () => {
+  // Seats are dealt to whoever is online when the round starts. A player who
+  // comes back later owes no answer, so waiting on them ran the answer clock out.
+  const h = harness();
+  h.players[2].connected = false;
+  h.engine.start();
+  h.players[2].connected = true;
+  for (const id of ['p1', 'p2']) {
+    for (const prompt of h.assignments.get(id).prompts) {
+      assert.equal(h.engine.handleAnswer(id, prompt.matchupId, `${id} answer`), true);
+    }
+  }
+  assert.notEqual(h.engine.serialize().quiplash.activeMatchup, null, 'voting opens without the timer');
+});
