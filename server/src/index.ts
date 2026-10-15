@@ -1130,16 +1130,19 @@ export async function stopServer(): Promise<void> {
   }
   // "Your game is saved" is only true after a successful save, and only worth
   // saying to sockets that are in a room.
-  if (savedDurably && rooms.size > 0) {
+  const announceTo = savedDurably ? [...rooms.keys()] : [];
+  // Stop every room clock now that the snapshot is written: a phase that expired
+  // during the acknowledgement wait would show progress the next boot loses.
+  for (const room of rooms.values()) room.dispose();
+  if (announceTo.length > 0) {
     await new Promise<void>((resolve) => {
-      io.to([...rooms.keys()])
+      io.to(announceTo)
         .timeout(RESTART_NOTICE_ACK_MS)
         .emit("room:server-restarting", () => resolve());
       // The callback above fires once all acknowledge or the timeout passes; a
       // room with nobody connected is covered by that timeout too.
     });
   }
-  for (const room of rooms.values()) room.dispose();
   rooms.clear();
   roomOwners.clear();
   roomsPerIp.clear();

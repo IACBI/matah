@@ -1,4 +1,5 @@
 import { act, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Same fake socket as app.test.tsx. vi.mock is hoisted above module scope, so
@@ -167,5 +168,29 @@ describe('App server restart notice', () => {
     expect(screen.getByText(/can't reach the server/i)).not.toBeNull();
     expect(linkState()).toBe('unreachable');
     await flushAck();
+  });
+  it("acknowledges the notice so the server knows it was delivered", async () => {
+    renderApp(<App />);
+    await enterRoom();
+    const acknowledge = vi.fn();
+
+    fire("room:server-restarting", acknowledge);
+
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the session when the server refuses a leave because it is shutting down", async () => {
+    const user = userEvent.setup();
+    renderApp(<App />);
+    await enterRoom();
+    emitAck.mockResolvedValueOnce({ ok: false, error: "server_busy" });
+
+    await user.click(screen.getByRole("button", { name: /leave/i }));
+    await flushAck();
+
+    expect(emitAck).toHaveBeenLastCalledWith("room:leave");
+    expect(sessionStorage.getItem("matah.session")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: translate("en", "ready") })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /leave/i })).toHaveProperty("disabled", false);
   });
 });

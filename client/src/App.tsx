@@ -311,7 +311,13 @@ export function App() {
   const leave = async () => {
     if (leaving) return;
     setLeaving(true);
-    await emitAck<null>("room:leave");
+    const result = await emitAck<null>("room:leave");
+    // Shutting down: the saved room still holds this seat, so keep the resume
+    // token and let the player try again once the server is back.
+    if (!result.ok && result.error === "server_busy") {
+      setLeaving(false);
+      return;
+    }
     resetToHome();
   };
 
