@@ -239,9 +239,15 @@ export class BluffEngine implements GameEngine {
       if (option.isTruth) {
         add(pickerId, BLUFF_TRUTH_POINTS * multiplier);
       } else if (option.authorIds.length > 0) {
-        // A merged lie pays each author an equal share of one fool's worth.
-        const share = Math.round((BLUFF_FOOL_POINTS * multiplier) / option.authorIds.length);
-        for (const authorId of option.authorIds) add(authorId, share);
+        // A merged lie splits one fool's worth between its authors. The
+        // remainder goes to the earliest authors so the total is conserved.
+        const total = BLUFF_FOOL_POINTS * multiplier;
+        const n = option.authorIds.length;
+        const base = Math.floor(total / n);
+        const remainder = total % n;
+        option.authorIds.forEach((authorId, index) =>
+          add(authorId, index < remainder ? base + 1 : base),
+        );
       }
     }
 
