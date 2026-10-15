@@ -66,9 +66,3 @@ export function makeRoom(options = {}) {
   };
 }
 
-/** Add a host plus `count` connected players, returning their sessions. */
-export function seatPlayers(room, count, offset = 0) {
-  return Array.from({ length: count }, (_, index) =>
-    room.addPlayer(`p${offset + index + 1}-socket`, `P${offset + index + 1}`, 'fox')
-  );
-}

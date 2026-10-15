@@ -213,6 +213,52 @@ test('each picker of a merged lie splits one fool between its authors', () => {
   assert.equal(best.votes, 2, 'two pickers, counted once each');
 });
 
+test('a three-author merged lie conserves the fool points, with the remainder going to earlier authors', () => {
+  const h = harness(2, ['p1', 'p2', 'p3', 'p4']);
+  h.engine.start();
+  const qid = h.questionId();
+  h.engine.handleLie('p1', qid, 'Same Lie');
+  h.engine.handleLie('p2', qid, 'same lie!');
+  h.engine.handleLie('p3', qid, 'SAME LIE');
+  h.engine.handleLie('p4', qid, 'Different');
+  const shared = h.optionFor('Same Lie');
+  h.engine.handlePick('p4', qid, shared);
+  h.engine.handlePick('p1', qid, h.optionFor(h.truth()));
+  h.engine.handlePick('p2', qid, h.optionFor(h.truth()));
+  h.engine.handlePick('p3', qid, h.optionFor(h.truth()));
+  assert.equal(h.phases.at(-1), 'results');
+
+  // 250 over three authors is 83 each with one point left over; p1 is first.
+  const fool = [h.players[0], h.players[1], h.players[2]].map((p) => p.score - BLUFF_TRUTH_POINTS);
+  assert.deepEqual(fool, [84, 83, 83]);
+  assert.equal(fool.reduce((sum, n) => sum + n, 0), BLUFF_FOOL_POINTS, 'no point created or lost');
+  assert.equal(h.players[3].score, 0, 'picking a lie that is not yours pays nothing');
+});
+
+test('a three-author merged lie on the final question conserves the doubled fool points', () => {
+  const h = harness(1, ['p1', 'p2', 'p3', 'p4']);
+  h.engine.start();
+  const qid = h.questionId();
+  h.engine.handleLie('p1', qid, 'Same Lie');
+  h.engine.handleLie('p2', qid, 'same lie!');
+  h.engine.handleLie('p3', qid, 'SAME LIE');
+  h.engine.handleLie('p4', qid, 'Different');
+  const shared = h.optionFor('Same Lie');
+  h.engine.handlePick('p4', qid, shared);
+  h.engine.handlePick('p1', qid, h.optionFor(h.truth()));
+  h.engine.handlePick('p2', qid, h.optionFor(h.truth()));
+  h.engine.handlePick('p3', qid, h.optionFor(h.truth()));
+  assert.equal(h.phases.at(-1), 'results');
+
+  // 500 over three authors: 167, 167, 166.
+  const total = BLUFF_FOOL_POINTS * TRIVIA_FINAL_MULTIPLIER;
+  const fool = [h.players[0], h.players[1], h.players[2]].map(
+    (p) => p.score - BLUFF_TRUTH_POINTS * TRIVIA_FINAL_MULTIPLIER,
+  );
+  assert.deepEqual(fool, [167, 167, 166]);
+  assert.equal(fool.reduce((sum, n) => sum + n, 0), total);
+});
+
 test('a solo lie still pays its author the full fool points, doubled on the last question', () => {
   const h = harness(2);
   h.engine.start();
