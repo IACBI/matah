@@ -133,3 +133,24 @@ test('freezing the clocks keeps the phase and its deadline but stops the timer f
   assert.equal(after.trivia.question.id, before.trivia.question.id);
   h.dispose();
 });
+
+test('a disconnect after the clocks froze cannot advance the phase past the snapshot', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = makeRoom();
+  h.room.addHost('host-socket');
+  const players = ['p1', 'p2', 'p3'].map((id) =>
+    h.room.addPlayer(`${id}-socket`, id.toUpperCase(), 'fox')
+  );
+  assert.equal(h.room.start('trivia', 3), null);
+  const question = (await h.state()).trivia.question;
+  for (const p of players.slice(0, 2)) h.room.submitTriviaAnswer(p.playerId, question.id, 0);
+
+  h.room.freezeClocks();
+  // The last unanswered player dropping would normally complete the question.
+  h.room.handleDisconnect('p3-socket');
+
+  const after = await h.state();
+  assert.equal(after.phase, 'answering');
+  assert.equal(after.players.find((p) => p.id === players[2].playerId).connected, true);
+  h.dispose();
+});
