@@ -27,9 +27,11 @@ ENV PORT=3001
 
 WORKDIR /app
 
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/server/dist ./server/dist
-COPY --from=build --chown=node:node /app/client/dist ./client/dist
+# Root-owned and read-only to the runtime user: the process can read the code it
+# runs but cannot rewrite it, so a compromised process cannot persist changes.
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/server/dist ./server/dist
+COPY --from=build /app/client/dist ./client/dist
 
 USER node
 
