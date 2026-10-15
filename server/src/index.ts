@@ -1144,8 +1144,7 @@ export async function stopServer(): Promise<void> {
       io.to(announceTo)
         .timeout(RESTART_NOTICE_ACK_MS)
         .emit("room:server-restarting", () => resolve());
-      // The callback above fires once all acknowledge or the timeout passes; a
-      // room with nobody connected is covered by that timeout too.
+      // Fires once every recipient has acknowledged, or when the timeout passes.
     });
   }
   // Clocks were frozen when the snapshot was serialized; only now, with the
