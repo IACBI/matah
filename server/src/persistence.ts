@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { connect as netConnect, isIP, type Socket } from "node:net";
 import path from "node:path";
 import { connect as tlsConnect } from "node:tls";
@@ -17,11 +17,35 @@ interface SnapshotStore {
   describe(): string;
 }
 
+/**
+ * Delete temp files a killed `save()` left beside the snapshot. Best effort:
+ * every error is ignored so a cleanup problem never stops the boot.
+ */
+async function removeStaleTempFiles(filePath: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  const prefix = `${path.basename(filePath)}.`;
+  const suffix = ".tmp";
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return;
+  }
+  // Only ever called from load() at boot: a temp file that a live save() is
+  // still writing must not be removed, or its rename would fail.
+  await Promise.all(
+    names
+      .filter((name) => name.length > prefix.length + suffix.length && name.startsWith(prefix) && name.endsWith(suffix))
+      .map((name) => rm(path.join(dir, name), { force: true }).catch(() => undefined))
+  );
+}
+
 /** A snapshot file, replaced atomically so a crash mid-write keeps the old one. */
 export class FileSnapshotStore implements SnapshotStore {
   constructor(private readonly filePath: string) {}
 
   async load(): Promise<string | null> {
+    await removeStaleTempFiles(this.filePath);
     try {
       return await readFile(this.filePath, "utf8");
     } catch (error) {

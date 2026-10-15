@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -81,6 +82,53 @@ test('the file store round-trips and replaces the snapshot atomically', async ()
     assert.match(store.describe(), /rooms\.json/);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('load() removes stale temp files from an interrupted save, and nothing else', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'matah-snapshot-'));
+  try {
+    const file = path.join(dir, 'rooms.json');
+    await writeFile(file, '{"live":true}');
+    await writeFile(path.join(dir, 'rooms.json.deadbeef.tmp'), '{"player":"stale"}');
+    await writeFile(path.join(dir, 'unrelated.json'), '{}');
+    await writeFile(path.join(dir, 'unrelated.tmp'), 'x');
+    const store = new FileSnapshotStore(file);
+    assert.equal(await store.load(), '{"live":true}');
+    assert.deepEqual((await readdir(dir)).sort(), ['rooms.json', 'unrelated.json', 'unrelated.tmp']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a failed save leaves no temp file behind and rethrows the error', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'matah-snapshot-'));
+  try {
+    const file = path.join(dir, 'rooms.json');
+    await mkdir(file); // rename() onto an existing directory fails
+    const store = new FileSnapshotStore(file);
+    await assert.rejects(store.save('{}'), (error) => error instanceof Error);
+    assert.deepEqual((await readdir(dir)).filter((name) => name.endsWith('.tmp')), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a Redis server that accepts but never replies times out', async () => {
+  const sockets = [];
+  const server = createServer((socket) => {
+    sockets.push(socket);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = server.address();
+    const store = new RedisSnapshotStore(`redis://127.0.0.1:${port}`, 'k', 60, 200);
+    const started = Date.now();
+    await assert.rejects(store.load(), (error) => /timed out/i.test(error.message));
+    assert.ok(Date.now() - started < 1_000, 'gave up near the 200ms timeout');
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 
