@@ -174,8 +174,9 @@ export class BluffEngine implements GameEngine {
     if (this.stage !== "writing" || !q) return;
     this.stage = "picking";
 
-    // Identical lies merge into one option credited to every author, so the
-    // board never shows the same text twice and both authors share the fools.
+    // Identical lies merge into one option listing every author, so the board
+    // never shows the same text twice. Each picker's fool points are split evenly
+    // among those authors in reveal(); the picker count is never divided.
     const byKey = new Map<string, BluffOption>();
     for (const [playerId, text] of this.lies) {
       const key = looseAnswerKey(text);
@@ -235,8 +236,13 @@ export class BluffEngine implements GameEngine {
       const option = this.options.find((o) => o.optionId === optionId);
       if (!option) continue;
       pickersOf.set(optionId, [...(pickersOf.get(optionId) ?? []), pickerId]);
-      if (option.isTruth) add(pickerId, BLUFF_TRUTH_POINTS * multiplier);
-      else for (const authorId of option.authorIds) add(authorId, BLUFF_FOOL_POINTS * multiplier);
+      if (option.isTruth) {
+        add(pickerId, BLUFF_TRUTH_POINTS * multiplier);
+      } else if (option.authorIds.length > 0) {
+        // A merged lie pays each author an equal share of one fool's worth.
+        const share = Math.round((BLUFF_FOOL_POINTS * multiplier) / option.authorIds.length);
+        for (const authorId of option.authorIds) add(authorId, share);
+      }
     }
 
     const credits = (ids: readonly string[]): Credit[] =>
@@ -302,7 +308,9 @@ export class BluffEngine implements GameEngine {
   /** Re-sendable after a reconnect: which option is the player's own lie. */
   currentAssignment(playerId: string): PlayerAssignment | null {
     const q = this.question;
-    if (!q || (this.stage !== "writing" && this.stage !== "picking")) return null;
+    // Reveal included: a phone that reloads on the results screen needs its own
+    // pick back to know whether it found the truth.
+    if (!q || this.stage === "idle") return null;
     if (!this.ctx.getPlayer(playerId)) return null;
     return this.assignmentFor(playerId, q);
   }

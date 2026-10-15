@@ -128,6 +128,24 @@ test('a full question scores the truth-finders and every fool, doubled on the la
   assert.equal(h.phases.at(-1), 'scoreboard');
 });
 
+test('a player who reloads during the reveal gets their own pick back', () => {
+  const h = harness(2);
+  h.engine.start();
+  const qid = h.questionId();
+  for (const [id, text] of [['p1', 'Lie one'], ['p2', 'Lie two'], ['p3', 'Lie three']]) {
+    assert.equal(h.engine.handleLie(id, qid, text), null);
+  }
+  assert.equal(h.engine.handlePick('p1', qid, h.optionFor('Lie two')), true);
+  assert.equal(h.engine.handlePick('p2', qid, h.optionFor('Lie one')), true);
+  assert.equal(h.engine.handlePick('p3', qid, h.optionFor(h.truth())), true);
+  assert.equal(h.phases.at(-1), 'results');
+
+  const again = h.engine.currentAssignment('p1');
+  assert.equal(again.bluff.questionId, qid);
+  assert.equal(again.bluff.pickedOptionId, h.optionFor('Lie two'));
+  assert.deepEqual(again.bluff.ownOptionIds, [h.optionFor('Lie one')]);
+});
+
 test('identical lies merge into one option credited to both authors', () => {
   const h = harness(2);
   h.engine.start();
@@ -144,9 +162,83 @@ test('identical lies merge into one option credited to both authors', () => {
   h.engine.handlePick('p3', qid, shared.optionId);
   h.engine.handlePick('p1', qid, h.optionFor('Different'));
   h.engine.handlePick('p2', qid, h.optionFor(h.truth()));
-  assert.equal(h.players[0].score, BLUFF_FOOL_POINTS, 'both authors share the fool');
-  assert.equal(h.players[1].score, BLUFF_FOOL_POINTS + BLUFF_TRUTH_POINTS);
+  assert.equal(h.players[0].score, BLUFF_FOOL_POINTS / 2, 'both authors split the fool');
+  assert.equal(h.players[1].score, BLUFF_FOOL_POINTS / 2 + BLUFF_TRUTH_POINTS);
   assert.equal(h.players[2].score, BLUFF_FOOL_POINTS);
+});
+
+test('one picker fooled by a merged lie splits the fool points between its authors', () => {
+  const h = harness(2);
+  h.engine.start();
+  const qid = h.questionId();
+  h.engine.handleLie('p1', qid, 'Same Lie');
+  h.engine.handleLie('p2', qid, 'same lie!');
+  h.engine.handleLie('p3', qid, 'Different');
+  h.engine.handlePick('p3', qid, h.optionFor('Same Lie'));
+  h.engine.handlePick('p1', qid, h.optionFor(h.truth()));
+  h.engine.handlePick('p2', qid, h.optionFor('Different'));
+  assert.equal(h.players[0].score, BLUFF_FOOL_POINTS / 2 + BLUFF_TRUTH_POINTS, 'p1: half a fool and the truth');
+  assert.equal(h.players[1].score, BLUFF_FOOL_POINTS / 2, 'p2: the other half, nothing for picking a lie');
+  assert.equal(h.players[2].score, BLUFF_FOOL_POINTS, 'p3 was fooled by p2 on their own lie');
+
+  // The fooled count is still the number of pickers, not divided by the authors.
+  const merged = h.engine.highlights().find((x) => x.text === 'Same Lie');
+  assert.equal(merged.votes, 1);
+  assert.deepEqual(merged.authors.map((c) => c.name), ['p1', 'p2']);
+});
+
+test('each picker of a merged lie splits one fool between its authors', () => {
+  const h = harness(2, ['p1', 'p2', 'p3', 'p4']);
+  h.engine.start();
+  const qid = h.questionId();
+  h.engine.handleLie('p1', qid, 'Same Lie');
+  h.engine.handleLie('p2', qid, 'Same Lie');
+  h.engine.handleLie('p3', qid, 'Third');
+  h.engine.handleLie('p4', qid, 'Fourth');
+  const shared = h.optionFor('Same Lie');
+  h.engine.handlePick('p3', qid, shared);
+  h.engine.handlePick('p4', qid, shared);
+  h.engine.handlePick('p1', qid, h.optionFor(h.truth()));
+  h.engine.handlePick('p2', qid, h.optionFor(h.truth()));
+  assert.equal(h.phases.at(-1), 'results');
+  // Two pickers, each splitting a fool: every author gets half from each,
+  // so the authors together collect exactly two fools, as two solo fools would.
+  assert.equal(h.players[0].score, BLUFF_FOOL_POINTS / 2 * 2 + BLUFF_TRUTH_POINTS);
+  assert.equal(h.players[1].score, BLUFF_FOOL_POINTS / 2 * 2 + BLUFF_TRUTH_POINTS);
+  assert.equal(h.players[2].score, 0);
+  assert.equal(h.players[3].score, 0);
+
+  const [best] = h.engine.highlights();
+  assert.equal(best.text, 'Same Lie');
+  assert.equal(best.votes, 2, 'two pickers, counted once each');
+});
+
+test('a solo lie still pays its author the full fool points, doubled on the last question', () => {
+  const h = harness(2);
+  h.engine.start();
+  const qid = h.questionId();
+  h.engine.handleLie('p1', qid, 'Zorblax');
+  h.engine.handleLie('p2', qid, 'Quibble');
+  h.engine.handleLie('p3', qid, 'Frumpet');
+  h.engine.handlePick('p2', qid, h.optionFor('Zorblax'));
+  h.engine.handlePick('p1', qid, h.optionFor(h.truth()));
+  h.engine.handlePick('p3', qid, h.optionFor(h.truth()));
+  assert.equal(h.players[0].score, BLUFF_FOOL_POINTS + BLUFF_TRUTH_POINTS, 'the whole fool, not a share');
+
+  const finale = harness(1);
+  finale.engine.start();
+  const fq = finale.questionId();
+  finale.engine.handleLie('p1', fq, 'Zorblax');
+  finale.engine.handleLie('p2', fq, 'Quibble');
+  finale.engine.handleLie('p3', fq, 'Frumpet');
+  finale.engine.handlePick('p2', fq, finale.optionFor('Zorblax'));
+  finale.engine.handlePick('p1', fq, finale.optionFor(finale.truth()));
+  finale.engine.handlePick('p3', fq, finale.optionFor(finale.truth()));
+  assert.equal(
+    finale.players[0].score,
+    (BLUFF_FOOL_POINTS + BLUFF_TRUTH_POINTS) * TRIVIA_FINAL_MULTIPLIER,
+    'the final multiplier applies to a solo fool',
+  );
 });
 
 test('a question nobody lied on is topped up with house decoys', () => {
