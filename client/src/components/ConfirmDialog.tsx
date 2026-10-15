@@ -27,6 +27,7 @@ export function ConfirmDialog({
   cancelRef.current = onCancel;
 
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     confirmButton.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -34,12 +35,17 @@ export function ConfirmDialog({
         return;
       }
       if (event.key !== "Tab" || !panel.current) return;
-      // Keep focus inside: the screen behind is inert but still tabbable.
+      // Keep focus inside: nothing marks the screen behind as inert, so a click
+      // on the panel text or backdrop (focus falls to <body>) would otherwise
+      // let Tab walk into the page underneath.
       const focusable = panel.current.querySelectorAll<HTMLElement>("button");
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (!panel.current.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -48,7 +54,11 @@ export function ConfirmDialog({
       }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      // The trigger is usually unmounted by the action itself; focus then stays put.
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
 
   return (
