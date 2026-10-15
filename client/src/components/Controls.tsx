@@ -43,7 +43,6 @@ export function SoundToggle() {
       className="sound-toggle"
       aria-label={t(on ? "soundOn" : "soundOff")}
       title={t(on ? "soundOn" : "soundOff")}
-      aria-pressed={on}
       onClick={() => {
         const next = !on;
         setOn(next);

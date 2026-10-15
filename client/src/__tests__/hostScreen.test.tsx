@@ -138,6 +138,8 @@ describe('HostScreen', () => {
     );
     expect(screen.getByText(/points ×2 this round/i)).not.toBeNull();
     expect(screen.getAllByText(/\+200 bonus/i)).toHaveLength(2);
+    expect(screen.getByText(/P1 · 2 votes ·/)).not.toBeNull();
+    expect(screen.getByText(/P2 · 1 vote ·/)).not.toBeNull();
     // Voting is over, so the room finally sees who backed which answer.
     expect(screen.getByRole('img', { name: 'Votes from P3, A1' })).not.toBeNull();
     expect(screen.getByRole('img', { name: 'Votes from P1' })).not.toBeNull();

@@ -46,6 +46,7 @@ import {
   PartyIcon,
 } from "../components/icons";
 import { playSfx } from "../sound";
+import { useWakeLock } from "../useWakeLock";
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
 
@@ -74,6 +75,7 @@ export function HostScreen({
   onLeave,
 }: Props) {
   const { t } = useI18n();
+  useWakeLock(connected);
   const [pending, setPending] = useState<string | null>(null);
   const [commandError, setCommandError] = useState("");
   const pendingRef = useRef(false);
@@ -978,7 +980,7 @@ function QuiplashResultsView({
   onNext: () => void;
   pending: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   return (
     <div className="host-body" key="qresults">
       <h2 className="phase-title center">
@@ -1016,7 +1018,13 @@ function QuiplashResultsView({
                       label={t("votedBy", { names: a.voters.map((v) => v.name).join(", ") })}
                     />
                     <span className="ra-meta">
-                      {a.playerName} · {a.votes} {t("voteUnit")} · +
+                      {a.playerName} · {a.votes}{" "}
+                      {t(
+                        new Intl.PluralRules(lang).select(a.votes) === "one"
+                          ? "voteUnitOne"
+                          : "voteUnit"
+                      )}{" "}
+                      · +
                       {a.pointsAwarded}
                       {a.submitBonus > 0 && (
                         // Show the participation reward separately, or the

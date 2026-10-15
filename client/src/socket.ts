@@ -6,7 +6,7 @@ import type {
   ServerToClientEvents,
 } from "../../shared/src/index";
 
-export type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 /** Give up after this many retries so "unreachable" is a reachable state. */
 const RECONNECTION_ATTEMPTS = 12;
@@ -18,7 +18,7 @@ export const socket: GameSocket = io({
   reconnectionAttempts: RECONNECTION_ATTEMPTS,
 });
 
-export type ClientErrorCode =
+type ClientErrorCode =
   | ApiErrorCode
   | "request_timeout"
   | "disconnected"

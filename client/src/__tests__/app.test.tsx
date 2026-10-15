@@ -49,6 +49,7 @@ vi.mock('../sound', () => ({
 }));
 
 import { App } from '../App';
+import { translate } from '../i18n/translations';
 import { renderApp, roomState } from './helpers';
 
 function fire(event: string, value?: unknown) {
@@ -102,7 +103,11 @@ describe('App link state', () => {
     });
 
     fire('room:state', roomState({ code: 'ABCD' }));
-    await waitFor(() => expect(screen.queryByText(/getting you back/i)).toBeNull());
+    // The room screen loads lazily, so wait for its heading rather than for the
+    // home screen to disappear, which a loading placeholder also satisfies.
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: translate('en', 'ready') })).not.toBeNull()
+    );
   });
 
   it('gives up with a retry rather than spinning forever', async () => {

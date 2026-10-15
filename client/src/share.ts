@@ -30,7 +30,7 @@ export function buildSummary(state: RoomState, t: Translate, origin: string): st
   return lines.join("\n");
 }
 
-export type ShareOutcome = "shared" | "copied" | "cancelled" | "failed";
+type ShareOutcome = "shared" | "copied" | "cancelled" | "failed";
 
 /**
  * Hand the recap to the platform share sheet where there is one (phones), and

@@ -144,6 +144,19 @@ describe('PlayerScreen quiplash answering', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
+  it('names each answer field after its own prompt when several are open', () => {
+    renderPlayer(answeringState(), {
+      assignment: {
+        prompts: [
+          { matchupId: 'm1', prompt: 'A terrible slogan for a bank', submitted: false },
+          { matchupId: 'm2', prompt: 'A bad name for a boat', submitted: false },
+        ],
+        votedMatchupId: null,
+      },
+    });
+    expect(screen.getByRole('textbox', { name: 'A bad name for a boat' })).not.toBeNull();
+  });
+
   it('keeps send disabled until something has been typed', async () => {
     const user = userEvent.setup();
     renderPlayer(answeringState(), { assignment });
@@ -300,6 +313,48 @@ describe('PlayerScreen quiplash voting', () => {
     );
     expect(screen.queryByRole('button', { name: /One/ })).toBeNull();
     expect(screen.getByText(/own/i)).not.toBeNull();
+  });
+
+  it('a vote acknowledged after the next matchup opened does not mark that matchup voted', async () => {
+    const user = userEvent.setup();
+    let acknowledge: (value: { ok: boolean }) => void = () => {};
+    emitAck.mockReturnValue(new Promise((resolve) => { acknowledge = resolve; }));
+    const voter = { prompts: [], votedMatchupId: null };
+    const matchup = (id: string, prompt: string, answers: [string, string]) =>
+      roomState({
+        phase: 'voting',
+        gameType: 'quiplash',
+        players: [player(ME), player('p2'), player('p3')],
+        quiplash: {
+          currentMatchupIndex: 0,
+          totalMatchups: 2,
+          activeMatchup: {
+            id,
+            prompt,
+            answers: answers.map((text, i) => ({ answerId: `${id}-${i}`, text })),
+          },
+          lastResults: null,
+        },
+      });
+    const screenFor = (state: RoomState) => (
+      <PlayerScreen
+        code="ABCD"
+        myPlayerId={ME}
+        state={state}
+        assignment={voter}
+        secondsLeft={null}
+        connected
+        leaving={false}
+        onLeave={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    const { rerender } = renderApp(screenFor(matchup('m1', 'First prompt', ['Red', 'Blue'])));
+
+    await user.click(screen.getByRole('button', { name: /Red/ }));
+    rerender(screenFor(matchup('m2', 'Second prompt', ['Green', 'Yellow'])));
+    await act(async () => acknowledge({ ok: true }));
+
+    expect(screen.queryByRole('button', { name: /Green/ })).not.toBeNull();
   });
 });
 

@@ -174,7 +174,7 @@ export function PlayerScreen({
           )}
           {secondsLeft !== null && (
             <span
-              className={`player-timer ${secondsLeft <= 5 ? "danger" : ""}`}
+              className={`player-timer ${secondsLeft <= 5 && state.pausedRemainingMs === null ? "danger" : ""}`}
               role="timer"
               aria-label={t("secondsLeft", { n: secondsLeft })}
             >
@@ -198,7 +198,8 @@ export function PlayerScreen({
         ) : state.gameType === "quiplash" ? (
           <AnsweringView
             assignment={assignment}
-            timer={secondsLeft}
+            // A paused clock is frozen, not expiring: auto-submit would only be refused.
+            timer={state.pausedRemainingMs === null ? secondsLeft : null}
             code={code}
             playerId={myPlayerId}
           />
@@ -209,7 +210,14 @@ export function PlayerScreen({
         ))}
 
       {state.phase === "voting" && state.gameType === "quiplash" && (
-        <VotingView state={state} assignment={assignment} myPlayerId={myPlayerId} />
+        // Keyed by matchup: a vote ack for the previous matchup can land after
+        // the next one has rendered, and must not mark this one as voted.
+        <VotingView
+          key={state.quiplash?.activeMatchup?.id ?? ""}
+          state={state}
+          assignment={assignment}
+          myPlayerId={myPlayerId}
+        />
       )}
 
       {state.phase === "voting" &&
@@ -413,13 +421,16 @@ function AnsweringView({
       <h2 className="answer-title">{t("writeFunny")}</h2>
       {assignment.prompts.map((p) => (
         <div key={p.matchupId} className="answer-block">
-          <div className="answer-prompt">{p.prompt}</div>
+          <div className="answer-prompt" id={`prompt-${p.matchupId}`}>
+            {p.prompt}
+          </div>
           {sent[p.matchupId] ? (
             <div className="badge ok">{t("sent")}</div>
           ) : (
             <>
               <textarea
                 className="input answer-input"
+                aria-labelledby={`prompt-${p.matchupId}`}
                 placeholder={t("yourAnswer")}
                 maxLength={MAX_ANSWER_LEN}
                 value={answers[p.matchupId] ?? ""}
