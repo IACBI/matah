@@ -114,3 +114,22 @@ test('removing the last unanswered player during a pause advances the phase but 
   assert.equal(h.room.resume(), null);
   h.dispose();
 });
+
+test('freezing the clocks keeps the phase and its deadline but stops the timer from advancing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = makeRoom();
+  h.room.addHost('host-socket');
+  for (const id of ['p1', 'p2', 'p3']) h.room.addPlayer(`${id}-socket`, id.toUpperCase(), 'fox');
+  assert.equal(h.room.start('trivia', 3), null);
+  const before = await h.state();
+
+  h.room.freezeClocks();
+  h.advance(120_000);
+  t.mock.timers.tick(120_000);
+
+  const after = await h.state();
+  assert.equal(after.phase, before.phase, 'an expired deadline no longer advances the game');
+  assert.equal(after.phaseEndsAt, before.phaseEndsAt, 'clients still see the saved deadline');
+  assert.equal(after.trivia.question.id, before.trivia.question.id);
+  h.dispose();
+});

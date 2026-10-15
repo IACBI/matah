@@ -1127,7 +1127,7 @@ export async function stopServer(): Promise<void> {
         console.warn(`Not overwriting ${snapshotStore.describe()}: it could not be read at startup`);
       } else {
         const saved = await saveSnapshot(() => {
-          for (const room of rooms.values()) room.dispose();
+          for (const room of rooms.values()) room.freezeClocks();
         });
         console.log(`Saved ${saved} room(s) to ${snapshotStore.describe()}`);
         savedDurably = true;
@@ -1139,9 +1139,6 @@ export async function stopServer(): Promise<void> {
   // "Your game is saved" is only true after a successful save, and only worth
   // saying to sockets that are in a room.
   const announceTo = savedDurably ? [...rooms.keys()] : [];
-  // Clocks were stopped when the snapshot was serialized; this also covers a
-  // shutdown with no snapshot store. Disposal is idempotent.
-  for (const room of rooms.values()) room.dispose();
   if (announceTo.length > 0) {
     await new Promise<void>((resolve) => {
       io.to(announceTo)
@@ -1151,6 +1148,9 @@ export async function stopServer(): Promise<void> {
       // room with nobody connected is covered by that timeout too.
     });
   }
+  // Clocks were frozen when the snapshot was serialized; only now, with the
+  // notice delivered, is the destructive teardown safe.
+  for (const room of rooms.values()) room.dispose();
   rooms.clear();
   roomOwners.clear();
   roomsPerIp.clear();
