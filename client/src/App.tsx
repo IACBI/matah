@@ -154,6 +154,9 @@ export function App() {
       const session = initialSession.current ?? readSession();
       if (!socket.connected) return;
       if (!session) {
+        // Nothing to rejoin, so a restart notice that arrived earlier is moot.
+        restartingRef.current = false;
+        setNotice((current) => (current === "serverRestarting" ? undefined : current));
         setLink("live");
         return;
       }
@@ -232,7 +235,8 @@ export function App() {
     const onSessionReplaced = () => resetToHome("sessionReplacedNotice");
     // Announced before the server closes sockets. The room is saved server-side,
     // so the stored session stays and the rejoin on reconnect does the rest.
-    const onServerRestarting = () => {
+    const onServerRestarting = (acknowledge?: () => void) => {
+      acknowledge?.();
       restartingRef.current = true;
       setNotice("serverRestarting");
     };

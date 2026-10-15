@@ -46,7 +46,7 @@ back, so a deploy or a crash costs at most the last few seconds of play.
   with the resume token they already hold. `phaseId` is bumped so no command
   composed before the restart can land, and a running phase gets 15 extra
   seconds for the room to reconnect.
-- **Restart notice.** Before the sockets close, connected clients get `room:server-restarting`. The client shows a notice and dials back in with the session it already holds.
+- **Restart notice.** After a successful final snapshot, sockets that are in a room get `room:server-restarting`, and shutdown waits up to 500 ms for them to acknowledge it, because `io.close()` drops packets still queued. Nothing is announced when no snapshot was saved, since the game would not come back. From the moment shutdown begins, gameplay events are refused with `server_busy` so the snapshot stays the last word. The client shows a notice and dials back in with the session it already holds.
 - **Timers.** Phase timers are closures and cannot be saved. Each engine
   implements `timeoutHandler()`, which returns the callback for whatever phase
   it is in, and the room re-arms it with the time that was left.
