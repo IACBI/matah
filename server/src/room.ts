@@ -147,6 +147,8 @@ export class Room {
   // room several times (kick -> engine purge -> phase change), and clients
   // should see one consistent state, with at most one phaseId increment.
   private broadcastPending = false;
+  /** Set at shutdown once the final snapshot is taken; see freezeClocks(). */
+  private frozen = false;
   private phaseBumpPending = false;
   private language: Language;
   private gameType: GameType | null = null;
@@ -428,6 +430,7 @@ export class Room {
   }
 
   handleDisconnect(socketId: string): void {
+    if (this.frozen) return;
     const playerId = this.pidForSocket(socketId);
     if (!playerId) return;
     const player = this.players.get(playerId);
@@ -450,6 +453,7 @@ export class Room {
 
   /** Explicit leave removes the reservation immediately. */
   leaveBySocket(socketId: string): string | null {
+    if (this.frozen) return null;
     const playerId = this.pidForSocket(socketId);
     if (!playerId) return null;
     this.removeMember(playerId);
@@ -1249,11 +1253,13 @@ export class Room {
   }
 
   /**
-   * Stop every timer without touching state. Shutdown calls this the instant the
+   * Stop every timer without touching state, and ignore disconnects from here
+   * on so no lifecycle transition can move past the snapshot. Shutdown calls this the instant the
    * final snapshot is serialized, so nothing advances past what was saved while
    * sockets are still attached; `dispose()` is the destructive teardown after.
    */
   freezeClocks(): void {
+    this.frozen = true;
     if (this.timerHandle) clearTimeout(this.timerHandle);
     this.timerHandle = null;
     this.engine?.pause?.();
