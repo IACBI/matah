@@ -373,7 +373,7 @@ export type Capability =
 
 // ---- Tunables ----
 
-export const ROOM_CODE_LENGTH = 4;
+export const ROOM_CODE_LENGTH = 5;
 export const MIN_PLAYERS = 3;
 export const MAX_PLAYERS = 8;
 export const MAX_AUDIENCE = 20;

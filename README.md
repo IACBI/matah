@@ -27,7 +27,7 @@ The party game you play with friends: one TV, everyone's phones, three game mode
 ### Overview
 
 Matah is a Jackbox-style party game played in real time. A TV or laptop runs
-the host screen and shows a four-letter room code; everyone else joins from
+the host screen and shows a five-letter room code; everyone else joins from
 their phone and the game plays out on every device at once. The server decides
 everything that matters (who is in the room, the timers, the scores), so a
 phone that drops and comes back picks up exactly where it was.
@@ -150,7 +150,7 @@ MIT © 𝓐.𝓒.𝓑. See [LICENSE](LICENSE).
 ### Genel Bakış
 
 Matah, gerçek zamanlı oynanan Jackbox tarzı bir parti oyunu. TV ya da laptop
-host ekranını açar ve dört harfli bir oda kodu gösterir; diğer herkes
+host ekranını açar ve beş harfli bir oda kodu gösterir; diğer herkes
 telefonundan katılır ve oyun bütün cihazlarda aynı anda akar. Önemli olan her
 şeye (odada kimin olduğuna, sürelere, puanlara) sunucu karar verir. Bu yüzden
 bağlantısı kopan bir telefon geri döndüğünde tam kaldığı yerden devam eder.
