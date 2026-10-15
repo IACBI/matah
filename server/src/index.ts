@@ -274,15 +274,18 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     // exist are untouched — their polls and upgrades carry a sid and never
     // reach this hook — so running games keep playing while new load is shed.
     if (io.engine.clientsCount >= MAX_LIVE_CONNECTIONS) {
+      counters.refusedBusy += 1;
       callback("server_busy", false);
       return;
     }
     const address = clientAddress(request);
     if ((liveConnections.get(address) ?? 0) >= MAX_CONNECTIONS_PER_IP) {
+      counters.refusedRateLimited += 1;
       callback("rate_limited", false);
       return;
     }
     if (!connectionLimiter.take(address)) {
+      counters.refusedRateLimited += 1;
       callback("rate_limited", false);
       return;
     }
@@ -342,6 +345,18 @@ let registryVersion = 0;
 /** Wall-clock time of the last snapshot that reached the store, if any. */
 let lastSnapshotAt: number | null = null;
 
+/**
+ * Refusals and failures since boot, for /stats. Without them a flood that is
+ * being shed, or a store that has stopped saving, looks like a quiet server.
+ */
+const counters = {
+  refusedBusy: 0,
+  refusedRateLimited: 0,
+  actionsRateLimited: 0,
+  serverErrors: 0,
+  snapshotSaveFailures: 0,
+};
+
 /** What /stats reports: load and capacity, never anything about who is playing. */
 function collectStats() {
   let inLobby = 0;
@@ -363,6 +378,12 @@ function collectStats() {
       limit: MAX_LIVE_CONNECTIONS,
     },
     memoryMb: { rss: megabytes(memory.rss), heapUsed: megabytes(memory.heapUsed) },
+    refused: {
+      connectionsBusy: counters.refusedBusy,
+      connectionsRateLimited: counters.refusedRateLimited,
+      actionsRateLimited: counters.actionsRateLimited,
+    },
+    errors: { handlers: counters.serverErrors, snapshotSaves: counters.snapshotSaveFailures },
     persistence: {
       enabled: snapshotStore !== null,
       lastSavedAt: lastSnapshotAt === null ? null : new Date(lastSnapshotAt).toISOString(),
@@ -462,6 +483,7 @@ io.on("connection", (socket) => {
   ): void => {
     if (typeof callback !== "function") return;
     if (!socketBucket.take(cost) || !actionLimiter.take(ip, cost)) {
+      counters.actionsRateLimited += 1;
       callback({ ok: false, error: "rate_limited" });
       return;
     }
@@ -470,6 +492,7 @@ io.on("connection", (socket) => {
       result = action();
     } catch (error) {
       console.error("socket event failed", { eventName, socketId: socket.id, error });
+      counters.serverErrors += 1;
       result = { ok: false, error: "server_error" };
     }
     // Deliver the coalesced broadcast before the acknowledgement, so a client
@@ -935,6 +958,8 @@ interface RegistrySnapshot {
 }
 
 let persistenceActive = false;
+// A store that could not be read still holds the last good snapshot.
+let restoreFailed = false;
 let snapshotHandle: NodeJS.Timeout | null = null;
 let savedVersion = -1;
 let saveChain: Promise<unknown> = Promise.resolve();
@@ -943,7 +968,7 @@ let saveChain: Promise<unknown> = Promise.resolve();
  * Write every live room to the configured store. Saves are chained, so the
  * periodic save and the shutdown save never interleave their writes.
  */
-export function saveSnapshot(): Promise<number> {
+function saveSnapshot(): Promise<number> {
   const run = async (): Promise<number> => {
     if (!snapshotStore) return 0;
     const version = registryVersion;
@@ -1005,20 +1030,23 @@ async function restoreSnapshot(): Promise<number> {
 async function startPersistence(): Promise<void> {
   if (!snapshotStore || persistenceActive) return;
   persistenceActive = true;
+  restoreFailed = false;
   try {
     const restored = await restoreSnapshot();
     if (restored > 0) {
       console.log(`Restored ${restored} room(s) from ${snapshotStore.describe()}`);
     }
   } catch (error) {
+    restoreFailed = true;
     console.error(`Could not restore rooms from ${snapshotStore.describe()}`, (error as Error).message);
   }
   savedVersion = registryVersion;
   snapshotHandle = setInterval(() => {
     if (registryVersion === savedVersion) return;
-    saveSnapshot().catch((error: Error) =>
-      console.error(`Could not save rooms to ${snapshotStore.describe()}`, error.message)
-    );
+    saveSnapshot().catch((error: Error) => {
+      counters.snapshotSaveFailures += 1;
+      console.error(`Could not save rooms to ${snapshotStore.describe()}`, error.message);
+    });
   }, SNAPSHOT_INTERVAL_MS);
   snapshotHandle.unref();
 }
@@ -1056,10 +1084,15 @@ export async function stopServer(): Promise<void> {
   if (persistenceActive && snapshotStore) {
     persistenceActive = false;
     // Always written, even with no rooms, so an older snapshot is not
-    // resurrected by the next boot.
+    // resurrected by the next boot — unless it never loaded, in which case an
+    // empty write would destroy the only copy an operator could still recover.
     try {
-      const saved = await saveSnapshot();
-      console.log(`Saved ${saved} room(s) to ${snapshotStore.describe()}`);
+      if (restoreFailed && rooms.size === 0) {
+        console.warn(`Not overwriting ${snapshotStore.describe()}: it could not be read at startup`);
+      } else {
+        const saved = await saveSnapshot();
+        console.log(`Saved ${saved} room(s) to ${snapshotStore.describe()}`);
+      }
     } catch (error) {
       console.error(`Could not save rooms to ${snapshotStore.describe()}`, (error as Error).message);
     }

@@ -80,6 +80,23 @@ test('stats reports load without naming a room, a player or an address', async (
   assert.ok(!text.includes('127.0.0.1'), 'no client address');
 });
 
+test('stats counts shed actions, so a flood is visible', async () => {
+  const read = async () =>
+    (await stats({ Authorization: `Bearer ${TOKEN}` })).json();
+  const before = await read();
+  assert.deepEqual(before.errors, { handlers: 0, snapshotSaves: 0 });
+  assert.equal(before.refused.connectionsBusy, 0);
+
+  const socket = await connect();
+  // A socket holds 20 actions and earns 10 a second; 60 at once overdraws it.
+  const results = await Promise.all(Array.from({ length: 60 }, () => ack(socket, 'room:leave')));
+  const throttled = results.filter((r) => !r.ok && r.error === 'rate_limited').length;
+  assert.ok(throttled > 0, 'the burst must overdraw the bucket');
+
+  const after = await read();
+  assert.equal(after.refused.actionsRateLimited - before.refused.actionsRateLimited, throttled);
+});
+
 test('a token too short to resist guessing stops the boot', () => {
   const entry = pathToFileURL(
     path.resolve(fileURLToPath(import.meta.url), '../../../server/src/index.ts'),

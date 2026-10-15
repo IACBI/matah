@@ -10,7 +10,7 @@ import { connect as tlsConnect } from "node:tls";
  * One process owns every room, so this is a single opaque blob written on
  * shutdown and every so often while rooms change, and read once at boot.
  */
-export interface SnapshotStore {
+interface SnapshotStore {
   load(): Promise<string | null>;
   save(data: string): Promise<void>;
   /** Where snapshots go, safe to log: never includes credentials. */
@@ -142,6 +142,8 @@ export function encodeCommand(args: readonly string[]): Buffer {
  */
 export class RedisSnapshotStore implements SnapshotStore {
   private readonly url: URL;
+  private readonly username: string;
+  private readonly password: string;
 
   constructor(
     url: string,
@@ -149,9 +151,23 @@ export class RedisSnapshotStore implements SnapshotStore {
     private readonly ttlSeconds = 900,
     private readonly timeoutMs = 5_000
   ) {
-    this.url = new URL(url);
+    try {
+      this.url = new URL(url);
+    } catch {
+      // The parser's own error carries the input, password included, and this
+      // runs at module load, where an uncaught error is printed as-is.
+      throw new Error("MATAH_REDIS_URL is not a valid URL");
+    }
     if (this.url.protocol !== "redis:" && this.url.protocol !== "rediss:") {
       throw new Error("Redis URL must start with redis:// or rediss://");
+    }
+    // Decoded here so a stray `%` stops the boot, not every save for the life
+    // of the process. The parser's error would echo the credential.
+    try {
+      this.username = decodeURIComponent(this.url.username);
+      this.password = decodeURIComponent(this.url.password);
+    } catch {
+      throw new Error("MATAH_REDIS_URL has a badly percent-encoded username or password");
     }
   }
 
@@ -175,8 +191,7 @@ export class RedisSnapshotStore implements SnapshotStore {
   /** Run one command after any AUTH/SELECT preamble; resolves its reply. */
   private run(command: string[]): Promise<RespValue> {
     const commands: string[][] = [];
-    const username = decodeURIComponent(this.url.username);
-    const password = decodeURIComponent(this.url.password);
+    const { username, password } = this;
     if (password) commands.push(username ? ["AUTH", username, password] : ["AUTH", password]);
     const db = this.url.pathname.replace(/^\//, "");
     if (db && db !== "0") commands.push(["SELECT", db]);

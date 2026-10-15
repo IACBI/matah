@@ -599,7 +599,7 @@ export function promptPool(language: Language): readonly string[] {
 }
 
 /** The two players who will write for one matchup. */
-export interface PromptSlot {
+interface PromptSlot {
   authors: readonly string[];
 }
 

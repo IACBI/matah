@@ -96,6 +96,23 @@ test('the environment picks Redis over a file, and nothing when unset', () => {
   assert.throws(() => new RedisSnapshotStore('http://cache:6379'), /redis:\/\//);
 });
 
+test('a malformed Redis URL is refused without echoing its password', () => {
+  assert.throws(
+    () => new RedisSnapshotStore('redis://user:hunter2@cache.internal:notaport'),
+    (error) =>
+      error.message === 'MATAH_REDIS_URL is not a valid URL' && !String(error.stack).includes('hunter2')
+  );
+});
+
+test('a badly percent-encoded Redis password stops the boot without echoing it', () => {
+  assert.throws(
+    () => new RedisSnapshotStore('redis://user:hun%zzter2@cache.internal:6379'),
+    (error) =>
+      error.message === 'MATAH_REDIS_URL has a badly percent-encoded username or password' &&
+      !String(error.stack).includes('hun%zz')
+  );
+});
+
 test('an unreachable Redis fails fast instead of hanging startup', async () => {
   // Port 9 (discard) is closed on loopback everywhere this runs.
   const store = new RedisSnapshotStore('redis://127.0.0.1:9', 'k', 60, 2_000);
