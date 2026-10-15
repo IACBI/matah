@@ -29,8 +29,9 @@ Notable project changes are recorded here. Matah follows the structure of
 - Quiplash holds the results screen for up to three rounds of results time when
   fewer than three players are online, instead of starting rounds one player
   can farm, and ends to the scoreboard if nobody comes back.
-- Identical Bluff lies pay each author an equal share of one fool instead of
-  the full amount to every author.
+- Identical Bluff lies split one fool's points between their authors instead of
+  paying each author the full amount, and a merged lie's points are now split
+  without losing or creating a point.
 - A phone that reloads on the Bluff results screen gets its own pick back and
   sees the right verdict instead of a false one.
 - A dropped connection while rejoining no longer shows the unreachable screen;
@@ -57,6 +58,7 @@ Notable project changes are recorded here. Matah follows the structure of
   supports it.
 - `GET /stats` reports refused connections, rate-limited actions, handler errors
   and failed snapshot saves since boot.
+- A server restart shows connected players a notice, and their phones reconnect to the saved game on their own.
 
 ### Changed
 
@@ -164,8 +166,8 @@ shared address.
 - **A game now ends to the scoreboard if the room drops below three players
   mid-round**, instead of continuing with a matchup nobody present can vote
   on.
-- Quiplash prompts can repeat within a game, but never for a player who has
-  already written for that prompt.
+- Quiplash prompts can repeat within a game, but are kept away from any player
+  who has already written for that prompt whenever the pool allows it.
 - Reconnecting no longer restarts the screen: a dropped connection now
   resumes in place, with a pending vote, an in-progress answer, and the
   host's game settings intact.
