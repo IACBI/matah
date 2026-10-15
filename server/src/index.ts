@@ -985,8 +985,12 @@ let saveChain: Promise<unknown> = Promise.resolve();
 /**
  * Write every live room to the configured store. Saves are chained, so the
  * periodic save and the shutdown save never interleave their writes.
+ *
+ * `afterSerialize` runs in the same tick the snapshot is serialized, before the
+ * store write is awaited. Shutdown uses it to stop room clocks at exactly the
+ * state that was captured, so nothing advances while the write is in flight.
  */
-function saveSnapshot(): Promise<number> {
+function saveSnapshot(afterSerialize?: () => void): Promise<number> {
   const run = async (): Promise<number> => {
     if (!snapshotStore) return 0;
     const version = registryVersion;
@@ -998,7 +1002,9 @@ function saveSnapshot(): Promise<number> {
         room: room.toSnapshot(),
       })),
     };
-    await snapshotStore.save(JSON.stringify(snapshot));
+    const payload = JSON.stringify(snapshot);
+    afterSerialize?.();
+    await snapshotStore.save(payload);
     savedVersion = version;
     lastSnapshotAt = snapshot.savedAt;
     return snapshot.rooms.length;
@@ -1120,7 +1126,9 @@ export async function stopServer(): Promise<void> {
       if (restoreFailed && rooms.size === 0) {
         console.warn(`Not overwriting ${snapshotStore.describe()}: it could not be read at startup`);
       } else {
-        const saved = await saveSnapshot();
+        const saved = await saveSnapshot(() => {
+          for (const room of rooms.values()) room.dispose();
+        });
         console.log(`Saved ${saved} room(s) to ${snapshotStore.describe()}`);
         savedDurably = true;
       }
@@ -1131,8 +1139,8 @@ export async function stopServer(): Promise<void> {
   // "Your game is saved" is only true after a successful save, and only worth
   // saying to sockets that are in a room.
   const announceTo = savedDurably ? [...rooms.keys()] : [];
-  // Stop every room clock now that the snapshot is written: a phase that expired
-  // during the acknowledgement wait would show progress the next boot loses.
+  // Clocks were stopped when the snapshot was serialized; this also covers a
+  // shutdown with no snapshot store. Disposal is idempotent.
   for (const room of rooms.values()) room.dispose();
   if (announceTo.length > 0) {
     await new Promise<void>((resolve) => {
