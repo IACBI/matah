@@ -314,7 +314,8 @@ export interface ServerToClientEvents {
   /** A newer connection resumed this session. */
   "room:session-replaced": () => void;
   /** The server is shutting down; rooms are saved and clients should expect to reconnect. */
-  "room:server-restarting": () => void;
+  /** Acknowledge so the server knows the notice left before it closes the socket. */
+  "room:server-restarting": (acknowledge?: () => void) => void;
 }
 
 export interface SessionResult {

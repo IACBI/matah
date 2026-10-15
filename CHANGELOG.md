@@ -58,7 +58,7 @@ Notable project changes are recorded here. Matah follows the structure of
   supports it.
 - `GET /stats` reports refused connections, rate-limited actions, handler errors
   and failed snapshot saves since boot.
-- A server restart shows connected players a notice, and their phones reconnect to the saved game on their own.
+- With a snapshot store configured, a server restart shows players in a room a notice once the game is saved, and their phones reconnect on their own. Gameplay actions arriving during shutdown are refused with `server_busy` so the saved state is final.
 
 ### Changed
 

@@ -489,6 +489,10 @@ io.on("connection", (socket) => {
     cost = 1
   ): void => {
     if (typeof callback !== "function") return;
+    if (draining) {
+      callback({ ok: false, error: "server_busy" });
+      return;
+    }
     if (!socketBucket.take(cost) || !actionLimiter.take(ip, cost)) {
       counters.actionsRateLimited += 1;
       callback({ ok: false, error: "rate_limited" });
@@ -1067,6 +1071,7 @@ async function startPersistence(): Promise<void> {
 
 let shuttingDown = false;
 export async function startServer(port = PORT): Promise<number> {
+  draining = false;
   if (!sweepHandle) {
     sweepIdleRooms();
     sweepHandle = setInterval(sweepIdleRooms, SWEEP_MS);
@@ -1090,16 +1095,22 @@ export async function startServer(port = PORT): Promise<number> {
   });
 }
 
-// Long enough for queued packets to leave before io.close() discards them, and
-// for a long-polling client to pick its request back up. Skipped when nobody
-// is connected, so shutdown in tests stays immediate.
-const RESTART_NOTICE_FLUSH_MS = 50;
+// How long to wait for clients to acknowledge the restart notice. io.close()
+// discards packets still queued, and a long-polling client only collects them on
+// its next request, so delivery is confirmed rather than assumed. Old clients
+// never acknowledge; they cost this much once, at shutdown.
+const RESTART_NOTICE_ACK_MS = 500;
+
+/** Set while shutting down: the final snapshot must be the last word on game state. */
+let draining = false;
 
 export async function stopServer(): Promise<void> {
+  draining = true;
   if (sweepHandle) clearInterval(sweepHandle);
   sweepHandle = null;
   if (snapshotHandle) clearInterval(snapshotHandle);
   snapshotHandle = null;
+  let savedDurably = false;
   if (persistenceActive && snapshotStore) {
     persistenceActive = false;
     // Always written, even with no rooms, so an older snapshot is not
@@ -1111,14 +1122,22 @@ export async function stopServer(): Promise<void> {
       } else {
         const saved = await saveSnapshot();
         console.log(`Saved ${saved} room(s) to ${snapshotStore.describe()}`);
+        savedDurably = true;
       }
     } catch (error) {
       console.error(`Could not save rooms to ${snapshotStore.describe()}`, (error as Error).message);
     }
   }
-  if (io.engine.clientsCount > 0) {
-    io.emit("room:server-restarting");
-    await new Promise((resolve) => setTimeout(resolve, RESTART_NOTICE_FLUSH_MS));
+  // "Your game is saved" is only true after a successful save, and only worth
+  // saying to sockets that are in a room.
+  if (savedDurably && rooms.size > 0) {
+    await new Promise<void>((resolve) => {
+      io.to([...rooms.keys()])
+        .timeout(RESTART_NOTICE_ACK_MS)
+        .emit("room:server-restarting", () => resolve());
+      // The callback above fires once all acknowledge or the timeout passes; a
+      // room with nobody connected is covered by that timeout too.
+    });
   }
   for (const room of rooms.values()) room.dispose();
   rooms.clear();
