@@ -64,10 +64,10 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
   send its own header and take a fresh budget on every connection; wrong in the
   other, every visitor shares the outer proxy's address and the per-address
   ceilings apply to the whole audience at once. Check what your host's edge
-  actually forwards. A malformed value stops the boot.
+  actually forwards. A malformed value stops the boot, and an unset one in production logs a warning and assumes `1`.
 - `MATAH_STATS_TOKEN` (at least 24 characters) turns on `GET /stats`, which
   reports room, player and connection counts, memory and the last snapshot
-  time to a caller sending `Authorization: Bearer <token>`. It names no room,
+  time, and since boot the refused connections, rate-limited actions, handler errors and failed snapshot saves, to a caller sending `Authorization: Bearer <token>`. It names no room,
   player or address. Without the variable the route does not exist. Set it as a
   platform secret like the Redis URL.
 - Matah keeps active rooms in process memory. Use one application instance

@@ -33,7 +33,7 @@ restart no longer has to end every game, though — see "Surviving a restart".
 
 With `MATAH_REDIS_URL` or `MATAH_SNAPSHOT_FILE` set, the server writes the
 whole room registry to one snapshot: on SIGTERM/SIGINT, and every
-`MATAH_SNAPSHOT_INTERVAL_MS` (default 15 s, minimum 1 s) while rooms are
+`MATAH_SNAPSHOT_INTERVAL_MS` (default 15 s; shorter values are ignored) while rooms are
 changing. An unchanged registry is not re-saved. At boot the snapshot is read
 back, so a deploy or a crash costs at most the last few seconds of play.
 
@@ -46,9 +46,11 @@ back, so a deploy or a crash costs at most the last few seconds of play.
   with the resume token they already hold. `phaseId` is bumped so no command
   composed before the restart can land, and a running phase gets 15 extra
   seconds for the room to reconnect.
+- **Restart notice.** Before the sockets close, connected clients get `room:server-restarting`. The client shows a notice and dials back in with the session it already holds.
 - **Timers.** Phase timers are closures and cannot be saved. Each engine
   implements `timeoutHandler()`, which returns the callback for whatever phase
   it is in, and the room re-arms it with the time that was left.
+- **Files.** Stale `*.tmp` files left by an interrupted save are removed at boot. An unreadable snapshot is not overwritten by the shutdown save.
 - **Limits.** A snapshot older than 15 minutes is ignored. A room that fails
   to restore is skipped and logged, not fatal. The Redis key expires after 15
   minutes. It is still one process: two instances sharing a key would
@@ -76,7 +78,7 @@ every player in it.
    the member immediately. An expired lease removes the member's answers and
    votes before releasing capacity.
 5. A disconnected host gets a 10-second grace period. If necessary, the first
-   connected active player in deterministic join order becomes controller; host
+   connected active player in deterministic join order becomes controller once the grace period has lapsed (if nobody is online by then, the first player to reconnect takes it); host
    authority is restored when the host resumes. The controller does not inherit
    every host power — see "Control authority" below.
 6. Empty and idle rooms are disposed, including their engine timers. A room is
@@ -105,21 +107,20 @@ it has not yet seen.
 ## Control authority
 
 Control commands (`start`, `advance`, `end`, `restart`, `rematch`,
-`language`, `kick`) are gated by a `Capability` union shared between client
+`language`, `pause`, `kick`, `seat`, `content`) are gated by a `Capability` union shared between client
 and server, not a single "is this the host" boolean. `Room.can(playerId,
 capability)` is the single source of truth:
 
 - The connected host may exercise every capability.
 - When the host is gone, the room elects a deterministic stand-in (the first
-  player to join) once the 10-second failover grace period lapses. The
-  stand-in gets every capability **except `kick`**.
+  connected player in join order) once the 10-second failover grace period lapses. The
+  stand-in gets every capability **except `kick`, `seat` and `content`**.
 
 `kick` stays host-only because the election is deterministic — being first
 into the lobby is public information, so if `kick` were inherited it would
-hand a predictable player a reliable way to remove everyone else. Every
-other capability is game flow the room can recover from (a bad restart or a
+hand a predictable player a reliable way to remove everyone else. The other capabilities (`start`, `advance`, `end`, `restart`, `rematch`, `language`, `pause`) are game flow the room can recover from (a bad restart or a
 skipped round costs a few seconds; an unwanted kick costs someone their
-session). `Room.controlError()` layers a `phaseId` check in front of the
+session). `seat` and `content` stay host-only for a similar reason: they move other people or put words on every screen. `Room.controlError()` layers a `phaseId` check in front of the
 capability check, so a stale command fails closed before authority is even
 considered.
 
@@ -155,11 +156,11 @@ connection from, which puts the client `MATAH_TRUST_PROXY_HOPS` entries from
 the right (default `1`); everything further left was written by the client and
 is never believed. `0` means clients connect directly and the header is ignored
 altogether, and an empty entry falls back to the socket address instead of
-becoming a key a client can choose. The same count is given to Express as
+becoming a key a client can choose. A header with fewer entries than that count also falls back to the socket address, because then a proxy did not append its entry and the leftmost value is the client's own. The same count is given to Express as
 `trust proxy`, so the HTTP limiter and the socket limiters agree on who a
 client is. Getting it wrong fails silently in one of two directions — a
 forgeable identity, or every visitor sharing the edge's address — so a value
-that is not a whole number from 0 to 10 stops the boot.
+that is not a whole number from 0 to 10 stops the boot. Left unset in production, the boot logs a warning and assumes one proxy.
 
 "Per IP" means per rate-limit identity rather than per address as received: an
 IPv4-mapped IPv6 address folds to its dotted form and a native IPv6 address
@@ -256,7 +257,7 @@ boundary.
 
 Quiplash keeps answer ownership private during voting, includes connected
 audience voters, and enforces a three-second minimum voting display. Once a
-round's voting is over, its results name who voted for each answer. Trivia
+round's voting is over, its results name who voted for each answer. While fewer than three players are online between rounds, the results screen is held up to three extra times before the game ends to the scoreboard. Trivia
 shuffles each question's options server-side, accepts integer indexes only,
 clamps elapsed time to the question window, and applies deterministic
 streak/final multipliers. Rematches reuse settings while avoiding the
@@ -271,7 +272,7 @@ with `answer_is_truth`, and identical lies merge into one option credited to
 every author. When too few lies arrive, the question's own wrong trivia
 options fill in as house decoys. A player can never pick their own lie; the
 private assignment tells each phone which option that is. Finding the truth
-scores 500, and each player fooled scores 250 for every author of that lie,
+scores 500, and each player fooled scores 250, split between that lie's authors with the remainder going to the earliest of them,
 both doubled on the final question.
 
 ### Pausing
@@ -281,8 +282,7 @@ timer's callback, and engines read a game clock with every pause cut out, so
 trivia speed scoring and the Quiplash minimum voting display never count a
 pause against anyone. Gameplay submissions are refused with `game_paused`, so
 nothing can complete a phase behind a frozen clock. `game:resume` re-arms the
-timer and re-checks completion for anyone who dropped while it was frozen. Any
-phase change, including a skip, starts the next phase on a live clock.
+timer and re-checks completion for anyone who dropped while it was frozen. A skip, or any other phase change, starts the next phase on a live clock. The one exception is a kick or an expired seat during a pause: it can finish the phase, but the new one stays paused.
 
 ### Session standings, highlights, seats and content packs
 
