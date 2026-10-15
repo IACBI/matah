@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   BLUFF_FOOL_POINTS,
   BLUFF_TRUTH_POINTS,
+  checkQuestionParts,
   TRIVIA_FINAL_MULTIPLIER,
 } from '../../shared/src/index.ts';
 import { answerKey, BluffEngine } from '../../server/src/engines/bluff.ts';
@@ -58,6 +59,14 @@ test('answerKey ignores case, accents, spacing and punctuation', () => {
   assert.equal(answerKey('  Café!! '), answerKey('cafe'));
   assert.equal(answerKey('Leonardo da Vinci'), answerKey('leonardo-da-vinci.'));
   assert.notEqual(answerKey('Mars'), answerKey('Venus'));
+});
+
+test('answerKey keeps the marks that make a Hindi or Japanese word different', () => {
+  assert.notEqual(answerKey('कान'), answerKey('कौन'), 'vowel signs decide the word');
+  assert.notEqual(answerKey('कल'), answerKey('कुल'));
+  assert.notEqual(answerKey('ガス'), answerKey('カス'), 'dakuten is not an accent');
+  assert.equal(answerKey('कान!'), answerKey('कान'), 'punctuation is still ignored');
+  assert.equal(checkQuestionParts(['प्रश्न?', 'कान', 'कौन', 'नाक', 'आँख']), null);
 });
 
 test('writing the real answer is refused and tells the player why', () => {

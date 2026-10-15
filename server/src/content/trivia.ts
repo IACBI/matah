@@ -535,7 +535,9 @@ export function pickTrivia(
   const own = sampleAvoiding(custom, Math.min(count, custom.length), excluded, keyOf);
   if (own.length >= count) return own;
   const pool = TRIVIA[language] ?? TRIVIA.en;
-  return [...own, ...sampleAvoiding(pool, count - own.length, excluded, keyOf)];
+  // Without this, a built-in question the host also wrote could be drawn again.
+  const taken = new Set([...excluded, ...own.map(keyOf)]);
+  return [...own, ...sampleAvoiding(pool, count - own.length, taken, keyOf)];
 }
 
 const keyOf = (question: TriviaQuestion): string => question.text;

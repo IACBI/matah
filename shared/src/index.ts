@@ -438,7 +438,7 @@ export const MAX_CUSTOM_QUESTIONS = 12;
 export const MAX_QUESTION_LEN = 120;
 export const MAX_OPTION_LEN = 40;
 /** The right answer plus three wrong ones, like every built-in question. */
-export const CUSTOM_OPTION_COUNT = 4;
+const CUSTOM_OPTION_COUNT = 4;
 
 /**
  * Compare answers the way a person would: case, accents, spacing and
@@ -447,9 +447,13 @@ export const CUSTOM_OPTION_COUNT = 4;
 export function answerKey(text: string): string {
   return text
     .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]/gu, "");
+    // Accents and marks are dropped, except the ones that make a different word:
+    // Devanagari vowel signs and the Japanese voicing marks (ガ is not カ).
+    .replace(/(?!(?:[ऀ-ॿ]|゙|゚))\p{M}/gu, "")
+    // Not toLocaleLowerCase: this key is also computed in the browser, and a
+    // Turkish-locale device would otherwise disagree with the server about "I".
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]/gu, "");
 }
 
 /**
@@ -458,10 +462,10 @@ export function answerKey(text: string): string {
  * other one.
  */
 export function looseAnswerKey(text: string): string {
-  return answerKey(text) || text.trim().toLocaleLowerCase();
+  return answerKey(text) || text.trim().toLowerCase();
 }
 
-export type QuestionProblem = "shape" | "length" | "duplicate";
+type QuestionProblem = "shape" | "length" | "duplicate";
 
 /**
  * One line of a custom pack: `question | right answer | wrong | wrong | wrong`,

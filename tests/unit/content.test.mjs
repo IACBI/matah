@@ -249,3 +249,13 @@ test('a rematch prefers pack questions it has not shown yet', () => {
   const second = pickTrivia('en', 2, new Set(first), custom).map((q) => q.text);
   assert.equal(second.filter((text) => first.includes(text)).length, 0);
 });
+
+test('a built-in question the host also wrote is never asked twice in one game', () => {
+  const builtIn = triviaPool('en')[0].text;
+  const custom = parseCustomQuestions([`${builtIn} | Right | Wrong 1 | Wrong 2 | Wrong 3`]);
+  assert.equal(custom.length, 1);
+  for (let game = 0; game < 200; game += 1) {
+    const picked = pickTrivia('en', 6, new Set(), custom).map((q) => q.text);
+    assert.equal(new Set(picked).size, 6, 'no question twice');
+  }
+});
