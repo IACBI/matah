@@ -1248,6 +1248,21 @@ export class Room {
     return room;
   }
 
+  /**
+   * Stop every timer without touching state. Shutdown calls this the instant the
+   * final snapshot is serialized, so nothing advances past what was saved while
+   * sockets are still attached; `dispose()` is the destructive teardown after.
+   */
+  freezeClocks(): void {
+    if (this.timerHandle) clearTimeout(this.timerHandle);
+    this.timerHandle = null;
+    this.engine?.pause?.();
+    for (const handle of this.memberExpiry.values()) clearTimeout(handle);
+    this.memberExpiry.clear();
+    if (this.controllerTimer) clearTimeout(this.controllerTimer);
+    this.controllerTimer = null;
+  }
+
   dispose(): void {
     this.clearTimer();
     this.engine?.dispose();
