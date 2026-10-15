@@ -395,6 +395,9 @@ With `MATAH_STATS_TOKEN` set, `GET /stats` gives an operator the numbers that
 matter for capacity and health without reading logs: rooms (in lobby, in game,
 and the ceiling), connected players, live sockets against their ceiling and how
 many addresses hold them, memory, and when the last snapshot reached the store.
+Since boot it also counts what was shed or failed — connections refused as busy
+or rate limited, rate-limited actions, handler errors and failed snapshot saves
+— so a flood or a store that stopped saving does not look like a quiet server.
 
 `PUBLIC_ORIGIN` is also injected into canonical and social metadata by the
 server when it serves the built HTML, keeping deploy metadata and the handshake

@@ -71,7 +71,7 @@ To deploy, one Node service serves both the Socket.IO server and the built
 client:
 
 - **Render:** choose **New → Blueprint** and select the repository. `render.yaml` builds both workspaces and asks for `PUBLIC_ORIGIN`.
-- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 matah`
+- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 -e MATAH_TRUST_PROXY_HOPS=0 matah` With no reverse proxy in front, keep `MATAH_TRUST_PROXY_HOPS=0` so a forged `X-Forwarded-For` cannot rotate rate-limit identities.
 - **Any Node host:** `npm ci`, `npm run build`, then `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
 
 ### Usage
@@ -194,7 +194,7 @@ Yayına alırken tek bir Node servisi hem Socket.IO sunucusunu hem de derlenmiş
 istemciyi sunar:
 
 - **Render:** **New → Blueprint** seçip depoyu işaretle. `render.yaml` iki workspace'i de derler ve `PUBLIC_ORIGIN` değerini sorar.
-- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 matah`
+- **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://localhost:3001 -e MATAH_TRUST_PROXY_HOPS=0 matah` Önünde ters proxy yoksa `MATAH_TRUST_PROXY_HOPS=0` kalsın; böylece sahte bir `X-Forwarded-For` hız sınırı kimliğini değiştiremez.
 - **Herhangi bir Node sunucusu:** `npm ci`, `npm run build`, ardından `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
 
 ### Kullanım

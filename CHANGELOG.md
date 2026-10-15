@@ -6,6 +6,55 @@ Notable project changes are recorded here. Matah follows the structure of
 
 ## [Unreleased]
 
+### Fixed
+
+- A built-in trivia question that the host also wrote in a custom pack is no
+  longer asked twice in one game.
+- Hindi and Japanese answers that differ by a vowel sign or a voicing mark
+  (ガス and カス) are no longer treated as the same answer in Bluff and in
+  custom packs.
+- Quiplash no longer holds voting open for a player who reconnected after the
+  round began and was never given an answer to write.
+- A vote acknowledged late no longer marks the next Quiplash matchup as voted.
+- The Quiplash results screen says "1 vote" for a single vote.
+- A malformed `MATAH_REDIS_URL` is refused without printing its password, and a
+  badly percent-encoded username or password now stops the boot instead of
+  silently failing every save.
+- A snapshot that could not be read at startup is no longer replaced by an empty
+  one on shutdown, so it stays recoverable.
+- When the host and every player drop at once, the first player to reconnect
+  after the 10-second failover window now becomes the stand-in controller
+  instead of leaving nobody able to advance the room.
+- A refused game start no longer seats spectators.
+- Kicking or expiring a player during a pause can finish the phase, but the new
+  phase stays paused instead of starting its clock.
+- The player screen no longer shows the danger timer or attempts a draft
+  auto-submit while the host has the game paused.
+- The confirm dialog keeps Tab inside it after a click on its text, and returns
+  focus to whatever opened it.
+
+### Added
+
+- The host screen keeps the display awake (Screen Wake Lock) where the browser
+  supports it.
+- `GET /stats` reports refused connections, rate-limited actions, handler errors
+  and failed snapshot saves since boot.
+
+### Changed
+
+- `tsx` and `socket.io-client` are declared as root dev dependencies; the root
+  scripts and tests already imported them.
+- The README Docker example sets `MATAH_TRUST_PROXY_HOPS=0`, since it runs
+  without a reverse proxy.
+- Answer comparison lowercases the same way on every machine, so a browser set
+  to Turkish no longer disagrees with the server about the letter "I".
+- Unused interface strings were removed from all 14 languages.
+
+### Security
+
+- The Docker image's application files are owned by root and are read-only to
+  the runtime user, so a compromised process cannot rewrite the code it runs.
+
 ## [0.2.1] - 2026-10-13
 
 ### Fixed
