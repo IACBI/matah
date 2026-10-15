@@ -26,6 +26,18 @@ Notable project changes are recorded here. Matah follows the structure of
   after the 10-second failover window now becomes the stand-in controller
   instead of leaving nobody able to advance the room.
 - A refused game start no longer seats spectators.
+- Quiplash holds the results screen for up to three rounds of results time when
+  fewer than three players are online, instead of starting rounds one player
+  can farm, and ends to the scoreboard if nobody comes back.
+- Identical Bluff lies pay each author an equal share of one fool instead of
+  the full amount to every author.
+- A phone that reloads on the Bluff results screen gets its own pick back and
+  sees the right verdict instead of a false one.
+- A dropped connection while rejoining no longer shows the unreachable screen;
+  the client waits for socket.io to reconnect.
+- `GET /index.html` serves the page with the public origin filled in, like `/`.
+- A forwarded-for header with fewer addresses than trusted proxies no longer
+  lets a client choose its own rate-limit identity.
 - Kicking or expiring a player during a pause can finish the phase, but the new
   phase stays paused instead of starting its clock.
 - The player screen no longer shows the danger timer or attempts a draft
@@ -35,6 +47,12 @@ Notable project changes are recorded here. Matah follows the structure of
 
 ### Added
 
+- Room codes are five letters instead of four, 24 times harder to guess by
+  enumeration. Codes from a snapshot or saved session made before the change
+  still restore and rejoin.
+- A one-time startup warning when `MATAH_TRUST_PROXY_HOPS` is unset in
+  production, and an explicit `MATAH_TRUST_PROXY_HOPS=1` in `render.yaml`.
+- Stale `*.tmp` files left by a killed snapshot write are removed at boot.
 - The host screen keeps the display awake (Screen Wake Lock) where the browser
   supports it.
 - `GET /stats` reports refused connections, rate-limited actions, handler errors
