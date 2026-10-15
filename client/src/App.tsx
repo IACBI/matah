@@ -129,6 +129,7 @@ export function App() {
   const restoredSocketId = useRef<string | null>(null);
   const rejoinRef = useRef<() => void>(() => {});
   const gaveUpRef = useRef(false);
+  const restartingRef = useRef(false);
   const [retryToken, setRetryToken] = useState(0);
   const secondsLeft = useCountdown(roomState);
   const connected = link === "live";
@@ -137,6 +138,7 @@ export function App() {
     clearSession();
     clearJoinCode();
     initialSession.current = null;
+    restartingRef.current = false;
     setRole("home");
     setRoomState(null);
     setAssignment(null);
@@ -199,6 +201,7 @@ export function App() {
       setRole(restored.role);
       setCode(restored.code);
       setMyPlayerId(restored.playerId);
+      restartingRef.current = false;
       setNotice(undefined);
       setLink("live");
     };
@@ -211,17 +214,28 @@ export function App() {
       gaveUpRef.current = false;
       void tryRejoin();
     };
-    const onDisconnect = () =>
+    const onDisconnect = (reason?: string) => {
       setLink((current) => (current === "unreachable" ? current : "connecting"));
+      // socket.io does not reconnect after a disconnect the server asked for, and a
+      // graceful shutdown is exactly that, so a restart has to dial back in itself.
+      if (restartingRef.current && reason === "io server disconnect") socket.connect();
+    };
     // socket.io has exhausted its retries; nothing more will arrive on its own,
     // so say so rather than leaving a "connecting…" badge up indefinitely.
     const onGaveUp = () => {
       gaveUpRef.current = true;
+      restartingRef.current = false;
       setLink("unreachable");
       setNotice("serverUnreachable");
     };
     const onKicked = () => resetToHome("kickedNotice");
     const onSessionReplaced = () => resetToHome("sessionReplacedNotice");
+    // Announced before the server closes sockets. The room is saved server-side,
+    // so the stored session stays and the rejoin on reconnect does the rest.
+    const onServerRestarting = () => {
+      restartingRef.current = true;
+      setNotice("serverRestarting");
+    };
 
     socket.on("room:state", onState);
     socket.on("player:assignment", onAssignment);
@@ -230,6 +244,7 @@ export function App() {
     socket.io.on("reconnect_failed", onGaveUp);
     socket.on("room:kicked", onKicked);
     socket.on("room:session-replaced", onSessionReplaced);
+    socket.on("room:server-restarting", onServerRestarting);
     if (socket.connected) void tryRejoin();
 
     return () => {
@@ -240,6 +255,7 @@ export function App() {
       socket.io.off("reconnect_failed", onGaveUp);
       socket.off("room:kicked", onKicked);
       socket.off("room:session-replaced", onSessionReplaced);
+      socket.off("room:server-restarting", onServerRestarting);
     };
   }, [resetToHome, retryToken]);
 
@@ -247,6 +263,9 @@ export function App() {
   // a bare spinner forever: no timeout, no error, no way back.
   useEffect(() => {
     if (link === "live" || link === "unreachable") return undefined;
+    // A restart comes back on its own; the 8s guard would replace its notice with
+    // "can't reach the server" while the server is still starting up.
+    if (restartingRef.current) return undefined;
     // While socket.io is still retrying on its own, its `connect` or
     // `reconnect_failed` settles the link; a timer would undo a recovery underway.
     if (reconnectPending(gaveUpRef.current)) return undefined;
@@ -261,6 +280,7 @@ export function App() {
   const retry = useCallback(() => {
     restoredSocketId.current = null;
     gaveUpRef.current = false;
+    restartingRef.current = false;
     setNotice(undefined);
     setLink(socket.connected ? "restoring" : "connecting");
     if (!socket.connected) socket.connect();

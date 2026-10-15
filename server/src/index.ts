@@ -1090,6 +1090,11 @@ export async function startServer(port = PORT): Promise<number> {
   });
 }
 
+// Long enough for queued packets to leave before io.close() discards them, and
+// for a long-polling client to pick its request back up. Skipped when nobody
+// is connected, so shutdown in tests stays immediate.
+const RESTART_NOTICE_FLUSH_MS = 50;
+
 export async function stopServer(): Promise<void> {
   if (sweepHandle) clearInterval(sweepHandle);
   sweepHandle = null;
@@ -1110,6 +1115,10 @@ export async function stopServer(): Promise<void> {
     } catch (error) {
       console.error(`Could not save rooms to ${snapshotStore.describe()}`, (error as Error).message);
     }
+  }
+  if (io.engine.clientsCount > 0) {
+    io.emit("room:server-restarting");
+    await new Promise((resolve) => setTimeout(resolve, RESTART_NOTICE_FLUSH_MS));
   }
   for (const room of rooms.values()) room.dispose();
   rooms.clear();
