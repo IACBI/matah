@@ -35,7 +35,8 @@ type RoomRole = Exclude<Role, "home">;
 export type Link = "connecting" | "restoring" | "live" | "unreachable";
 
 const SESSION_KEY = "matah.session";
-const STORED_CODE = new RegExp(`^[A-Z]{${ROOM_CODE_LENGTH}}$`);
+// One letter shorter is accepted so a session saved before codes grew can still rejoin.
+const STORED_CODE = new RegExp(`^[A-Z]{${ROOM_CODE_LENGTH - 1},${ROOM_CODE_LENGTH}}$`);
 /** How long a restore may run before we admit the server is not answering. */
 const RESTORE_TIMEOUT_MS = 8_000;
 
@@ -104,6 +105,14 @@ function clearJoinCode(): void {
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
+/**
+ * socket.io leaves `active` set after it stops retrying, and it is also set
+ * while connected, so "a retry is still coming" needs the give-up flag as well.
+ */
+function reconnectPending(gaveUp: boolean): boolean {
+  return !socket.connected && socket.active && !gaveUp;
+}
+
 export function App() {
   const { t } = useI18n();
   const initialSession = useRef(readSession());
@@ -119,6 +128,7 @@ export function App() {
   const [notice, setNotice] = useState<TKey | undefined>();
   const restoredSocketId = useRef<string | null>(null);
   const rejoinRef = useRef<() => void>(() => {});
+  const gaveUpRef = useRef(false);
   const [retryToken, setRetryToken] = useState(0);
   const secondsLeft = useCountdown(roomState);
   const connected = link === "live";
@@ -158,13 +168,23 @@ export function App() {
       if (!response.ok) {
         if (response.error === "session_not_found") {
           resetToHome("errSessionExpired");
-        } else {
-          // Allow another attempt on the same socket, and say so — an in-room
-          // role would otherwise sit on pre-disconnect state with no clue.
-          restoredSocketId.current = null;
-          setLink("unreachable");
-          setNotice(errorKey(response.error));
+          return;
         }
+        // Allow another attempt on the same socket, and say so — an in-room
+        // role would otherwise sit on pre-disconnect state with no clue.
+        restoredSocketId.current = null;
+        // The socket dropped mid-request, or socket.io is already retrying. Its
+        // next `connect` runs the rejoin again, so this is not a failure yet.
+        if (
+          response.error === "disconnected" ||
+          response.error === "reconnecting" ||
+          reconnectPending(gaveUpRef.current)
+        ) {
+          setLink("connecting");
+          return;
+        }
+        setLink("unreachable");
+        setNotice(errorKey(response.error));
         return;
       }
       const { code: nextCode, playerId, resumeToken } = response.data;
@@ -187,12 +207,16 @@ export function App() {
     const onState = (state: RoomState) => setRoomState(state);
     const onAssignment = (nextAssignment: PlayerAssignment) =>
       setAssignment(nextAssignment);
-    const onConnect = () => void tryRejoin();
+    const onConnect = () => {
+      gaveUpRef.current = false;
+      void tryRejoin();
+    };
     const onDisconnect = () =>
       setLink((current) => (current === "unreachable" ? current : "connecting"));
     // socket.io has exhausted its retries; nothing more will arrive on its own,
     // so say so rather than leaving a "connecting…" badge up indefinitely.
     const onGaveUp = () => {
+      gaveUpRef.current = true;
       setLink("unreachable");
       setNotice("serverUnreachable");
     };
@@ -223,15 +247,20 @@ export function App() {
   // a bare spinner forever: no timeout, no error, no way back.
   useEffect(() => {
     if (link === "live" || link === "unreachable") return undefined;
-    const timer = window.setTimeout(
-      () => setLink("unreachable"),
-      RESTORE_TIMEOUT_MS
-    );
+    // While socket.io is still retrying on its own, its `connect` or
+    // `reconnect_failed` settles the link; a timer would undo a recovery underway.
+    if (reconnectPending(gaveUpRef.current)) return undefined;
+    // Same message as onGaveUp: without a notice, Home offers no retry control.
+    const timer = window.setTimeout(() => {
+      setLink("unreachable");
+      setNotice("serverUnreachable");
+    }, RESTORE_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [link]);
 
   const retry = useCallback(() => {
     restoredSocketId.current = null;
+    gaveUpRef.current = false;
     setNotice(undefined);
     setLink(socket.connected ? "restoring" : "connecting");
     if (!socket.connected) socket.connect();

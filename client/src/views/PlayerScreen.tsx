@@ -823,13 +823,17 @@ function BluffPlayerResult({
   const points =
     reveal?.pointsThisRound.find((entry) => entry.playerId === myPlayerId)?.points ?? 0;
   const foundTruth = picked?.isTruth ?? false;
-  const revealKey = reveal ? (q?.id ?? "") : null;
+  // The verdict needs the private assignment for this question. The server sends
+  // none during the reveal stage, so a reload there keeps the neutral view until
+  // the next question.
+  const verdictReady = q !== null && assignment?.bluff?.questionId === q.id;
+  const verdictKey = reveal && verdictReady ? (q?.id ?? "") : null;
 
   useEffect(() => {
-    if (revealKey !== null) playSfx(foundTruth ? "correct" : "wrong");
-  }, [revealKey, foundTruth]);
+    if (verdictKey !== null) playSfx(foundTruth ? "correct" : "wrong");
+  }, [verdictKey, foundTruth]);
 
-  if (!reveal) {
+  if (!reveal || !verdictReady) {
     return (
       <div className="player-body center fade-in">
         <h2>{t("resultsOnScreen")}</h2>
