@@ -313,6 +313,8 @@ export interface ServerToClientEvents {
   "room:kicked": () => void;
   /** A newer connection resumed this session. */
   "room:session-replaced": () => void;
+  /** The server is shutting down; rooms are saved and clients should expect to reconnect. */
+  "room:server-restarting": () => void;
 }
 
 export interface SessionResult {
