@@ -13,6 +13,9 @@ services:
         value: production
       - key: NODE_VERSION
         value: "24"
+      # Render's router is the single proxy in front of this process.
+      - key: MATAH_TRUST_PROXY_HOPS
+        value: "1"
       - key: PUBLIC_ORIGIN
         # No default: this is a public repository, so baking in the author's
         # own deployment origin would make every other clone's Socket.IO

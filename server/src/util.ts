@@ -70,6 +70,11 @@ export function sanitizeUserText(raw: unknown, maxCodePoints: number): string {
  * written by the client itself and is never believed. With no trusted proxy
  * the header is ignored altogether. An empty entry falls back to the socket
  * address rather than becoming a key a client can choose.
+ *
+ * A header with fewer entries than trusted hops means some proxy did not
+ * append its address, so the leftmost entry, which the client wrote, cannot be
+ * the client's real address. Falling back to the socket address keeps those
+ * requests in one shared identity instead of one identity per forged value.
  */
 export function forwardedClient(
   header: string | string[] | undefined,
@@ -79,7 +84,8 @@ export function forwardedClient(
   const fallback = socketAddress ?? "unknown";
   if (hops <= 0 || typeof header !== "string") return fallback;
   const entries = header.split(",");
-  return entries[Math.max(0, entries.length - hops)].trim() || fallback;
+  if (entries.length < hops) return fallback;
+  return entries[entries.length - hops].trim() || fallback;
 }
 
 /** SHA-256 of a secret, the form `bearerMatches` compares against. */

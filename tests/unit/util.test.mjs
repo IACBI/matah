@@ -75,7 +75,32 @@ test('forwardedClient counts trusted proxies from the right', () => {
   assert.equal(forwardedClient(header, 1, '127.0.0.1'), '10.0.0.1');
   assert.equal(forwardedClient(header, 2, '127.0.0.1'), '203.0.113.9');
   assert.equal(forwardedClient(header, 3, '127.0.0.1'), 'forged');
-  assert.equal(forwardedClient(header, 9, '127.0.0.1'), 'forged', 'a short header is not over-read');
+  // Intentional security fix: a header shorter than the trusted hop count does
+  // not prove which entry the proxies appended, so its leftmost (client-written)
+  // value is never believed. The socket address is used instead.
+  assert.equal(forwardedClient(header, 9, '127.0.0.1'), '127.0.0.1', 'a short header falls back to the socket');
+});
+
+test('forwardedClient reads exactly the hop-th entry when the header has exactly hops entries', () => {
+  assert.equal(forwardedClient('203.0.113.9, 10.0.0.1', 2, '127.0.0.1'), '203.0.113.9');
+  assert.equal(forwardedClient('10.0.0.1', 1, '127.0.0.1'), '10.0.0.1');
+});
+
+test('forwardedClient ignores entries further left than the hop count when the header is longer', () => {
+  assert.equal(forwardedClient('a, b, 203.0.113.9, 10.0.0.1', 2, '127.0.0.1'), '203.0.113.9');
+  assert.equal(forwardedClient('a, b, c, 10.0.0.1', 1, '127.0.0.1'), '10.0.0.1');
+});
+
+test('forwardedClient falls back to the socket for a single forged entry behind two trusted hops', () => {
+  assert.equal(forwardedClient('198.51.100.1', 2, '127.0.0.1'), '127.0.0.1');
+  assert.equal(forwardedClient('198.51.100.1', 2, undefined), 'unknown');
+});
+
+test('forwardedClient falls back to the socket for an empty or absent header', () => {
+  assert.equal(forwardedClient('', 1, '127.0.0.1'), '127.0.0.1');
+  assert.equal(forwardedClient('', 2, '127.0.0.1'), '127.0.0.1');
+  assert.equal(forwardedClient(undefined, 2, '127.0.0.1'), '127.0.0.1');
+  assert.equal(forwardedClient(undefined, 2, undefined), 'unknown');
 });
 
 test('forwardedClient ignores the header when no proxy is trusted or none was sent', () => {

@@ -43,6 +43,19 @@ test('with two trusted proxies the visitor is the second address from the right'
   assert.deepEqual(results[CREATE_LIMIT], { ok: false, error: 'rate_limited' });
 });
 
+test('a single forged entry cannot mint a fresh identity per request behind two proxies', async () => {
+  // One entry means the proxies did not append their own addresses, so the
+  // entry is the client's word. Each request falls back to the socket address,
+  // which is loopback here and shared by every request in this process.
+  const results = [];
+  for (let index = 0; index <= CREATE_LIMIT; index += 1) {
+    const socket = await connect(`198.51.100.${index + 1}`);
+    results.push(await ack(socket, 'room:create', { language: 'en' }));
+  }
+  assert.equal(results.slice(0, CREATE_LIMIT).every((result) => result.ok), true);
+  assert.deepEqual(results[CREATE_LIMIT], { ok: false, error: 'rate_limited' });
+});
+
 test('another visitor behind the same outer proxy keeps a budget of their own', async () => {
   const socket = await connect('forged, 203.0.113.77, 10.0.0.1');
   assert.equal((await ack(socket, 'room:create', { language: 'en' })).ok, true);

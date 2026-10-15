@@ -82,7 +82,14 @@ for (const origin of allowedOrigins) {
 // one stops the boot instead of falling back.
 const TRUSTED_PROXY_HOPS = (() => {
   const raw = process.env.MATAH_TRUST_PROXY_HOPS?.trim();
-  if (!raw) return 1;
+  if (!raw) {
+    if (isProd) {
+      console.warn(
+        "MATAH_TRUST_PROXY_HOPS is not set, so one reverse proxy is assumed. If clients reach this process directly, set it to 0: X-Forwarded-For can then be forged."
+      );
+    }
+    return 1;
+  }
   const hops = Number(raw);
   if (!Number.isInteger(hops) || hops < 0 || hops > 10) {
     throw new Error("MATAH_TRUST_PROXY_HOPS must be a whole number from 0 to 10");
@@ -909,6 +916,12 @@ if (isProd) {
     const publicOrigin = allowedOrigins[0];
     const indexHtml = readFileSync(indexPath, "utf8")
       .replaceAll("__PUBLIC_ORIGIN__", publicOrigin);
+    // index: false only stops directory lookups, so an explicit /index.html
+    // would otherwise be served straight from disk with the placeholder intact.
+    app.get("/index.html", (_request, res) => {
+      res.setHeader("Cache-Control", "no-cache");
+      res.type("html").send(indexHtml);
+    });
     app.use(
       express.static(clientDist, {
         index: false,
@@ -949,7 +962,8 @@ const SNAPSHOT_INTERVAL_MS = (() => {
   const raw = Number(process.env.MATAH_SNAPSHOT_INTERVAL_MS);
   return Number.isFinite(raw) && raw >= 1_000 ? raw : 15_000;
 })();
-const VALID_CODE = new RegExp(`^[A-Z]{${ROOM_CODE_LENGTH}}$`);
+// One letter shorter is accepted so a snapshot taken before codes grew still restores.
+const VALID_CODE = new RegExp(`^[A-Z]{${ROOM_CODE_LENGTH - 1},${ROOM_CODE_LENGTH}}$`);
 
 interface RegistrySnapshot {
   version: number;
