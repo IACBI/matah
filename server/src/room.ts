@@ -48,17 +48,17 @@ import { sanitizeUserText } from "./util.js";
 type Broadcast = (state: RoomState) => void;
 type AssignmentSender = (socketId: string, assignment: PlayerAssignment) => void;
 
-export const DEFAULT_MEMBER_EXPIRY_MS = 120_000;
-export const DEFAULT_CONTROLLER_FAILOVER_MS = 10_000;
+const DEFAULT_MEMBER_EXPIRY_MS = 120_000;
+const DEFAULT_CONTROLLER_FAILOVER_MS = 10_000;
 /**
  * Extra time a restored game gives its phase: every phone has to notice the
  * restart and reconnect before anyone can act again.
  */
-export const DEFAULT_RESTORE_GRACE_MS = 15_000;
+const DEFAULT_RESTORE_GRACE_MS = 15_000;
 /** Bumped whenever `RoomSnapshot` changes shape; older snapshots are ignored. */
-export const ROOM_SNAPSHOT_VERSION = 1;
+const ROOM_SNAPSHOT_VERSION = 1;
 
-export interface RoomLifecycleOptions {
+interface RoomLifecycleOptions {
   memberExpiryMs?: number;
   controllerFailoverMs?: number;
   restoreGraceMs?: number;
@@ -265,6 +265,7 @@ export class Room {
     player.connected = true;
     this.clearMemberExpiry(playerId);
     if (player.isHost) this.onHostConnected();
+    else this.electIfLeaderless();
     this.touch();
 
     return {
@@ -288,6 +289,7 @@ export class Room {
     player.connected = true;
     this.clearMemberExpiry(playerId);
     if (player.isHost) this.onHostConnected();
+    else this.electIfLeaderless();
     this.touch();
     return playerId;
   }
@@ -478,6 +480,7 @@ export class Room {
     this.unbindPlayer(playerId);
     this.sessionSecrets.delete(playerId);
     this.benched.delete(playerId);
+    const wasPaused = this.isPaused();
     if (!player.isHost) this.engine?.handlePlayerRemoved?.(playerId);
     if (player.isHost) {
       this.beginControllerFailover();
@@ -486,6 +489,9 @@ export class Room {
       this.electController();
     }
     this.enforcePlayerFloor();
+    // Removing someone can complete the phase, and a new phase starts a running
+    // clock. The host asked for a pause, so freeze the new phase at full length.
+    if (wasPaused && !this.isPaused()) this.pause();
     this.touch();
     this.emit();
   }
@@ -568,6 +574,15 @@ export class Room {
     }
   }
 
+  /**
+   * The failover timer elects once and gives up when nobody is online yet, so
+   * a player who reconnects afterwards has to trigger the election themselves
+   * or the room has no one able to advance it.
+   */
+  private electIfLeaderless(): void {
+    if (!this.hostConnected() && this.controllerPlayerId === null) this.electController();
+  }
+
   // ---- game control ----
 
   setLanguage(language: Language): ApiErrorCode | null {
@@ -579,10 +594,11 @@ export class Room {
 
   start(gameType: GameType, rounds?: number): ApiErrorCode | null {
     if (this.phase !== "lobby") return "already_started";
-    this.promoteAudienceToSeats();
-    if (this.connectedRealPlayers.length < MIN_PLAYERS) {
+    // Checked before seating anyone: a refused start must not move spectators.
+    if (this.connectedRealPlayers.length + this.promotableAudience().length < MIN_PLAYERS) {
       return "not_enough_players";
     }
+    this.promoteAudienceToSeats();
     const count =
       gameType === "trivia"
         ? clampLength(rounds, MIN_QUESTIONS, MAX_QUESTIONS, TRIVIA_QUESTIONS)
@@ -631,10 +647,11 @@ export class Room {
       return "invalid_phase";
     }
     if (!this.lastGameConfig) return "invalid_game";
-    this.promoteAudienceToSeats();
-    if (this.connectedRealPlayers.length < MIN_PLAYERS) {
+    // Checked before seating anyone: a refused start must not move spectators.
+    if (this.connectedRealPlayers.length + this.promotableAudience().length < MIN_PLAYERS) {
       return "not_enough_players";
     }
+    this.promoteAudienceToSeats();
     this.startGame(this.lastGameConfig.gameType, this.lastGameConfig.rounds, true);
     return null;
   }
@@ -744,15 +761,15 @@ export class Room {
    * while a game was running expects to play the next one.
    */
   private promoteAudienceToSeats(): void {
-    let seated = this.realPlayers.length;
-    if (seated >= MAX_PLAYERS) return;
-    for (const player of this.players.values()) {
-      if (seated >= MAX_PLAYERS) break;
-      if (player.connected && player.isAudience && !this.benched.has(player.id)) {
-        player.isAudience = false;
-        seated += 1;
-      }
-    }
+    for (const player of this.promotableAudience()) player.isAudience = false;
+  }
+
+  private promotableAudience(): Player[] {
+    const free = MAX_PLAYERS - this.realPlayers.length;
+    if (free <= 0) return [];
+    return [...this.players.values()]
+      .filter((p) => p.connected && p.isAudience && !this.benched.has(p.id))
+      .slice(0, free);
   }
 
   /**
@@ -790,7 +807,7 @@ export class Room {
     const prompts: string[] = [];
     for (const line of raw) {
       const clean = sanitizeUserText(line, MAX_PROMPT_LEN);
-      const key = clean.toLocaleLowerCase();
+      const key = clean.toLowerCase();
       if (!clean || seen.has(key)) continue;
       seen.add(key);
       prompts.push(clean);
