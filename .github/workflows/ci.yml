@@ -191,7 +191,7 @@ jobs:
         env:
           IMAGE_TAG: matah-ci:${{ github.sha }}
         run: |
-          CONTAINER_ID=$(docker run --detach --env PUBLIC_ORIGIN=http://127.0.0.1:3001 --publish 3001:3001 "$IMAGE_TAG")
+          CONTAINER_ID=$(docker run --detach --env PUBLIC_ORIGIN=http://127.0.0.1:3001 --env MATAH_TRUST_PROXY_HOPS=0 --publish 3001:3001 "$IMAGE_TAG")
           trap 'docker logs "$CONTAINER_ID"; docker rm --force "$CONTAINER_ID"' EXIT
           for attempt in $(seq 1 30); do
             if curl --fail --silent --show-error http://127.0.0.1:3001/health > /dev/null; then

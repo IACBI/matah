@@ -172,3 +172,39 @@ test('a game cannot start below the player floor', async () => {
     { ok: false, error: 'invalid_game' },
   );
 });
+
+test('a player refused by a full room keeps the seat in the room they hold', async () => {
+  // Eight seats and twenty audience places, all from this address. The 29th
+  // join charged against this room's per-address budget (30) still gets through.
+  const full = await createRoomWithPlayers(8);
+  const filled = until(full.host, (s) => s.audience.length === 20, 'full audience');
+  for (let index = 0; index < 20; index += 1) {
+    const socket = await connect();
+    const joined = await ack(socket, 'room:join', {
+      code: full.hostSession.code,
+      name: `Watcher ${index + 1}`,
+      avatar: 'cat',
+    });
+    assert.equal(joined.ok, true);
+    assert.equal(joined.data.isAudience, true);
+  }
+  await filled;
+
+  const elsewhere = await createRoomWithPlayers(1);
+  const [player] = elsewhere.members;
+  assert.deepEqual(
+    await ack(player.socket, 'room:join', {
+      code: full.hostSession.code,
+      name: 'Latecomer',
+      avatar: 'cat',
+    }),
+    { ok: false, error: 'room_full' },
+  );
+
+  // room:leave only succeeds while the socket still holds a seat.
+  assert.deepEqual(
+    await ack(player.socket, 'room:leave'),
+    { ok: true, data: null },
+    'the refused join must not have released the seat it still holds',
+  );
+});

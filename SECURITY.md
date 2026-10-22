@@ -57,14 +57,14 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
   check.
 - In production the per-address limits and ceilings key on the client address
   taken from `X-Forwarded-For`, counted from the right by
-  `MATAH_TRUST_PROXY_HOPS` (required in production, with no default: `1` is exactly one proxy that appends the
-  real address, as on most platforms). Set it to the real number of proxies in
+  `MATAH_TRUST_PROXY_HOPS` (required in production, with no default; `1` is
+  exactly one proxy that appends the real address, as on most platforms). Set it to the real number of proxies in
   front of the process, and to `0` when clients connect directly, so that a
   header they wrote themselves is ignored. Wrong in one direction, a client can
   send its own header and take a fresh budget on every connection; wrong in the
   other, every visitor shares the outer proxy's address and the per-address
   ceilings apply to the whole audience at once. Check what your host's edge
-  actually forwards. A malformed value stops the boot, and an unset one in production logs a warning and assumes `1`.
+  actually forwards. A malformed value stops the boot, and so does an unset one in production.
 - `MATAH_STATS_TOKEN` (at least 24 characters) turns on `GET /stats`, which
   reports room, player and connection counts, memory and the last snapshot
   time, and since boot the refused connections, rate-limited actions, handler errors and failed snapshot saves, to a caller sending `Authorization: Bearer <token>`. It names no room,

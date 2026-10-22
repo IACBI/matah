@@ -154,14 +154,15 @@ really is one household, but a default has to suit the worse case.
 Behind a proxy the socket's own address is the proxy's, so the client is read
 from `X-Forwarded-For`. Each trusted proxy appends the address it received the
 connection from, which puts the client `MATAH_TRUST_PROXY_HOPS` entries from
-the right (default `1`); everything further left was written by the client and
+the right (required in production, `1` elsewhere); everything further left was written by the client and
 is never believed. `0` means clients connect directly and the header is ignored
 altogether, and an empty entry falls back to the socket address instead of
 becoming a key a client can choose. A header with fewer entries than that count also falls back to the socket address, because then a proxy did not append its entry and the leftmost value is the client's own. The same count is given to Express as
 `trust proxy`, so the HTTP limiter and the socket limiters agree on who a
 client is. Getting it wrong fails silently in one of two directions — a
 forgeable identity, or every visitor sharing the edge's address — so a value
-that is not a whole number from 0 to 10 stops the boot. Left unset in production, the boot logs a warning and assumes one proxy.
+that is not a whole number from 0 to 10 stops the boot. Left unset in production, it stops the boot too, because the right count
+depends on the deployment.
 
 "Per IP" means per rate-limit identity rather than per address as received: an
 IPv4-mapped IPv6 address folds to its dotted form and a native IPv6 address
@@ -321,7 +322,7 @@ even at four bytes a character: 12 questions at their limits come to about
 
 Each matchup pays out a pool of `MATCHUP_POINT_POOL * round * humanCount /
 answerCount`, split by vote share, plus a flat `SUBMIT_BONUS * round` for
-every answer a player actually wrote (never for a canned safety quip). Two
+every answer a player actually wrote (never for a canned safety quip). Three
 rules keep the pool honest:
 
 - **The pool scales with how many answers are real.** A matchup where one
@@ -333,6 +334,12 @@ rules keep the pool honest:
 - **Votes for a safety quip still count in the denominator.** Vote share
   means "share of the room", not "share of the humans" — a troll vote for
   the canned line still costs its target something.
+- **The audience votes as one bloc.** Votes from players who were in the
+  audience when they voted are pooled: the bloc weighs its vote count capped
+  at half the seated votes (or one vote when no seated player voted), split
+  evenly across its voters. Anyone who knows a room code can join the
+  audience, so twenty spectators must not outvote the people playing. Vote
+  counts on screen stay raw; only points use the weights.
 
 Worked example, round 2 (`MATCHUP_POINT_POOL = 1000`, `SUBMIT_BONUS = 100`):
 

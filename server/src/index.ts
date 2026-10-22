@@ -587,6 +587,18 @@ io.on("connection", (socket) => {
       const avatar = (AVATARS as readonly string[]).includes(payload?.avatar ?? "")
         ? (payload.avatar as string)
         : DEFAULT_AVATAR;
+      // A full room is refused before leaveCurrentRoom() so a player seated
+      // elsewhere keeps that seat. Re-joining your own room is decided after
+      // leaving, below, since your own seat frees a slot.
+      const target = rooms.get(code);
+      if (
+        target &&
+        joinedCode !== code &&
+        (!target.inLobby() || target.isFull()) &&
+        target.isAudienceFull()
+      ) {
+        return { ok: false, error: "room_full" };
+      }
       // Charged before leaveCurrentRoom() so a refusal leaves the caller's
       // current seat alone.
       if (!roomJoinRoomLimiter.take(code)) {

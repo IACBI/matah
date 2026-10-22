@@ -111,7 +111,7 @@ also needs Chromium: `npx playwright install chromium`.
 | `MATAH_TRUST_PROXY_HOPS` | Yes in production | How many proxies sit between the internet and the server. Production refuses to start without it: `1` behind one reverse proxy such as Render's router, `0` when clients connect directly, so a forged `X-Forwarded-For` is ignored. Outside production it defaults to `1`. The per-address limits depend on it; see [SECURITY.md](SECURITY.md#deployment-guidance). |
 | `MATAH_STATS_TOKEN` | No | At least 24 characters. Turns on `GET /stats` (counts and memory only, no room, player or address) for a caller sending `Authorization: Bearer <token>`. Treat it as a secret. |
 
-Eleven `MATAH_RL_*` variables tune the rate limits and the connection and room
+Twelve `MATAH_RL_*` variables tune the rate limits and the connection and room
 ceilings. The defaults are sized for a whole household behind one address; the
 full list and the reasoning behind each default are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rate-limiting).
@@ -234,7 +234,7 @@ Chromium da gerekir: `npx playwright install chromium`.
 | `MATAH_TRUST_PROXY_HOPS` | Üretimde zorunlu | İnternet ile sunucu arasında kaç proxy olduğu. Üretimde bu değer verilmeden sunucu açılmaz: tek bir ters proxy arkasındaysan `1`, istemciler doğrudan bağlanıyorsa `0` (böylece sahte bir `X-Forwarded-For` yok sayılır). Üretim dışında varsayılan `1`. Adres başına sınırlar buna dayanır; bkz. [SECURITY.md](SECURITY.md#deployment-guidance). |
 | `MATAH_STATS_TOKEN` | Hayır | En az 24 karakter. `Authorization: Bearer <token>` gönderen çağıranlar için `GET /stats` ucunu açar (yalnızca sayılar ve bellek; oda, oyuncu ya da adres yok). Bir sır gibi sakla. |
 
-On bir `MATAH_RL_*` değişkeni hız sınırlarını, bağlantı ve oda tavanlarını
+On iki `MATAH_RL_*` değişkeni hız sınırlarını, bağlantı ve oda tavanlarını
 ayarlar. Varsayılanlar tek bir adresin arkasındaki bütün bir ev için
 hesaplanmıştır; tam liste ve her varsayılanın gerekçesi
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#rate-limiting) içinde.

@@ -8,6 +8,8 @@ Notable project changes are recorded here. Matah follows the structure of
 
 ### Fixed
 
+- A player who tries to join a room that is full keeps the seat they already
+  hold instead of being removed from their own room.
 - A built-in trivia question that the host also wrote in a custom pack is no
   longer asked twice in one game.
 - Hindi and Japanese answers that differ by a vowel sign or a voicing mark
@@ -51,8 +53,7 @@ Notable project changes are recorded here. Matah follows the structure of
 - Room codes are five letters instead of four, 24 times harder to guess by
   enumeration. Codes from a snapshot or saved session made before the change
   still restore and rejoin.
-- A one-time startup warning when `MATAH_TRUST_PROXY_HOPS` is unset in
-  production, and an explicit `MATAH_TRUST_PROXY_HOPS=1` in `render.yaml`.
+- An explicit `MATAH_TRUST_PROXY_HOPS=1` in `render.yaml`.
 - Stale `*.tmp` files left by a killed snapshot write are removed at boot.
 - The host screen keeps the display awake (Screen Wake Lock) where the browser
   supports it.
