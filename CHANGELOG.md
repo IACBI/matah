@@ -6,6 +6,16 @@ Notable project changes are recorded here. Matah follows the structure of
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
+Security hardening of room admission and Quiplash voting, plus the fixes
+gathered since 0.2.1.
+
+**Upgrading:** production now refuses to start unless
+`MATAH_TRUST_PROXY_HOPS` is set. `render.yaml` already sets it to `1`; on
+any other host set it to the number of reverse proxies in front of the server,
+or `0` when clients connect directly.
+
 ### Fixed
 
 - A player who tries to join a room that is full keeps the seat they already
@@ -286,7 +296,8 @@ shared address.
   interface/content languages.
 - Render, Docker, and GitHub Actions configurations.
 
-[Unreleased]: https://github.com/IACBI/matah/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/IACBI/matah/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/IACBI/matah/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/IACBI/matah/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/IACBI/matah/compare/ec2fcf5cde7ea624025e6f3f7d0936d545d39b09...v0.2.0
 [0.1.0]: https://github.com/IACBI/matah/tree/ec2fcf5cde7ea624025e6f3f7d0936d545d39b09
