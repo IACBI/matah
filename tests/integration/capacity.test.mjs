@@ -18,6 +18,7 @@ const MAX_CONNECTIONS = 20;
 const port = await probePort();
 const url = `http://127.0.0.1:${port}`;
 process.env.NODE_ENV = 'production';
+process.env.MATAH_TRUST_PROXY_HOPS = '1';
 process.env.PUBLIC_ORIGIN = url;
 process.env.MATAH_RL_CREATE = '500';
 process.env.MATAH_RL_ROOMS_PER_IP = String(ROOMS_PER_IP);

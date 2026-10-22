@@ -61,6 +61,8 @@ interface QuiplashSnapshot {
   avoidPrompts: string[];
   customPrompts: string[];
   candidates: QuipCandidate[];
+  /** Absent in snapshots written before audience votes were weighted: all seated. */
+  audienceVoterIds?: [string, string[]][];
 }
 
 /**
@@ -98,6 +100,12 @@ export class QuiplashEngine implements GameEngine {
   /** How many matchups each player authors this round (see handleAnswer). */
   private assignedCount = new Map<string, number>();
   private answeredCount = new Map<string, number>();
+
+  /**
+   * matchup id -> voters who were audience when they voted. Recorded at vote
+   * time: a spectator promoted or leaving later keeps the weight they voted with.
+   */
+  private audienceVoters = new Map<string, Set<string>>();
 
   private usedPrompts = new Set<string>();
   /** prompt -> players who have already written for it, across the game. */
@@ -159,6 +167,7 @@ export class QuiplashEngine implements GameEngine {
       return { id: randomUUID(), prompt, answers: [], votes: {} };
     });
 
+    this.audienceVoters.clear();
     this.assignedCount.clear();
     this.answeredCount.clear();
     for (const authors of this.matchupAuthors) {
@@ -334,6 +343,11 @@ export class QuiplashEngine implements GameEngine {
     if (answer.playerId === playerId) return false;
 
     matchup.votes[playerId] = answerId;
+    if (player.isAudience) {
+      const crowd = this.audienceVoters.get(matchup.id) ?? new Set<string>();
+      crowd.add(playerId);
+      this.audienceVoters.set(matchup.id, crowd);
+    }
     player.hasVoted = true;
     this.ctx.emit();
 
@@ -384,6 +398,7 @@ export class QuiplashEngine implements GameEngine {
     for (const [mi, matchup] of this.matchups.entries()) {
       matchup.answers = matchup.answers.filter((a) => a.playerId !== playerId);
       delete matchup.votes[playerId];
+      this.audienceVoters.get(matchup.id)?.delete(playerId);
       this.matchupAuthors[mi] = this.matchupAuthors[mi].filter(
         (id) => id !== playerId
       );
@@ -427,6 +442,12 @@ export class QuiplashEngine implements GameEngine {
    * being paired with someone who timed out stops being the highest-scoring
    * event in the game, and votes cast for the quip count in the denominator
    * so share means "share of the room".
+   *
+   * Audience votes count as one bloc, so a room of spectators cannot outvote
+   * the seated players. Each seated vote weighs 1. The bloc weighs its vote
+   * count capped at half the seated votes, or 1 when no seated player voted,
+   * and that weight is split evenly across its voters. Displayed vote counts
+   * stay raw; only points use the weights.
    */
   private beginResults(): void {
     const bonus = SUBMIT_BONUS * this.round;
@@ -445,15 +466,29 @@ export class QuiplashEngine implements GameEngine {
     const results: MatchupResult[] = [];
     for (const matchup of this.matchups) {
       if (matchup.answers.length < 2) continue;
-      const counts: Record<string, number> = {};
-      for (const a of matchup.answers) counts[a.answerId] = 0;
-      let totalVotes = 0;
-      for (const voted of Object.values(matchup.votes)) {
-        if (counts[voted] !== undefined) {
-          counts[voted] += 1;
-          totalVotes += 1;
+      const audience = this.audienceVoters.get(matchup.id) ?? new Set<string>();
+      const seated: Record<string, number> = {};
+      const crowd: Record<string, number> = {};
+      for (const a of matchup.answers) {
+        seated[a.answerId] = 0;
+        crowd[a.answerId] = 0;
+      }
+      let seatedTotal = 0;
+      let crowdTotal = 0;
+      for (const [voterId, voted] of Object.entries(matchup.votes)) {
+        if (seated[voted] === undefined) continue;
+        if (audience.has(voterId)) {
+          crowd[voted] += 1;
+          crowdTotal += 1;
+        } else {
+          seated[voted] += 1;
+          seatedTotal += 1;
         }
       }
+      const crowdCap = seatedTotal > 0 ? seatedTotal / 2 : 1;
+      const crowdWeight = Math.min(crowdTotal, crowdCap);
+      const perCrowdVote = crowdTotal > 0 ? crowdWeight / crowdTotal : 0;
+      const totalWeight = seatedTotal + crowdWeight;
       const humanCount = matchup.answers.filter((a) => !a.isSafety).length;
       const pool =
         (MATCHUP_POINT_POOL * this.round * humanCount) / matchup.answers.length;
@@ -461,11 +496,13 @@ export class QuiplashEngine implements GameEngine {
       results.push({
         prompt: matchup.prompt,
         answers: matchup.answers.map((a) => {
-          const votes = counts[a.answerId] ?? 0;
+          const votes = (seated[a.answerId] ?? 0) + (crowd[a.answerId] ?? 0);
+          const weight =
+            (seated[a.answerId] ?? 0) + (crowd[a.answerId] ?? 0) * perCrowdVote;
           const pointsAwarded =
-            a.isSafety || totalVotes === 0
+            a.isSafety || totalWeight === 0
               ? 0
-              : Math.round((votes / totalVotes) * pool);
+              : Math.round((weight / totalWeight) * pool);
           this.ctx.award(a.playerId, pointsAwarded);
           const voters = Object.entries(matchup.votes)
             .filter(([, answerId]) => answerId === a.answerId)
@@ -567,6 +604,7 @@ export class QuiplashEngine implements GameEngine {
       avoidPrompts: [...this.avoidPrompts],
       customPrompts: [...this.customPrompts],
       candidates: this.candidates,
+      audienceVoterIds: [...this.audienceVoters].map(([id, ids]) => [id, [...ids]]),
     };
     return { type: "quiplash", data };
   }
@@ -601,6 +639,9 @@ export class QuiplashEngine implements GameEngine {
       data.promptSeenBy.map(([prompt, ids]) => [prompt, new Set(ids)]),
     );
     engine.candidates = data.candidates;
+    engine.audienceVoters = new Map(
+      (data.audienceVoterIds ?? []).map(([matchupId, ids]) => [matchupId, new Set(ids)]),
+    );
     return engine;
   }
 

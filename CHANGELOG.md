@@ -74,6 +74,20 @@ Notable project changes are recorded here. Matah follows the structure of
 
 - The Docker image's application files are owned by root and are read-only to
   the runtime user, so a compromised process cannot rewrite the code it runs.
+- A `room:join` with an empty or invalid name no longer spends the target
+  room's shared join budget, so one client can no longer lock a room by
+  flooding it with malformed joins. A new per-room, per-address limit
+  (`MATAH_RL_JOIN_ROOM_IP`, default 30 per minute) stops one source from
+  draining that budget with valid joins.
+- Quiplash audience votes count together as one bloc worth at most half the
+  seated players' votes (or one vote when no seated player voted), so a crowd
+  of anonymous spectators can no longer decide a matchup. Vote counts on screen
+  are unchanged.
+- `MATAH_TRUST_PROXY_HOPS` is now required in production; the server refuses
+  to start without it instead of assuming one proxy.
+- A Redis peer can no longer make a snapshot read buffer without bound or hold
+  it open by trickling bytes.
+- The Docker base image and the CI Redis service image are pinned by digest.
 
 ## [0.2.1] - 2026-10-13
 

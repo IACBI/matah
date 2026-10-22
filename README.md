@@ -72,7 +72,7 @@ client:
 
 - **Render:** choose **New → Blueprint** and select the repository. `render.yaml` builds both workspaces and asks for `PUBLIC_ORIGIN`.
 - **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://127.0.0.1:3001 -e MATAH_TRUST_PROXY_HOPS=0 matah` runs the image for a single-machine trial: the loopback origin means only a browser on that machine can use it. For real play, put the container behind an HTTPS reverse proxy, set `PUBLIC_ORIGIN` to the public `https://` origin and `MATAH_TRUST_PROXY_HOPS=1` (use `0` only when clients reach the container directly, so a forged `X-Forwarded-For` cannot rotate rate-limit identities).
-- **Any Node host:** `npm ci`, `npm run build`, then `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
+- **Any Node host:** `npm ci`, `npm run build`, then `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example MATAH_TRUST_PROXY_HOPS=1 npm start`. `MATAH_TRUST_PROXY_HOPS` has no default in production; use `0` if clients connect directly.
 
 ### Usage
 
@@ -108,7 +108,7 @@ also needs Chromium: `npx playwright install chromium`.
 | `MATAH_SNAPSHOT_FILE` | No | A file path for the same snapshots, for hosts with a persistent disk. `MATAH_REDIS_URL` wins if both are set. |
 | `MATAH_SNAPSHOT_KEY` | No | Redis key for the snapshot, default `matah:snapshot`. |
 | `MATAH_SNAPSHOT_INTERVAL_MS` | No | How often a changed registry is saved, default `15000`. Values under `1000` are ignored. |
-| `MATAH_TRUST_PROXY_HOPS` | No | How many proxies sit between the internet and the server, default `1`. Production logs a warning when it is unset. Use `0` when clients connect directly, so a forged `X-Forwarded-For` is ignored. The per-address limits depend on it; see [SECURITY.md](SECURITY.md#deployment-guidance). |
+| `MATAH_TRUST_PROXY_HOPS` | Yes in production | How many proxies sit between the internet and the server. Production refuses to start without it: `1` behind one reverse proxy such as Render's router, `0` when clients connect directly, so a forged `X-Forwarded-For` is ignored. Outside production it defaults to `1`. The per-address limits depend on it; see [SECURITY.md](SECURITY.md#deployment-guidance). |
 | `MATAH_STATS_TOKEN` | No | At least 24 characters. Turns on `GET /stats` (counts and memory only, no room, player or address) for a caller sending `Authorization: Bearer <token>`. Treat it as a secret. |
 
 Eleven `MATAH_RL_*` variables tune the rate limits and the connection and room
@@ -195,7 +195,7 @@ istemciyi sunar:
 
 - **Render:** **New → Blueprint** seçip depoyu işaretle. `render.yaml` iki workspace'i de derler ve `PUBLIC_ORIGIN` değerini sorar.
 - **Docker:** `docker build -t matah . && docker run --rm -p 3001:3001 -e PUBLIC_ORIGIN=http://127.0.0.1:3001 -e MATAH_TRUST_PROXY_HOPS=0 matah` imajı tek makinede denemek içindir: loopback origin yüzünden yalnızca o makinedeki tarayıcı kullanabilir. Gerçek oyun için konteyneri HTTPS bir ters proxy arkasına koy, `PUBLIC_ORIGIN` değerini herkese açık `https://` origin yap ve `MATAH_TRUST_PROXY_HOPS=1` ayarla (`0` yalnızca istemciler konteynere doğrudan bağlanıyorsa; böylece sahte bir `X-Forwarded-For` hız sınırı kimliğini değiştiremez).
-- **Herhangi bir Node sunucusu:** `npm ci`, `npm run build`, ardından `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example npm start`.
+- **Herhangi bir Node sunucusu:** `npm ci`, `npm run build`, ardından `NODE_ENV=production PUBLIC_ORIGIN=https://your-domain.example MATAH_TRUST_PROXY_HOPS=1 npm start`. `MATAH_TRUST_PROXY_HOPS` üretimde varsayılan almaz; istemciler doğrudan bağlanıyorsa `0` kullan.
 
 ### Kullanım
 
@@ -231,7 +231,7 @@ Chromium da gerekir: `npx playwright install chromium`.
 | `MATAH_SNAPSHOT_FILE` | Hayır | Aynı kayıtlar için bir dosya yolu; kalıcı diski olan sunucular içindir. İkisi de ayarlıysa `MATAH_REDIS_URL` kullanılır. |
 | `MATAH_SNAPSHOT_KEY` | Hayır | Kaydın Redis anahtarı, varsayılan `matah:snapshot`. |
 | `MATAH_SNAPSHOT_INTERVAL_MS` | Hayır | Değişen odaların ne sıklıkla kaydedileceği, varsayılan `15000`. `1000`'den küçük değerler yok sayılır. |
-| `MATAH_TRUST_PROXY_HOPS` | Hayır | İnternet ile sunucu arasında kaç proxy olduğu, varsayılan `1`. Üretimde hiç ayarlanmazsa açılışta uyarı yazılır. İstemciler doğrudan bağlanıyorsa `0` kullan; böylece sahte bir `X-Forwarded-For` yok sayılır. Adres başına sınırlar buna dayanır; bkz. [SECURITY.md](SECURITY.md#deployment-guidance). |
+| `MATAH_TRUST_PROXY_HOPS` | Üretimde zorunlu | İnternet ile sunucu arasında kaç proxy olduğu. Üretimde bu değer verilmeden sunucu açılmaz: tek bir ters proxy arkasındaysan `1`, istemciler doğrudan bağlanıyorsa `0` (böylece sahte bir `X-Forwarded-For` yok sayılır). Üretim dışında varsayılan `1`. Adres başına sınırlar buna dayanır; bkz. [SECURITY.md](SECURITY.md#deployment-guidance). |
 | `MATAH_STATS_TOKEN` | Hayır | En az 24 karakter. `Authorization: Bearer <token>` gönderen çağıranlar için `GET /stats` ucunu açar (yalnızca sayılar ve bellek; oda, oyuncu ya da adres yok). Bir sır gibi sakla. |
 
 On bir `MATAH_RL_*` değişkeni hız sınırlarını, bağlantı ve oda tavanlarını

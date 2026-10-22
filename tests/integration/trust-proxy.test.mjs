@@ -61,6 +61,21 @@ test('another visitor behind the same outer proxy keeps a budget of their own', 
   assert.equal((await ack(socket, 'room:create', { language: 'en' })).ok, true);
 });
 
+test('production refuses to boot without an explicit proxy count', () => {
+  const entry = pathToFileURL(
+    path.resolve(fileURLToPath(import.meta.url), '../../../server/src/index.ts'),
+  ).href;
+  const env = { ...process.env, NODE_ENV: 'production' };
+  delete env.MATAH_TRUST_PROXY_HOPS;
+  const result = spawnSync(
+    process.execPath,
+    ['--import', 'tsx', '-e', `await import(${JSON.stringify(entry)})`],
+    { encoding: 'utf8', env, timeout: 30_000 },
+  );
+  assert.notEqual(result.status, 0, 'a production boot without a proxy count should fail');
+  assert.match(result.stderr, /MATAH_TRUST_PROXY_HOPS must be set in production/);
+});
+
 test('a malformed proxy count stops the boot instead of guessing', () => {
   const entry = pathToFileURL(
     path.resolve(fileURLToPath(import.meta.url), '../../../server/src/index.ts'),

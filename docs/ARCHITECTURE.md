@@ -142,7 +142,8 @@ really is one household, but a default has to suit the worse case.
 | `MATAH_RL_ACTION_REFILL` | 100/s | per IP | Socket event actions refill rate |
 | `MATAH_RL_CREATE` | 30 | per IP / 10 min | `room:create`, with `MATAH_RL_ROOMS_PER_IP` below as the actual brake on saturation |
 | `MATAH_RL_JOIN` | 60 | per IP / 60 s | `room:join`; deliberately not widened with the rest, since a wrong room code is charged here and nowhere else |
-| `MATAH_RL_JOIN_ROOM` | 40 | per room code / 60 s | `room:join`, scoped to the target room so flooding one room costs the attacker rather than every other player behind the same router |
+| `MATAH_RL_JOIN_ROOM` | 40 | per room code / 60 s | `room:join`, charged only after the name is valid and `MATAH_RL_JOIN_ROOM_IP` allowed it, so a malformed join costs the room nothing; scoped to the target room so flooding one room costs the attacker rather than every other player behind the same router |
+| `MATAH_RL_JOIN_ROOM_IP` | 30 | per room code and IP / 60 s | `room:join` with a valid name, charged before `MATAH_RL_JOIN_ROOM`, so one source cycling joins exhausts its own share before it can drain the room's |
 | `MATAH_RL_REJOIN` | 120 | per IP / 60 s | `room:rejoin`, which has its own ceiling because every successful rejoin fans a full room state out to up to 29 members |
 | `MATAH_RL_MAX_CONNECTIONS` | 5000 | whole server | live Socket.IO sessions, refused at the handshake |
 | `MATAH_RL_CONNECTIONS_PER_IP` | 250 | per IP | one address's share of those live sessions |

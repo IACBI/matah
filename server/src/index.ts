@@ -78,14 +78,15 @@ for (const origin of allowedOrigins) {
 // the address it saw to X-Forwarded-For. One is right for Render and most
 // platforms; 0 means the process faces clients directly, where the header is
 // theirs to forge and must be ignored. A wrong value fails silently — every
-// visitor behind one edge address, or a forgeable identity — so a malformed
-// one stops the boot instead of falling back.
+// visitor behind one edge address, or a forgeable identity — so a missing or
+// malformed one stops the boot instead of falling back. Production has no
+// default for the same reason: the right count depends on the deployment.
 const TRUSTED_PROXY_HOPS = (() => {
   const raw = process.env.MATAH_TRUST_PROXY_HOPS?.trim();
   if (!raw) {
     if (isProd) {
-      console.warn(
-        "MATAH_TRUST_PROXY_HOPS is not set, so one reverse proxy is assumed. If clients reach this process directly, set it to 0: X-Forwarded-For can then be forged."
+      throw new Error(
+        "MATAH_TRUST_PROXY_HOPS must be set in production: 1 behind one reverse proxy, 0 when clients connect directly"
       );
     }
     return 1;
@@ -137,9 +138,18 @@ const roomJoinLimiter = new BoundedWindowRateLimiter(
   10_000
 );
 // Abuse means flooding one room, not one address — scoping these per room
-// punishes the attacker instead of everyone behind the same router.
+// punishes the attacker instead of everyone behind the same router. Charged
+// only once a join has passed validation and the per-source limit below: a
+// malformed join must not spend the budget every legitimate player shares.
 const roomJoinRoomLimiter = new BoundedWindowRateLimiter(
   limit("JOIN_ROOM", 40),
+  60_000,
+  10_000
+);
+// Keyed by room and source together, so one client cycling valid joins runs
+// out of its own share before it can drain the room-wide budget above.
+const roomJoinIpLimiter = new BoundedWindowRateLimiter(
+  limit("JOIN_ROOM_IP", 30),
   60_000,
   10_000
 );
@@ -569,14 +579,19 @@ io.on("connection", (socket) => {
       if (!roomJoinLimiter.take(ip)) return { ok: false, error: "rate_limited" };
       const code = normalizeCode(payload?.code);
       if (!rooms.has(code)) return { ok: false, error: "room_not_found" };
-      if (!roomJoinRoomLimiter.take(code)) {
-        return { ok: false, error: "rate_limited" };
-      }
       const name = sanitizeUserText(payload?.name, MAX_NAME_LEN);
       if (!name) return { ok: false, error: "name_required" };
+      if (!roomJoinIpLimiter.take(`${code}|${ip}`)) {
+        return { ok: false, error: "rate_limited" };
+      }
       const avatar = (AVATARS as readonly string[]).includes(payload?.avatar ?? "")
         ? (payload.avatar as string)
         : DEFAULT_AVATAR;
+      // Charged before leaveCurrentRoom() so a refusal leaves the caller's
+      // current seat alone.
+      if (!roomJoinRoomLimiter.take(code)) {
+        return { ok: false, error: "rate_limited" };
+      }
       // Release any seat this socket already holds *before* deciding whether
       // the room is full — otherwise re-joining your own full room counts your
       // own seat and demotes you to the audience.

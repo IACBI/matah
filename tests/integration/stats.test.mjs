@@ -11,6 +11,7 @@ const TOKEN = 'stats-token-for-tests-0123456789';
 const port = await probePort();
 const url = `http://127.0.0.1:${port}`;
 process.env.NODE_ENV = 'production';
+process.env.MATAH_TRUST_PROXY_HOPS = '0';
 process.env.PUBLIC_ORIGIN = url;
 process.env.MATAH_STATS_TOKEN = TOKEN;
 const { startServer, stopServer } = await import('../../server/src/index.ts');

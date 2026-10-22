@@ -167,6 +167,50 @@ test('an unreachable Redis fails fast instead of hanging startup', async () => {
   await assert.rejects(store.load());
 });
 
+test('a Redis peer that streams an endless reply is cut off at the buffer ceiling', async () => {
+  const sockets = [];
+  const server = createServer((socket) => {
+    sockets.push(socket);
+    socket.on('error', () => {});
+    // An unterminated line never parses, so only the ceiling can stop it.
+    const trickle = setInterval(() => socket.write('x'.repeat(1024)), 1);
+    socket.once('close', () => clearInterval(trickle));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = server.address();
+    const store = new RedisSnapshotStore(`redis://127.0.0.1:${port}`, 'k', 60, 5_000, 64 * 1024);
+    const started = Date.now();
+    await assert.rejects(store.load(), (error) => /size limit/.test(error.message));
+    assert.ok(Date.now() - started < 3_000, 'refused long before the idle timeout');
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('a Redis peer that trickles bytes forever hits the absolute deadline', async () => {
+  const sockets = [];
+  const server = createServer((socket) => {
+    sockets.push(socket);
+    socket.on('error', () => {});
+    // Steady activity keeps the idle timeout from ever firing.
+    const trickle = setInterval(() => socket.write('+'), 50);
+    socket.once('close', () => clearInterval(trickle));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = server.address();
+    const store = new RedisSnapshotStore(`redis://127.0.0.1:${port}`, 'k', 60, 200);
+    const started = Date.now();
+    await assert.rejects(store.load(), (error) => /timed out/i.test(error.message));
+    assert.ok(Date.now() - started < 5_000, 'gave up at the whole-request deadline');
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('the Redis store round-trips against a real server', { skip: !REDIS_URL }, async () => {
   const key = `matah:test:${process.pid}:${Date.now()}`;
   const store = new RedisSnapshotStore(REDIS_URL, key, 60);

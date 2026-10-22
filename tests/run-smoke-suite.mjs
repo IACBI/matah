@@ -51,7 +51,7 @@ async function runScript(script) {
   const url = `http://127.0.0.1:${port}`;
   const server = spawn(process.execPath, [SERVER_ENTRY], {
     cwd: process.cwd(),
-    env: { ...process.env, NODE_ENV: 'production', PORT: String(port), PUBLIC_ORIGIN: url },
+    env: { ...process.env, NODE_ENV: 'production', MATAH_TRUST_PROXY_HOPS: '0', PORT: String(port), PUBLIC_ORIGIN: url },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let serverLog = '';

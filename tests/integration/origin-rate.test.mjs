@@ -17,6 +17,7 @@ const clientBuilt = existsSync(path.join(repoRoot, 'client/dist/index.html'));
 const port = await probePort();
 const url = `http://127.0.0.1:${port}`;
 process.env.NODE_ENV = 'production';
+process.env.MATAH_TRUST_PROXY_HOPS = '1';
 process.env.PUBLIC_ORIGIN = url;
 // Pin the create limit so the assertion below tests the limiter rather than
 // whatever the shipped default happens to be.

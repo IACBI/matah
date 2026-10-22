@@ -23,7 +23,8 @@ jobs:
     # MATAH_TEST_REDIS_URL they skip the Redis cases.
     services:
       redis:
-        image: redis:7-alpine
+        # Digest-pinned; refresh by hand, Dependabot does not track service images.
+        image: redis:7-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541
         ports:
           - 6379:6379
         options: >-

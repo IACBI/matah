@@ -57,7 +57,7 @@ reviewed the report; disclosure timing will be coordinated after a fix is ready.
   check.
 - In production the per-address limits and ceilings key on the client address
   taken from `X-Forwarded-For`, counted from the right by
-  `MATAH_TRUST_PROXY_HOPS` (default `1`: exactly one proxy that appends the
+  `MATAH_TRUST_PROXY_HOPS` (required in production, with no default: `1` is exactly one proxy that appends the
   real address, as on most platforms). Set it to the real number of proxies in
   front of the process, and to `0` when clients connect directly, so that a
   header they wrote themselves is ignored. Wrong in one direction, a client can

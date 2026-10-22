@@ -14,6 +14,7 @@ const P95_CEILING_MS = Number(process.env.LOAD_P95_CEILING_MS ?? 3_000);
 const port = await probePort();
 const url = `http://127.0.0.1:${port}`;
 process.env.NODE_ENV = 'production';
+process.env.MATAH_TRUST_PROXY_HOPS = '1';
 process.env.PUBLIC_ORIGIN = url;
 const { activeRoomCount, startServer, stopServer } = await import('../server/src/index.ts');
 

@@ -173,7 +173,10 @@ export class RedisSnapshotStore implements SnapshotStore {
     url: string,
     private readonly key = "matah:snapshot",
     private readonly ttlSeconds = 900,
-    private readonly timeoutMs = 5_000
+    private readonly timeoutMs = 5_000,
+    // A reply can be MAX_REPLY_BYTES plus its RESP header and CRLF, and the
+    // AUTH and SELECT replies that precede it add a few bytes more.
+    private readonly maxBufferBytes = MAX_REPLY_BYTES + 64 * 1024
   ) {
     try {
       this.url = new URL(url);
@@ -233,9 +236,14 @@ export class RedisSnapshotStore implements SnapshotStore {
       let buffer: Buffer = Buffer.alloc(0);
       const replies: RespValue[] = [];
       let settled = false;
+      // The idle timeout alone never fires for a peer that trickles bytes, so
+      // this bounds the whole request. unref() keeps it from holding the process.
+      const deadline = setTimeout(() => finish(new Error("Redis request timed out")), this.timeoutMs * 12);
+      deadline.unref();
       const finish = (error: Error | null, value?: RespValue) => {
         if (settled) return;
         settled = true;
+        clearTimeout(deadline);
         socket.destroy();
         if (error) reject(error);
         else resolve(value ?? null);
@@ -249,6 +257,10 @@ export class RedisSnapshotStore implements SnapshotStore {
       });
       socket.on("data", (chunk: Buffer) => {
         buffer = buffer.length === 0 ? chunk : Buffer.concat([buffer, chunk]);
+        if (buffer.length > this.maxBufferBytes) {
+          finish(new Error("Redis reply is larger than the size limit"));
+          return;
+        }
         try {
           let parsed = parseResp(buffer);
           while (parsed) {

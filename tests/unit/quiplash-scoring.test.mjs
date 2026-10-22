@@ -18,7 +18,7 @@ function harness({ playerCount = 3, audienceCount = 2, rounds = 1 } = {}) {
   let timeout = null;
   let now = 1_000;
 
-  const engine = new QuiplashEngine({
+  const ctx = {
     language: 'en',
     players: () => players,
     connectedPlayers: () => players.filter((p) => p.connected),
@@ -37,10 +37,12 @@ function harness({ playerCount = 3, audienceCount = 2, rounds = 1 } = {}) {
     },
     toScoreboard: () => {},
     now: () => now,
-  }, rounds);
+  };
+  const engine = new QuiplashEngine(ctx, rounds);
   engine.start();
 
   return {
+    ctx,
     engine,
     players,
     audience,
@@ -74,23 +76,36 @@ function matchupFor(h, playerId, partnerId = 'p2') {
   return shared.matchupId;
 }
 
+/**
+ * p1's first matchup in a seated-only room, its co-author, and the seated
+ * players left free to vote on it. With five players the pairing is shuffled,
+ * so the partner has to be looked up rather than assumed.
+ */
+function seatedMatchup(h) {
+  const { matchupId } = h.assignments.get('p1').prompts[0];
+  const partnerId = h.players
+    .map((p) => p.id)
+    .find((id) => id !== 'p1' && h.assignments.get(id)?.prompts.some((o) => o.matchupId === matchupId));
+  assert.ok(partnerId, 'p1 has a co-author');
+  const voters = h.players.map((p) => p.id).filter((id) => id !== 'p1' && id !== partnerId);
+  return { matchupId, partnerId, voters };
+}
+
 test('two real answers split the pool by vote share', () => {
-  const h = harness();
-  const shared = h.assignments.get('p1').prompts
-    .find((prompt) => h.assignments.get('p2').prompts.some((o) => o.matchupId === prompt.matchupId));
-  assert.ok(shared, 'p1 and p2 co-author a matchup');
-  assert.equal(h.engine.handleAnswer('p1', shared.matchupId, 'from p1'), true);
-  assert.equal(h.engine.handleAnswer('p2', shared.matchupId, 'from p2'), true);
+  const h = harness({ playerCount: 5, audienceCount: 0 });
+  const { matchupId, partnerId, voters } = seatedMatchup(h);
+  assert.equal(h.engine.handleAnswer('p1', matchupId, 'from p1'), true);
+  assert.equal(h.engine.handleAnswer(partnerId, matchupId, 'from p2'), true);
   h.fire();
 
   const active = h.active();
-  assert.equal(active.id, shared.matchupId);
+  assert.equal(active.id, matchupId);
   const first = active.answers.find((a) => a.text === 'from p1');
   const second = active.answers.find((a) => a.text === 'from p2');
   // Three voters: two for p1, one for p2.
-  assert.equal(h.engine.handleVote('p3', active.id, first.answerId), true);
-  assert.equal(h.engine.handleVote('a1', active.id, first.answerId), true);
-  assert.equal(h.engine.handleVote('a2', active.id, second.answerId), true);
+  assert.equal(h.engine.handleVote(voters[0], active.id, first.answerId), true);
+  assert.equal(h.engine.handleVote(voters[1], active.id, first.answerId), true);
+  assert.equal(h.engine.handleVote(voters[2], active.id, second.answerId), true);
   h.finish();
 
   const result = h.results().find((m) => m.prompt === active.prompt);
@@ -122,17 +137,17 @@ test('sweeping a safety quip pays half the pool, not all of it', () => {
 });
 
 test('votes cast for the safety quip count against the human', () => {
-  const h = harness();
-  const matchupId = matchupFor(h, 'p1');
+  const h = harness({ playerCount: 5, audienceCount: 0 });
+  const { matchupId, voters } = seatedMatchup(h);
   assert.equal(h.engine.handleAnswer('p1', matchupId, 'real'), true);
   h.fire();
 
   const active = h.active();
   const human = active.answers.find((a) => a.text === 'real');
   const safety = active.answers.find((a) => a.answerId !== human.answerId);
-  h.engine.handleVote('p3', active.id, human.answerId);
-  h.engine.handleVote('a1', active.id, safety.answerId);
-  h.engine.handleVote('a2', active.id, safety.answerId);
+  h.engine.handleVote(voters[0], active.id, human.answerId);
+  h.engine.handleVote(voters[1], active.id, safety.answerId);
+  h.engine.handleVote(voters[2], active.id, safety.answerId);
   h.finish();
 
   const result = h.results().find((m) => m.prompt === active.prompt);
@@ -175,4 +190,99 @@ test('the submit bonus is paid even for matchups nobody could vote on', () => {
   h.finish();
 
   assert.equal(h.scoreOf('p1'), 100, 'a round with no voters still rewards writing');
+});
+
+/**
+ * Two authors answer the first matchup `p1` was dealt, then its vote opens.
+ * With four players, the two players who did not write it are the seated voters.
+ */
+function openAnsweredMatchup(h, [textOne, textTwo]) {
+  const matchupId = h.assignments.get('p1').prompts[0].matchupId;
+  const authors = h.players
+    .filter((p) => h.assignments.get(p.id).prompts.some((x) => x.matchupId === matchupId))
+    .map((p) => p.id);
+  assert.equal(authors.length, 2, 'a matchup has two authors');
+  h.engine.handleAnswer(authors[0], matchupId, textOne);
+  h.engine.handleAnswer(authors[1], matchupId, textTwo);
+  h.fire();
+
+  const active = h.active();
+  assert.equal(active.id, matchupId);
+  const answerFor = (text) => active.answers.find((a) => a.text === text).answerId;
+  const seatedVoters = h.players.filter((p) => !authors.includes(p.id)).map((p) => p.id);
+  return { prompt: active.prompt, answerFor, seatedVoters };
+}
+
+function pointsFor(h, prompt, text) {
+  const result = h.results().find((m) => m.prompt === prompt);
+  return result.answers.find((a) => a.text === text);
+}
+
+test('twenty spectators cannot outvote two seated players', () => {
+  const h = harness({ playerCount: 4, audienceCount: 20 });
+  const { prompt, answerFor, seatedVoters } = openAnsweredMatchup(h, ['from one', 'from two']);
+  const matchupId = h.active().id;
+  for (const spectator of h.audience) {
+    assert.equal(h.engine.handleVote(spectator.id, matchupId, answerFor('from one')), true);
+  }
+  for (const voter of seatedVoters) {
+    assert.equal(h.engine.handleVote(voter, matchupId, answerFor('from two')), true);
+  }
+  h.finish();
+
+  const one = pointsFor(h, prompt, 'from one');
+  const two = pointsFor(h, prompt, 'from two');
+  assert.equal(one.votes, 20, 'displayed votes stay the raw count');
+  assert.equal(two.votes, 2);
+  assert.ok(two.pointsAwarded > one.pointsAwarded, 'the seated pair beats the crowd');
+  // The bloc weighs 1 (half of the 2 seated votes), against 2 for the seated pair.
+  assert.equal(two.pointsAwarded, 667);
+  assert.equal(one.pointsAwarded, 333);
+});
+
+test('audience votes alone still decide the share when no seated player voted', () => {
+  const h = harness({ playerCount: 4, audienceCount: 20 });
+  const { prompt, answerFor } = openAnsweredMatchup(h, ['from one', 'from two']);
+  const matchupId = h.active().id;
+  h.audience.slice(0, 19).forEach((spectator) => {
+    h.engine.handleVote(spectator.id, matchupId, answerFor('from one'));
+  });
+  h.engine.handleVote(h.audience[19].id, matchupId, answerFor('from two'));
+  h.finish();
+
+  assert.equal(pointsFor(h, prompt, 'from one').pointsAwarded, 950);
+  assert.equal(pointsFor(h, prompt, 'from two').pointsAwarded, 50);
+});
+
+test('one spectator tilts a split room that the seated players left even', () => {
+  const h = harness({ playerCount: 4, audienceCount: 1 });
+  const { prompt, answerFor, seatedVoters } = openAnsweredMatchup(h, ['from one', 'from two']);
+  const matchupId = h.active().id;
+  h.engine.handleVote(seatedVoters[0], matchupId, answerFor('from one'));
+  h.engine.handleVote(seatedVoters[1], matchupId, answerFor('from two'));
+  h.engine.handleVote(h.audience[0].id, matchupId, answerFor('from two'));
+  h.finish();
+
+  assert.equal(pointsFor(h, prompt, 'from two').pointsAwarded, 667);
+  assert.equal(pointsFor(h, prompt, 'from one').pointsAwarded, 333);
+});
+
+test('audience weighting survives a restart before results', () => {
+  const h = harness({ playerCount: 4, audienceCount: 20 });
+  const { prompt, answerFor, seatedVoters } = openAnsweredMatchup(h, ['from one', 'from two']);
+  const matchupId = h.active().id;
+  for (const spectator of h.audience) {
+    h.engine.handleVote(spectator.id, matchupId, answerFor('from one'));
+  }
+  h.engine.handleVote(seatedVoters[0], matchupId, answerFor('from two'));
+  h.engine.handleVote(seatedVoters[1], matchupId, answerFor('from two'));
+
+  const restored = QuiplashEngine.restore(h.ctx, JSON.parse(JSON.stringify(h.engine.snapshot().data)));
+  for (let guard = 0; guard < 40 && !restored.serialize().quiplash.lastResults; guard += 1) {
+    restored.timeoutHandler()();
+  }
+
+  const resultsAfterRestart = restored.serialize().quiplash.lastResults.find((m) => m.prompt === prompt);
+  assert.equal(resultsAfterRestart.answers.find((a) => a.text === 'from two').pointsAwarded, 667);
+  assert.equal(resultsAfterRestart.answers.find((a) => a.text === 'from one').pointsAwarded, 333);
 });
