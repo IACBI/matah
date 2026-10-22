@@ -89,6 +89,9 @@ Notable project changes are recorded here. Matah follows the structure of
 - A Redis peer can no longer make a snapshot read buffer without bound or hold
   it open by trickling bytes.
 - The Docker base image and the CI Redis service image are pinned by digest.
+- `ip-address`, used by the rate limiter, is updated to 10.7.4 so a long IPv6
+  zone identifier can no longer stall the process
+  ([GHSA-rxp7-6hxx-x8q5](https://github.com/advisories/GHSA-rxp7-6hxx-x8q5)).
 
 ## [0.2.1] - 2026-10-13
 
