@@ -3,7 +3,7 @@
 # Build the browser bundle and compile the TypeScript server in a reproducible
 # stage that contains the full development toolchain.
 # Digest-pinned: Dependabot's docker ecosystem (.github/dependabot.yml) refreshes it.
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS build
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ RUN npm run build
 RUN NPM_CONFIG_INCLUDE=prod npm prune --omit=dev
 
 
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=3001
